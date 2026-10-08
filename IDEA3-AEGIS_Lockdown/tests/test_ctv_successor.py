@@ -695,3 +695,129 @@ def test_ctv_runner_validates_device_id_before_marker_consumption():
     text = CTV_RUNNER.read_text()
     assert text.index("ctv_validate_core_env_device_id /etc/aegis-idea3/core.env") < text.index("ctv_marker_unconsumed")
     assert text.index("ctv_validate_core_env_device_id /etc/aegis-idea3/core.env") < text.index("ctv_consume_attempt")
+
+
+# ── Consumed-incident remediation: non-hermetic regression coverage ───────────────────────────────────────────────
+P4 = DEPLOY
+BUNDLE_FILES = re.search(r"local -a files=\((.*?)\n  \)", CTV_LIB.read_text(), re.S).group(1).split()
+
+
+def _bundle_world(tmp_path: Path) -> tuple[Path, Path, Path, str]:
+    repo = tmp_path / "repo"
+    for rel in BUNDLE_FILES:
+        base = ROOT / "IDEA3-AEGIS_Lockdown" / (rel if rel.startswith("aegis_soc/") else f"deploy/pr11-phase4/{rel}")
+        dest = repo / "IDEA3-AEGIS_Lockdown" / (rel if rel.startswith("aegis_soc/") else f"deploy/pr11-phase4/{rel}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base, dest)
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "ctv-test@example.invalid")
+    _git(repo, "config", "user.name", "CTv Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "exact main")
+    return repo, repo / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4", tmp_path / "evidence" / "ctv-bundle", _git(repo, "rev-parse", "HEAD")
+
+
+def test_ctv_bundle_carries_aegis_soc_closure_so_bundled_clock_probe_imports(tmp_path):
+    assert {"aegis_soc/__init__.py", "aegis_soc/trusted_time.py", "aegis_soc/protocol_v1.py", "p4-l5-clock.py"} <= set(BUNDLE_FILES)
+    repo, p4, bundle, main = _bundle_world(tmp_path)
+    script = '. "$1"; ctv_prepare_bundle "$2" "$3" "$4" "$5" && ctv_verify_bundle "$4" "$2" "$5"'
+    built = run_bash(script, str(CTV_LIB), str(repo), str(p4), str(bundle), main, env={"CTV_SUDO": ""})
+    assert built.returncode == 0, built.stderr
+    # The exact bundled script, run from the bundle with a clean environment and an unrelated cwd (as the root capture does).
+    probe = subprocess.run(
+        ["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", sys.executable, str(bundle / "p4-l5-clock.py"), "probe", "--fixture-probe", "synced:5"],
+        cwd=tmp_path, text=True, capture_output=True,
+    )
+    assert probe.returncode == 0 and "state=SYNCED" in probe.stdout, probe.stdout + probe.stderr
+    # Sensitivity: the pre-fix bundle (clock script without aegis_soc) cannot import and fails closed.
+    broken = tmp_path / "broken-bundle"
+    broken.mkdir()
+    shutil.copy2(p4 / "p4-l5-clock.py", broken / "p4-l5-clock.py")
+    bad = subprocess.run(["/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", sys.executable, str(broken / "p4-l5-clock.py"), "probe", "--fixture-probe", "synced:5"], cwd=tmp_path, text=True, capture_output=True)
+    assert bad.returncode != 0 and "aegis_soc" in bad.stderr
+
+
+def test_ctv_bundle_verification_rejects_tampered_aegis_soc_closure(tmp_path):
+    repo, p4, bundle, main = _bundle_world(tmp_path)
+    assert run_bash('. "$1"; ctv_prepare_bundle "$2" "$3" "$4" "$5"', str(CTV_LIB), str(repo), str(p4), str(bundle), main, env={"CTV_SUDO": ""}).returncode == 0
+    target = bundle / "aegis_soc" / "trusted_time.py"
+    target.chmod(0o644)
+    target.write_text(target.read_text() + "\n# tampered\n")
+    target.chmod(0o555)
+    assert run_bash('. "$1"; ctv_verify_bundle "$2" "$3" "$4"', str(CTV_LIB), str(bundle), str(repo), main, env={"CTV_SUDO": ""}).returncode != 0
+
+
+def _compare(before: Path, after: Path, allow: Path | None) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ, DISK_THRESHOLD_PCT="90")
+    if allow is not None:
+        env.update(ALLOW_KEYS_FILE=str(allow), ALLOW_LISTENERS_FILE=str(DEPLOY / "stages/CTv/allow-listeners.txt"))
+    return subprocess.run(["bash", str(DEPLOY / "p4-compare.sh"), str(before), str(after)], text=True, capture_output=True, env=env)
+
+
+def test_ctv_real_comparator_accepts_only_the_expected_core_unit_replacement_and_restart(tmp_path):
+    spec = importlib.util.spec_from_file_location("g15_helpers", ROOT / "IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_g15_host_artifacts.py")
+    helpers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helpers)
+    unit = "host.unit_file./etc/systemd/system/aegis-idea3-core.service"
+    core, det, other = "svc.aegis-idea3-core.service", "svc.aegis-idea3-detector.service", "svc.aegis-idea3-mosquitto.service"
+    pre = {f"{unit}.class": "config", f"{unit}.sha256": "a" * 64, f"{unit}.meta": "644 root:root 100",
+           f"{core}.MainPID": "100", f"{core}.ExecMainStartTimestamp": "t0", f"{det}.MainPID": "200", f"{det}.ExecMainStartTimestamp": "t0",
+           f"{other}.MainPID": "300"}
+    post = dict(pre, **{f"{unit}.sha256": "b" * 64, f"{unit}.meta": "644 root:root 200",
+                        f"{core}.MainPID": "101", f"{core}.ExecMainStartTimestamp": "t1", f"{det}.MainPID": "201", f"{det}.ExecMainStartTimestamp": "t1"})
+    before, after = helpers.make_bundle(tmp_path / "pre", "ctv-pre", pre), helpers.make_bundle(tmp_path / "post", "ctv-post", post)
+    allow = DEPLOY / "stages/CTv/allow-keys.txt"
+    ok = _compare(before, after, allow)
+    assert ok.returncode == 0 and "PRESERVATION_S10=PASS" in ok.stdout, ok.stdout + ok.stderr
+    # Without the approved contract the same change is rejected (the pre-fix contract matched no captured key).
+    assert _compare(before, after, None).returncode != 0
+    # Any change outside the contract still fails closed.
+    sneaky = helpers.make_bundle(tmp_path / "sneaky", "ctv-post", dict(post, **{f"{other}.MainPID": "301"}))
+    assert _compare(before, sneaky, allow).returncode != 0
+    # Allow files must name captured keys, never bare unit directives.
+    for name in ("allow-keys.txt", "allow-keys-rollback.txt"):
+        keys = [l for l in (DEPLOY / "stages/CTv" / name).read_text().splitlines() if l and not l.startswith("#")]
+        assert keys and all(k.startswith(("host.unit_file.", "svc.")) for k in keys), (name, keys)
+
+
+def _rollback_world(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    stubs = tmp_path / "bin"
+    stubs.mkdir(parents=True)
+    log = tmp_path / "calls"
+    (stubs / "install").write_text('#!/bin/bash\nargs=("$@"); echo "install $*" >> "$CALLS"; cp -f "${args[-2]}" "${args[-1]}"\n')
+    (stubs / "systemctl").write_text('#!/bin/bash\necho "systemctl $*" >> "$CALLS"\n')
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    preimage, dest = tmp_path / "work" / "journal.preimage", tmp_path / "installed.service"
+    preimage.parent.mkdir()
+    preimage.write_text("ORIGINAL\n")
+    dest.write_text("MUTATED\n")
+    journal = tmp_path / "work" / "journal"
+    journal.write_text(f"phase=apply-verified\npreimage={preimage}\n")
+    journal.chmod(0o600)
+    return stubs, log, dest, journal
+
+
+def test_nonhermetic_rollback_restores_preimage_when_unit_dest_is_set_and_fails_closed_when_not(tmp_path):
+    stubs, log, dest, journal = _rollback_world(tmp_path)
+    env = {"PATH": f"{stubs}:{os.environ['PATH']}", "CALLS": str(log), "CTV_SUDO": ""}
+    script = '. "$1"; ctv_rollback_governed "$2"'
+    # CTV_TEST_MODE is deliberately unset: this is the production (non-hermetic) branch.
+    ok = run_bash(script, str(CTV_LIB), str(journal), env=dict(env, CTV_UNIT_DEST=str(dest)))
+    assert ok.returncode == 0 and "CTV_ROLLBACK=PASS reason=RESTORED_PREIMAGE" in ok.stdout, ok.stdout + ok.stderr
+    assert dest.read_text() == "ORIGINAL\n"
+    assert log.read_text().splitlines()[1:] == ["systemctl daemon-reload", "systemctl restart aegis-idea3-core.service"]
+    assert "phase=rollback-complete" in journal.read_text()
+    # Unset destination: the pre-fix `${CTV_UNIT_DEST:?}` aborted the whole shell; now a controlled, reported failure.
+    stubs, log, dest, journal = _rollback_world(tmp_path / "second")
+    env = {"PATH": f"{stubs}:{os.environ['PATH']}", "CALLS": str(log), "CTV_SUDO": ""}
+    env_clean = {k: v for k, v in os.environ.items() if k != "CTV_UNIT_DEST"}
+    bad = subprocess.run(["bash", "-c", '. "$1"; ctv_rollback_governed "$2" || true; echo CONTINUED_AFTER_ROLLBACK', "bash", str(CTV_LIB), str(journal)], text=True, capture_output=True, env=dict(env_clean, **env))
+    assert "CONTINUED_AFTER_ROLLBACK" in bad.stdout and "CTV_ROLLBACK=FAIL reason=UNIT_DEST_INVALID" in bad.stderr
+    assert dest.read_text() == "MUTATED\n" and not log.exists()
+
+
+def test_runner_exports_unit_dest_for_rollback_in_every_mode_and_capture_does_not_write_bytecode():
+    text = CTV_RUNNER.read_text()
+    assert text.index("CTV_UNIT_DEST=$UNIT_DEST; export CTV_UNIT_DEST") < text.index('if [ "$HERMETIC" = YES ]; then CTV_SUDO=;')
+    assert text.count('PYTHONDONTWRITEBYTECODE=1 bash "$BUNDLE_DIR/p4-l0-capture.sh"') == 2

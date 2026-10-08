@@ -75,25 +75,36 @@ ctv_verify_provenance_domains() {
   [ "$runner_sha" != "$template_sha" ] || { echo CTV_PROVENANCE_DOMAINS_COLLAPSED >&2; return 1; }
   printf 'CTV_FROZEN_RUNNER_SHA256=%s\nCTV_RUNNER_TEMPLATE_SHA256=%s\nCTV_BUNDLE_MANIFEST_SHA256=%s\nCTV_CONTROL_MANIFEST_SHA256=%s\n' "$runner_sha" "$template_sha" "$bundle_sha" "$control_sha"
 }
+# Bundle-relative path -> exact-main git path. aegis_soc/* is the complete import closure of the bundled p4-l5-clock.py
+# (trusted_time -> protocol_v1); it lives under IDEA3-AEGIS_Lockdown/, everything else under deploy/pr11-phase4/.
+ctv_bundle_git_path() {
+  case "${1:-}" in
+    aegis_soc/*) printf 'IDEA3-AEGIS_Lockdown/%s' "$1" ;;
+    *) printf 'IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/%s' "$1" ;;
+  esac
+}
 ctv_prepare_bundle() {
-  local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel src dst got expected
+  local repo=${1:-} p4=${2:-} bundle=${3:-} main=${4:-} rel gitrel src dst got expected
   ctv_path_ok "$repo" && ctv_path_ok "$p4" && ctv_path_ok "$bundle" || return 1
   [[ "$main" =~ ^[0-9a-f]{40}$ ]] || return 1
   local -a files=(
     p4-lib.sh p4-stage-gate.sh p4-ctv-run-lib.sh p4-ctu-run-lib.sh p4-l0-capture.sh p4-compare.sh p4-iw-phy-regnorm.awk p4-l5-clock.py p4-l6c-tree-digest.py
     p4-l7u-run-lib.sh p4-l7-run-lib.sh p4-l6b-run-lib.sh p4-ctu-runtime-verify.py
+    aegis_soc/__init__.py aegis_soc/trusted_time.py aegis_soc/protocol_v1.py
     owner-run/run-ctv-owner.sh ctv-acceptance/ctv_runner_freeze.py ctv-acceptance/ctv_verifier_snapshot.py
     stages/CTv/apply.sh stages/CTv/verify.sh stages/CTv/rollback.sh stages/CTv/allow-keys.txt
     stages/CTv/allow-keys-rollback.txt stages/CTv/allow-listeners.txt
   )
   ctv_prepare_work_dir "$(dirname "$bundle")" || return 1
-  ctv_run mkdir -p -m 0711 -- "$bundle/owner-run" "$bundle/ctv-acceptance" "$bundle/stages/CTv" || return 1
+  ctv_run mkdir -p -m 0711 -- "$bundle/owner-run" "$bundle/ctv-acceptance" "$bundle/stages/CTv" "$bundle/aegis_soc" || return 1
   : | ctv_run tee "$bundle/CTV-BUNDLE-SHA256SUMS" >/dev/null || return 1
   for rel in "${files[@]}"; do
-    src="$p4/$rel"; dst="$bundle/$rel"
+    gitrel=$(ctv_bundle_git_path "$rel")
+    case "$rel" in aegis_soc/*) src="$(dirname "$(dirname "$p4")")/$rel" ;; *) src="$p4/$rel" ;; esac
+    dst="$bundle/$rel"
     [ -f "$src" ] && [ ! -L "$src" ] || return 1
-    ctv_git -C "$repo" cat-file -e "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null || return 1
-    expected=$(ctv_git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" | sha256sum | cut -d' ' -f1)
+    ctv_git -C "$repo" cat-file -e "$main:$gitrel" 2>/dev/null || return 1
+    expected=$(ctv_git -C "$repo" show "$main:$gitrel" | sha256sum | cut -d' ' -f1)
     got=$(sha256sum "$src" | cut -d' ' -f1); [ "$got" = "$expected" ] || return 1
     ctv_run install -o root -g root -m 0555 -- "$src" "$dst" 2>/dev/null || ctv_run install -m 0555 -- "$src" "$dst" || return 1
     printf '%s  %s\n' "$got" "$rel" | ctv_run tee -a "$bundle/CTV-BUNDLE-SHA256SUMS" >/dev/null || return 1
@@ -112,7 +123,7 @@ ctv_verify_bundle() {
     while read -r digest rel; do
       [[ "$digest" =~ ^[0-9a-f]{64}$ && -n "$rel" ]] || return 1
       [ "$rel" != "CTV-BUNDLE-SHA256SUMS" ] && [[ "$rel" != /* && "$rel" != *..* ]] || return 1
-      [ "$(ctv_git -C "$repo" show "$main:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/$rel" 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$digest" ] || return 1
+      [ "$(ctv_git -C "$repo" show "$main:$(ctv_bundle_git_path "$rel")" 2>/dev/null | sha256sum | cut -d' ' -f1)" = "$digest" ] || return 1
     done < "$bundle/CTV-BUNDLE-SHA256SUMS"
   fi
   return 0
@@ -138,9 +149,10 @@ ctv_rollback_governed() {
       [ -n "${CTV_UNIT_DEST:-}" ] && cp -f "$preimage" "$CTV_UNIT_DEST" || return 1
       if [ "$phase" = after-core-restart ] || [ "$phase" = apply-verified ]; then printf '2\n' > "${CTV_CORE_RESTARTS_FILE:?}"; fi
     else
-      install -o root -g root -m 0644 "$preimage" "${CTV_UNIT_DEST:?}" || return 1
-      systemctl daemon-reload || return 1
-      systemctl restart aegis-idea3-core.service || return 1
+      ctv_path_ok "${CTV_UNIT_DEST:-}" || { echo CTV_ROLLBACK=FAIL reason=UNIT_DEST_INVALID >&2; return 1; }
+      ctv_run install -o root -g root -m 0644 "$preimage" "$CTV_UNIT_DEST" || return 1
+      ctv_run systemctl daemon-reload || return 1
+      ctv_run systemctl restart aegis-idea3-core.service || return 1
     fi
     ctv_write_journal "$journal" rollback-complete "$preimage"
     printf 'CTV_ROLLBACK=PASS reason=RESTORED_PREIMAGE\nCTV_CORE_RESTARTS=%s\nCTV_DETECTOR_COMMANDS=0\n' "${CTV_ROLLBACK_RESTARTS:-0}"
