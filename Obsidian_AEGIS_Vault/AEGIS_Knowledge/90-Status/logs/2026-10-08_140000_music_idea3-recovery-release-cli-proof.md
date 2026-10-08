@@ -20,7 +20,7 @@ edit_policy: append-by-new-file
 
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/recovery_release_proof.py` — verifier.
 - `IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/recovery-acceptance/RECOVERY-RELEASE-PROOF.md` — usage, derived versus owner-supplied inputs, limits.
-- `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_release_proof.py` — 68 hermetic tests, including 9 mutation tests.
+- `IDEA3-AEGIS_Lockdown/tests/recovery/test_recovery_release_proof.py` — 71 focused hermetic tests, including the original 9 mutation tests and 3 added malformed-checksum regressions.
 
 ## Verification evidence
 
