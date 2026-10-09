@@ -19,6 +19,9 @@ edit_policy: append-by-new-file
   and contract digests; captures the complete ruleset immediately before
   mutation; rejects existing or foreign R1I material; proves post-state
   preservation; and performs only narrowly owned rollback.
+- The final bounded correction uses an owner-provisioned mode-0600 token
+  through curl stdin config, tests remote authority transitions, and records a
+  terminal consumed-marker outcome when the post-marker authority check fails.
 - No Production, nftables, Core, detector, incident, Recovery, MQTT, relay,
   ESP32, or Kali action occurred.
 
@@ -40,18 +43,15 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Final implementation/evidence checkpoint: 6781840d (the receipt-bearing
+- Final implementation/evidence checkpoint: 6aca6912 (the receipt-bearing
   commit follows this checkpoint, per the development-session workflow).
 - Historical evidence correction: the original receipt recorded 13 focused
-  passes at the earlier checkpoint. The corrected PR #416 head independently
-  reproduced 18 passes before this final bounded remediation; the final
-  remediation adds trusted-main and foreign-log regressions, superseding that
-  count below without rewriting the historical claim.
-- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` — pass: 25 passed.
-- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i -rs\` — fail:
-  49 passed, 1 pre-existing historical stage-registry assertion failed, 7
-  skipped because private user/network namespace tests require unavailable
-  nft in this environment.
+  passes; later checkpoints reported 18, 23, 24 and 25. Those counts remain
+  dated historical evidence, not the current final result.
+- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` at final checkpoint — pass: 35 passed.
+- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i -rs\` at final checkpoint — fail: 60 passed, 1 pre-existing historical
+  stage-registry assertion failed, 7 skipped because private user/network
+  namespace tests require unavailable nft in this environment.
 - Independent reviewer evidence reported 55 passed, 1 pre-existing failure,
   0 skipped in an environment where those namespace prerequisites were
   available; both outcomes are retained as environment-dependent evidence.
@@ -90,5 +90,7 @@ edit_policy: append-by-new-file
   live rule installation. Those remain future G6 evidence gates.
 - Future G6 requires authenticated HTTPS access to the fixed official GitHub
   main-ref endpoint; lookup failure is fail-closed before marker or nft use.
+- The owner-provisioned Production credential path is not created or read in
+  this repository-only task; all credential tests use synthetic temporary data.
 - The Core socket, detector, incident state, Recovery state, and historical
   R1I/F1 attempts are intentionally unchanged and are not re-accepted here.
