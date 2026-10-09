@@ -15,7 +15,11 @@ import time
 import unittest
 
 from aegis_engine.config import EngineConfig
+from aegis_engine.metrics import MetricsRegistry
+from aegis_engine.models import Frame
+from aegis_engine.recording_authority import RecordingAuthority
 from aegis_engine.stream_hub import StreamHub
+from aegis_engine.video_catcher import OverflowPolicy, Sink, VideoCatcher
 import test_producer_generation_contract as contract
 
 
@@ -376,6 +380,152 @@ class ProducerDemandCoordinationRedTests(unittest.TestCase):
             await self.assert_frame_from(current)
             await a.body_iterator.aclose()
         asyncio.run(exercise())
+
+
+class _MutableClock:
+    def __init__(self):
+        self.wall = 1_800_000_000.0
+        self.monotonic = 10_000.0
+
+    def advance(self, seconds):
+        self.wall += seconds
+        self.monotonic += seconds
+
+
+class ProducerDemandSynchronousExpiryTests(unittest.TestCase):
+    """Expiry must be enforced at operation boundaries, not by scheduler luck."""
+
+    def setUp(self):
+        self.clock = _MutableClock()
+        self.capture_demand = threading.Event()
+        self.recording_authority = RecordingAuthority(
+            monotonic_clock=lambda: self.clock.monotonic,
+        )
+        self.hub = StreamHub(
+            EngineConfig(),
+            queue.Queue(maxsize=1),
+            capture_demand_event=self.capture_demand,
+            wall_clock=lambda: self.clock.wall,
+            monotonic_clock=lambda: self.clock.monotonic,
+            recording_authority=self.recording_authority,
+        )
+        # Prove correctness independently of the 250 ms defense-in-depth sweep.
+        self.hub._ensure_sweeper_locked = lambda: None
+        expiry = int((self.clock.wall + 1.0) * 1000)
+        self.claims = {
+            "v": 1,
+            "action": "attach",
+            "jti": "expiry-fixture-jti",
+            "demandOwnerId": "expiry-fixture-owner",
+            "producerGeneration": "51",
+            "logicalCameraId": "CAM-02",
+            "nodeId": "edge-node-01",
+            "physicalCameraId": 1,
+            "engineBootId": self.hub.producer_boot_id,
+            "userId": "2",
+            "sessionBindingHash": "v1:" + "a" * 64,
+            "expiresAtMs": expiry,
+        }
+        reservation = self.hub.reserve_demand(self.claims)
+        self.lease = self.hub.attach_demand(reservation)
+
+    def tearDown(self):
+        self.hub.stop()
+
+    def expire(self):
+        self.clock.advance(1.001)
+
+    def test_viewer_and_capture_demand_release_synchronously_without_sweeper(self):
+        self.assertTrue(self.capture_demand.is_set())
+        self.assertIn((51, "CAM-02"), self.recording_authority.snapshot())
+
+        self.expire()
+
+        self.assertFalse(self.hub.viewer_is_active(*self.lease))
+        self.assertEqual(self.hub.viewers, 0)
+        self.assertFalse(self.capture_demand.is_set())
+        self.assertNotIn((51, "CAM-02"), self.recording_authority.snapshot())
+
+    def test_expired_authority_cannot_publish_or_deliver_frames(self):
+        with self.hub._cond:
+            self.hub._seq = 1
+            self.hub._jpeg = b"pre-expiry-frame"
+        self.expire()
+        frame = Frame(seq=2, image=object(), captured_at=self.clock.monotonic)
+
+        self.assertIsNone(self.hub.latest())
+        self.assertIsNone(self.hub.wait_for(0, 0))
+        self.assertFalse(self.hub.submit_annotated(frame))
+        self.assertTrue(self.hub._queue.empty())
+
+    def test_frame_wait_is_capped_at_demand_deadline_without_sweeper(self):
+        waits = []
+        original_wait = self.hub._cond.wait
+
+        def advance_at_wait(timeout):
+            waits.append(timeout)
+            self.clock.advance(timeout)
+
+        self.hub._cond.wait = advance_at_wait
+        try:
+            self.assertIsNone(self.hub.wait_for(-1, 5.0))
+        finally:
+            self.hub._cond.wait = original_wait
+
+        self.assertEqual(len(waits), 1)
+        self.assertAlmostEqual(waits[0], 1.0, places=6)
+        self.assertFalse(self.capture_demand.is_set())
+
+    def test_camera_read_result_is_discarded_when_authority_expires_in_flight(self):
+        class _Capture:
+            def read(inner_self):
+                self.clock.advance(1.001)
+                return True, object()
+
+            def release(inner_self):
+                return None
+
+        stop = threading.Event()
+        sink_queue = queue.Queue(maxsize=1)
+        catcher = VideoCatcher(
+            EngineConfig(),
+            MetricsRegistry(),
+            sinks=[Sink("detect", sink_queue, OverflowPolicy.LATEST_ONLY)],
+            stop_event=stop,
+            capture_demand_event=self.capture_demand,
+            capture_authority_check=self.hub.capture_is_authorized,
+        )
+        catcher._cap = _Capture()
+        catcher._connect_with_backoff = lambda: True
+        catcher._start_read_watchdog = lambda: threading.current_thread()
+
+        original_check = catcher._capture_authority_check
+
+        def checked_authority():
+            active = original_check()
+            if not active:
+                stop.set()
+            return active
+
+        catcher._capture_authority_check = checked_authority
+        catcher.run()
+
+        self.assertTrue(sink_queue.empty())
+        self.assertEqual(catcher._seq, 0)
+        self.assertFalse(self.capture_demand.is_set())
+
+    def test_camera_guard_rejects_a_new_read_after_authority_expiry(self):
+        self.expire()
+        catcher = VideoCatcher(
+            EngineConfig(),
+            MetricsRegistry(),
+            sinks=[],
+            capture_demand_event=self.capture_demand,
+            capture_authority_check=self.hub.capture_is_authorized,
+        )
+
+        self.assertFalse(catcher._capture_is_demanded())
+        self.assertFalse(self.capture_demand.is_set())
 
 
 if __name__ == "__main__":

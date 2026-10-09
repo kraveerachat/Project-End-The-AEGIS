@@ -235,10 +235,11 @@ class DetectionEngine:
             # The original detector frame remains untouched for inference,
             # alerts, evidence and authority attribution.
             if cfg.capture_on_demand:
+                if stream is None or not stream.capture_is_authorized():
+                    return
                 annotated = annotate_detection_frame(result, frame)
                 recorder.submit_annotated(annotated)
-                if stream is not None:
-                    stream.submit_annotated(annotated)
+                stream.submit_annotated(annotated)
             elif stream is not None:
                 stream.submit_detection(result, frame)
 
@@ -286,6 +287,11 @@ class DetectionEngine:
             sinks=sinks,
             stop_event=stop_event,
             capture_demand_event=capture_demand,
+            capture_authority_check=(
+                stream.capture_is_authorized
+                if capture_demand is not None and stream is not None
+                else None
+            ),
         )
         heartbeat = HeartbeatWorker(cfg, metrics, monitor, stop_event=stop_event)
 

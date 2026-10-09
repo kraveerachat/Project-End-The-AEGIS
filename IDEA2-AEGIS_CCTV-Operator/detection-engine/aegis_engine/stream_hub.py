@@ -176,6 +176,7 @@ class StreamHub(threading.Thread):
     def submit_annotated(self, frame: Frame) -> bool:
         """Queue one already-rendered immutable Live frame."""
         with self._cond:
+            self._sweep_locked()
             # A viewer may disconnect while detection/rendering is in flight.
             if (
                 self._viewers == 0
@@ -456,7 +457,24 @@ class StreamHub(threading.Thread):
 
     def viewer_is_active(self, owner_id: str, lease_generation: int) -> bool:
         with self._cond:
+            self._sweep_locked()
             return self._viewer_leases.get(owner_id) == lease_generation
+
+    def capture_is_authorized(self) -> bool:
+        """Revalidate capture authority synchronously at a camera boundary.
+
+        The periodic sweeper remains a cleanup backstop, but camera reads must
+        not depend on when that thread is next scheduled.  Any caller about to
+        touch the physical producer checks both monotonic and wall-clock lease
+        bounds here first.
+        """
+        with self._cond:
+            self._sweep_locked()
+            return (
+                self._viewers > 0
+                and self._capture_demand_event is not None
+                and self._capture_demand_event.is_set()
+            )
 
     def _drain_frame_queue(self) -> None:
         while True:
@@ -468,26 +486,50 @@ class StreamHub(threading.Thread):
     @property
     def viewers(self) -> int:
         with self._cond:
+            self._sweep_locked()
             return self._viewers
 
     # -- consumer API ------------------------------------------------------
     def latest(self) -> Optional[Tuple[int, bytes]]:
         with self._cond:
-            if self._jpeg is None:
+            self._sweep_locked()
+            if self._viewers == 0 or self._jpeg is None:
                 return None
             return self._seq, self._jpeg
+
+    def _authority_wait_timeout_locked(self, timeout: float) -> float:
+        """Cap a frame wait at the earliest attached demand deadline."""
+        bounded = max(0.0, timeout)
+        now_ms = self.authority_now_ms()
+        now_monotonic = self._monotonic_clock()
+        for owner_id, key in self._viewer_demands.items():
+            if owner_id not in self._viewer_leases:
+                continue
+            demand = self._demands.get(key)
+            if demand is None:
+                continue
+            remaining = min(
+                (demand["expiry"] - now_ms) / 1000,
+                demand["deadline"] - now_monotonic,
+            )
+            bounded = min(bounded, max(0.0, remaining))
+        return bounded
 
     def wait_for(self, after_seq: int, timeout: float) -> Optional[Tuple[int, bytes]]:
         """Block until a frame newer than ``after_seq`` exists. None on timeout/stop."""
         with self._cond:
+            self._sweep_locked()
             if self._stop_event.is_set():
+                return None
+            if self._viewers == 0:
                 return None
             if self._seq > after_seq and self._jpeg is not None:
                 return self._seq, self._jpeg
-            self._cond.wait(timeout)
+            self._cond.wait(self._authority_wait_timeout_locked(timeout))
+            self._sweep_locked()
             if self._stop_event.is_set():
                 return None
-            if self._seq > after_seq and self._jpeg is not None:
+            if self._viewers > 0 and self._seq > after_seq and self._jpeg is not None:
                 return self._seq, self._jpeg
             return None
 
@@ -521,6 +563,7 @@ class StreamHub(threading.Thread):
                 if not ok:
                     continue
                 with self._cond:
+                    self._sweep_locked()
                     if self._viewers == 0 or frame.captured_at <= self._viewer_started_at:
                         continue
                     self._seq += 1
