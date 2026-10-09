@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-08
+updated: 2026-10-09
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -22,7 +22,7 @@ MAC, nonce, Node, and boot ID, but its observed 607 ms clock distance exceeded
 the former Monitor 500 ms offset rejection rule. The 500 ms *probe-duration*
 limit remains unchanged. This stacked source task on PR #348 accepts a signed
 Engine-minus-Monitor offset interval only when **both** interval endpoints are
-inside ±1,000 ms. It derives that interval from the signed Engine timestamp
+inside ±900 ms. It derives that interval from the signed Engine timestamp
 and the Monitor send/receive wall times, with monotonic RTT and wall-clock
 continuity checks. Machine C's observed +559 ms offset is covered; Machine A's
 near-synchronized case remains covered. Browser input cannot choose an offset,
