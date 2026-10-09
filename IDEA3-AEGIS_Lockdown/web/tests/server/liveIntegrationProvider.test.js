@@ -80,7 +80,7 @@ describe('live integration provider failure and freshness semantics', () => {
     expect(snapshot.incidents).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'idea3-core-2', source: 'IDEA3', state: 'OPEN', sourceIp: '10.20.30.40', severity: 'UNKNOWN' }),
     ]))
-    expect(snapshot.devices).toEqual([expect.objectContaining({ id: 'ESP32-LOCK-01', status: 'HEALTHY', relay: 'UNKNOWN', physicalRelayState: 'NOT_VERIFIED' })])
+    expect(snapshot.devices).toEqual([expect.objectContaining({ id: 'ESP32-LOCK-01', status: 'HEALTHY', relay: 'UNKNOWN', requestedRelayState: 'UNKNOWN', observedUplinkState: 'LOCKDOWN', physicalRelayState: 'NOT_VERIFIED' })])
     expect(snapshot.integration.idea3.audit.counts.DEVICE_STATUS).toBe(1900)
     expect(snapshot.integration.idea3.audit.counts.INCIDENT_BOUND).toBe(2)
   })

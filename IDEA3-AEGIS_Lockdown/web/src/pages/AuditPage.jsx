@@ -18,7 +18,6 @@ const columns = [
 const coreAuditColumns = [
   { key: 'eventType', label: 'Core event', render: (value) => <span className="source-tag">{value}</span> },
   { key: 'count', label: 'Count', render: (value) => <span className="mono">{formatCount(value)}</span> },
-  { key: 'latestAt', label: 'Latest evidence', render: (value) => <span className="mono">{formatDateTime(value)}</span> },
   { key: 'freshness', label: 'Freshness', render: (value) => <span className="severity severity--info">{value}</span> },
 ]
 
@@ -34,7 +33,6 @@ export function AuditPage({ snapshot, onExport = () => {} }) {
     id: `core-${eventType}`,
     eventType,
     count,
-    latestAt: coreAudit.latestAt,
     freshness: coreAudit.freshness,
   }))
   return (
@@ -49,6 +47,7 @@ export function AuditPage({ snapshot, onExport = () => {} }) {
         <DataTable columns={columns} rows={snapshot.audit} emptyLabel="ยังไม่มี Audit record" />
       </Panel>
       <Panel title="IDEA3 Core audit aggregates" description="จำนวนเหตุการณ์ที่อ่านได้จาก Core SQLite แบบ allowlisted; ไม่ใช่ Web audit timeline">
+        <p className="audit-note"><span>Latest Core evidence (global)</span><span className="mono">{formatDateTime(coreAudit?.latestAt)}</span></p>
         <DataTable columns={coreAuditColumns} rows={coreAuditRows} emptyLabel="ยังไม่มี Core audit aggregate" />
       </Panel>
       <section className="audit-note"><ShieldCheck size={17} /><span>โครงสร้างถาวรต้องผ่านการทบทวน retention, index, privacy, backup/restore และ rollback ก่อนใช้งานจริง</span></section>
