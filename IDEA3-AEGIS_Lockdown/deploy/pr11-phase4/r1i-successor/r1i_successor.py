@@ -323,10 +323,10 @@ def apply(context: Context, executor: Executor | None = None) -> None:
     if _mutate(context, ["-f", str(context.contract)], executor):
         try:
             current = snapshot_ruleset(context, executor)
-            if canonical_json(without_owned_table(current)) != canonical_json(without_owned_table(immediate)) or has_r1i_material(current):
-                raise RunnerError("R1I_INSTALL_FAILED_AMBIGUOUS")
         except RunnerError as exc:
-            raise RunnerError(f"R1I_INSTALL_FAILED:{exc}") from exc
+            raise RunnerError("R1I_INSTALL_FAILED_AMBIGUOUS") from exc
+        if canonical_json(without_owned_table(current)) != canonical_json(without_owned_table(immediate)) or has_r1i_material(current):
+            raise RunnerError("R1I_INSTALL_FAILED_AMBIGUOUS")
         raise RunnerError("R1I_INSTALL_FAILED_NO_MUTATION_PROVEN")
     try:
         verify_state(context, executor)
