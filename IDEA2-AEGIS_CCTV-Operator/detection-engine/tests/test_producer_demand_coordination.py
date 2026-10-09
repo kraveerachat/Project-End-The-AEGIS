@@ -13,10 +13,12 @@ import queue
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from aegis_engine.config import EngineConfig
+from aegis_engine.engine import DetectionEngine
 from aegis_engine.metrics import MetricsRegistry
-from aegis_engine.models import Frame
+from aegis_engine.models import DetectionResult, Frame
 from aegis_engine.recording_authority import RecordingAuthority
 from aegis_engine.stream_hub import StreamHub
 from aegis_engine.video_catcher import OverflowPolicy, Sink, VideoCatcher
@@ -513,6 +515,45 @@ class ProducerDemandSynchronousExpiryTests(unittest.TestCase):
         self.assertTrue(sink_queue.empty())
         self.assertEqual(catcher._seq, 0)
         self.assertFalse(self.capture_demand.is_set())
+
+    def test_annotation_crossing_expiry_cannot_queue_recording_or_retain_authority(self):
+        # Exercise the real Engine callback, recorder queue, and synchronous
+        # demand cleanup. No worker/camera is started and no sweep can run.
+        with (
+            patch("aegis_engine.stream_hub.StreamHub", return_value=self.hub),
+            patch("aegis_engine.recording_authority.RecordingAuthority",
+                  return_value=self.recording_authority),
+        ):
+            engine = DetectionEngine(config=EngineConfig(
+                capture_on_demand=True, detection_engine_api_key="test-key"))
+        detector = next(worker for worker in engine._threads
+                        if worker.name == "FaceDetector")
+        recorder = next(worker for worker in engine._threads
+                        if worker.name == "SegmentRecorder")
+        frame = Frame(seq=1, image=object(), captured_at=self.clock.monotonic)
+        result = DetectionResult(camera_id="CAM-02", frame_seq=1,
+                                 entities=[], processing_ms=1.0)
+        rendered = []
+
+        def annotation_crosses_deadline(_result, original):
+            self.assertTrue(self.capture_demand.is_set())
+            self.assertIn((51, "CAM-02"), self.recording_authority.snapshot())
+            rendered.append(original)
+            self.expire()
+            return original
+
+        with patch("aegis_engine.engine.annotate_detection_frame",
+                   side_effect=annotation_crosses_deadline):
+            detector._on_result(result, frame)
+
+        self.assertEqual(rendered, [frame])
+        self.assertTrue(recorder._queue.empty(),
+                        "frame annotated across expiry entered Archive queue")
+        # Inspect cleanup directly; do not trigger another sweep in assertions.
+        self.assertEqual(self.hub._viewers, 0)
+        self.assertFalse(self.capture_demand.is_set())
+        self.assertEqual(dict(self.recording_authority.snapshot()), {})
+        self.assertTrue(self.hub._queue.empty())
 
     def test_camera_guard_rejects_a_new_read_after_authority_expiry(self):
         self.expire()

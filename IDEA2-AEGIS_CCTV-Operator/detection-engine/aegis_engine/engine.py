@@ -238,6 +238,10 @@ class DetectionEngine:
                 if stream is None or not stream.capture_is_authorized():
                     return
                 annotated = annotate_detection_frame(result, frame)
+                # Annotation may cross the lease deadline; sweep/revalidate
+                # synchronously before handing the frame to Archive.
+                if not stream.capture_is_authorized():
+                    return
                 recorder.submit_annotated(annotated)
                 stream.submit_annotated(annotated)
             elif stream is not None:
