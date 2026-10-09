@@ -270,6 +270,7 @@ class AliasSegmentRecorderTests(unittest.TestCase):
         catchers = [worker for worker in engine._threads if isinstance(worker, VideoCatcher)]
         self.assertEqual(len(catchers), 1)
         self.assertEqual([sink.name for sink in catchers[0]._sinks], ["detect"])
+        self.assertIs(catchers[0]._capture_authority_check.__self__, hub)
 
     def test_authority_snapshot_is_immutable_and_copied(self):
         from aegis_engine.recording_authority import RecordingAuthority
