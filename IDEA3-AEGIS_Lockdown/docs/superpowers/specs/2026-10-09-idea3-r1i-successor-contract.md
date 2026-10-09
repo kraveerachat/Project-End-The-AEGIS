@@ -31,18 +31,21 @@ file containing exactly:
     authorized=YES
 
 The runner verifies the current checkout HEAD, its own bytes, and the contract
-bytes against those values. It also requires the fixed, root-owned trusted-main
-authority record whose content and SHA-256 are pinned in the reviewed runner;
-an arbitrary local checkout, remote configuration, caller-provided SHA, or
-unsigned local record is insufficient. It refuses stale, malformed, duplicated,
-or replayed authorization. It also refuses if the canonical successor marker
-already exists. The historical R1I-GLOBAL-ATTEMPT-CONSUMED marker is read
-only by surrounding governance and is never changed by this runner.
+bytes against those values. It also obtains the official GitHub main ref over
+authenticated HTTPS through fixed `/usr/bin/curl` with redirects, proxy, curl
+configuration, and environment-controlled executable resolution disabled. An
+arbitrary local checkout, remote configuration, caller-provided SHA, or local
+authority file is insufficient. It refuses unavailable, stale, malformed,
+duplicated, or replayed authorization. It also refuses if the canonical
+successor marker already exists. The historical R1I-GLOBAL-ATTEMPT-CONSUMED
+marker is read only by surrounding governance and is never changed by this
+runner.
 
 The live path additionally requires root, fixed canonical/state/source/Git/nft
 paths, and the explicit runtime setting AEGIS_R1I_SUCCESSOR_LIVE_AUTHORIZED=YES.
-There is no production-reachable fixture option. Hermetic tests inject a fake
-executor in-process, so tests cannot resolve Production nft from PATH.
+There is no production-reachable fixture option. Hermetic tests inject fake
+Git authority responses and fake nft executors in-process, so tests cannot
+resolve Production commands from PATH.
 
 ## Execution boundary
 

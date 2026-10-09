@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "deploy/pr11-phase4/r1i-successor/r1i_successor.py"
 CONTRACT = ROOT / "deploy/pr11-phase4/r1i-successor/r1i-successor.nft"
+VERIFIED_MAIN = "a401cdb71bb9f5df244a093dd612daf457c26a94"
 SPEC = importlib.util.spec_from_file_location("r1i_successor", RUNNER)
 runner = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -61,7 +62,7 @@ class FakeNft:
 
 def auth_file(tmp: Path, *, main: str | None = None, runner_sha: str | None = None) -> Path:
     path = tmp / "authorization.txt"
-    main = main or runner.TRUSTED_MAIN_SHA
+    main = main or VERIFIED_MAIN
     path.write_text("\n".join(["successor_id=R1I-SUCCESSOR-20261009", "attempt_id=R1I-SUCCESSOR-ATTEMPT-001", f"trusted_main_sha={main}", f"runner_sha256={runner_sha or hashlib.sha256(RUNNER.read_bytes()).hexdigest()}", f"contract_sha256={runner.CONTRACT_SHA256}", "authorized=YES"]) + "\n")
     path.chmod(stat.S_IRUSR | stat.S_IWUSR)
     return path
@@ -71,13 +72,10 @@ def setup(tmp_path: Path, *, mode: str = "stable", post: dict | None = None):
     canonical.mkdir(mode=0o700)
     state = tmp_path / "state"
     auth = auth_file(tmp_path)
-    authority = tmp_path / "trusted-main-authority"
-    authority.write_bytes(runner.TRUSTED_MAIN_AUTHORITY_RECORD)
-    authority.chmod(stat.S_IRUSR | stat.S_IWUSR)
     trusted_git = tmp_path / "trusted-git"
-    trusted_git.write_text(f"#!/bin/sh\nprintf '%s\\n' {runner.TRUSTED_MAIN_SHA}\n")
+    trusted_git.write_text(f"#!/bin/sh\nprintf '%s\\n' {VERIFIED_MAIN}\n")
     trusted_git.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-    context = runner.Context(ROOT, canonical, auth, state, RUNNER, CONTRACT, trusted_git, Path("/usr/bin/nft"), authority, True)
+    context = runner.Context(ROOT, canonical, auth, state, RUNNER, CONTRACT, trusted_git, Path("/usr/bin/nft"), lambda: VERIFIED_MAIN, True)
     return context, FakeNft(PRE, post, mode)
 
 def invoke(fn, *args):
@@ -129,22 +127,31 @@ def test_ruleset_drift_stops_before_install(tmp_path):
 
 def test_stale_main_authority_is_rejected(tmp_path):
     context, fake = setup(tmp_path)
-    context = runner.Context(context.repo_root, context.canonical_dir, auth_file(tmp_path, main="0" * 40), context.state_dir, context.runner, context.contract, context.git, context.nft, context.main_authority, True)
+    context = runner.Context(context.repo_root, context.canonical_dir, auth_file(tmp_path, main="0" * 40), context.state_dir, context.runner, context.contract, context.git, context.nft, context.remote_main, True)
     rc, error = invoke(runner.apply, context, fake)
     assert rc == 1 and "R1I_MAIN_AUTHORITY_MISMATCH" in error
 
-def test_matching_local_head_without_independent_authority_is_rejected(tmp_path):
+def test_matching_local_head_without_independent_remote_proof_is_rejected(tmp_path):
     context, fake = setup(tmp_path)
-    context.main_authority.unlink()
+    context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, context.git, context.nft, lambda: (_ for _ in ()).throw(RuntimeError("unavailable")), True)
     rc, error = invoke(runner.apply, context, fake)
     assert rc == 1 and "R1I_MAIN_AUTHORITY_UNVERIFIED" in error
     assert not (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
 
-def test_tampered_independent_authority_is_rejected(tmp_path):
+def test_remote_sha_mismatch_is_rejected(tmp_path):
     context, fake = setup(tmp_path)
-    context.main_authority.write_bytes(runner.TRUSTED_MAIN_AUTHORITY_RECORD.replace(b"GITHUB_MAIN_VERIFIED", b"LOCAL_HEAD"))
+    context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, context.git, context.nft, lambda: "0" * 40, True)
     rc, error = invoke(runner.apply, context, fake)
-    assert rc == 1 and "R1I_MAIN_AUTHORITY_UNVERIFIED" in error
+    assert rc == 1 and "R1I_MAIN_AUTHORITY_MISMATCH" in error
+
+def test_untrusted_git_executable_is_rejected(tmp_path):
+    context, fake = setup(tmp_path)
+    link = tmp_path / "git-link"
+    link.symlink_to(context.git)
+    context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, link, context.nft, context.remote_main, True)
+    rc, error = invoke(runner.apply, context, fake)
+    assert rc == 1 and "R1I_TRUSTED_PATH_INVALID" in error
+    assert not (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
 
 def test_invalid_authorization_and_reused_attempt_fail_closed(tmp_path):
     context, fake = setup(tmp_path)

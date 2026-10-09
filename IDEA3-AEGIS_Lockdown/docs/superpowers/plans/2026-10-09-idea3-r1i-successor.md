@@ -11,9 +11,9 @@ R1I runner.
 
 - A fresh authorization file binds R1I-SUCCESSOR-20261009, a new attempt ID,
   the exact trusted main SHA, the runner SHA-256, and the exact nft contract
-  SHA-256. The runner also requires a separately provisioned fixed trusted-main
-  authority record with pinned content and digest; local HEAD alone is never
-  accepted as remote-main authority.
+  SHA-256. The runner independently queries the fixed official GitHub main ref
+  over authenticated HTTPS using a fixed trusted curl executable; local HEAD
+  alone is never accepted as remote-main authority.
 - A canonical successor marker is created exclusively before nft mutation and
   is never removed or rewritten. Historical R1I markers remain untouched.
 - Live canonical/state/source/Git/nft paths are fixed; there is no
