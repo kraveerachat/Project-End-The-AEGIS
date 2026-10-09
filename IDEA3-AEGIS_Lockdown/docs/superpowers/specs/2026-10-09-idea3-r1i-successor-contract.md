@@ -31,8 +31,11 @@ file containing exactly:
     authorized=YES
 
 The runner verifies the current checkout HEAD, its own bytes, and the contract
-bytes against those values. It refuses stale, malformed, duplicated, or
-replayed authorization. It also refuses if the canonical successor marker
+bytes against those values. It also requires the fixed, root-owned trusted-main
+authority record whose content and SHA-256 are pinned in the reviewed runner;
+an arbitrary local checkout, remote configuration, caller-provided SHA, or
+unsigned local record is insufficient. It refuses stale, malformed, duplicated,
+or replayed authorization. It also refuses if the canonical successor marker
 already exists. The historical R1I-GLOBAL-ATTEMPT-CONSUMED marker is read
 only by surrounding governance and is never changed by this runner.
 
@@ -44,7 +47,8 @@ executor in-process, so tests cannot resolve Production nft from PATH.
 ## Execution boundary
 
 Before nft mutation the runner captures the complete JSON ruleset, rejects any
-existing R1I table/rule/log material, captures again immediately before
+existing R1I table/rule/log material, including structured AEGIS_NEWCONN log
+objects in foreign tables, and captures again immediately before
 mutation, and stops on any difference. It then atomically consumes the fresh
 successor marker and applies only the contract file.
 

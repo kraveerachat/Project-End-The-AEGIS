@@ -11,7 +11,9 @@ R1I runner.
 
 - A fresh authorization file binds R1I-SUCCESSOR-20261009, a new attempt ID,
   the exact trusted main SHA, the runner SHA-256, and the exact nft contract
-  SHA-256.
+  SHA-256. The runner also requires a separately provisioned fixed trusted-main
+  authority record with pinned content and digest; local HEAD alone is never
+  accepted as remote-main authority.
 - A canonical successor marker is created exclusively before nft mutation and
   is never removed or rewritten. Historical R1I markers remain untouched.
 - Live canonical/state/source/Git/nft paths are fixed; there is no
@@ -19,7 +21,8 @@ R1I runner.
   in-process and cannot resolve Production nft from PATH.
 - Two complete JSON ruleset snapshots are taken before mutation; any drift
   stops before installation.
-- Existing R1I material is rejected. Installation is one exact nft batch.
+- Existing R1I material is rejected, including structured AEGIS_NEWCONN log
+  producers in foreign tables. Installation is one exact nft batch.
 - Post-state removes every object belonging to the exact owned table, including
   separate table/chain/rule JSON objects, normalizes only irrelevant metadata
   and dynamic counter values, preserves unrelated objects, and validates the

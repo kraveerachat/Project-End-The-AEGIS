@@ -24,10 +24,14 @@ ATTEMPT_MARKER = "R1I-SUCCESSOR-GLOBAL-ATTEMPT-CONSUMED"
 AUTH_KEYS = {"successor_id", "attempt_id", "trusted_main_sha", "runner_sha256", "contract_sha256", "authorized"}
 CONTRACT = Path(__file__).with_name("r1i-successor.nft")
 CONTRACT_SHA256 = "7cb088c698d1a5fc8df62f13ec94c83ab37e974a7644588c7fd15bb9449f7888"
+TRUSTED_MAIN_SHA = "a401cdb71bb9f5df244a093dd612daf457c26a94"
+TRUSTED_MAIN_AUTHORITY_SHA256 = "a6a7f3f25fb82efc0c5c29376cdad727b3d7248c3d5cfd9c5801536486422536"
+TRUSTED_MAIN_AUTHORITY_RECORD = f"authority=GITHUB_MAIN_VERIFIED\nmain_sha={TRUSTED_MAIN_SHA}\n".encode()
 LIVE_REPO_ROOT = Path("/opt/aegis-idea3/r1i-successor-source")
 LIVE_CANONICAL_DIR = Path("/var/lib/aegis-idea3/r1i-successor")
 LIVE_AUTHORIZATION = LIVE_CANONICAL_DIR / "authorization.txt"
 LIVE_STATE_DIR = LIVE_CANONICAL_DIR / "state"
+LIVE_MAIN_AUTHORITY = LIVE_CANONICAL_DIR / "trusted-main-authority"
 LIVE_RUNNER = LIVE_REPO_ROOT / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/r1i-successor/r1i_successor.py"
 TRUSTED_GIT = Path("/usr/bin/git")
 TRUSTED_NFT = Path("/usr/bin/nft")
@@ -52,6 +56,7 @@ class Context:
     contract: Path
     git: Path
     nft: Path
+    main_authority: Path
     test_mode: bool = False
 
 Executor = Callable[[list[str]], tuple[int, str]]
@@ -81,7 +86,10 @@ def trusted_path(path: Path, *, directory: bool = False, test_mode: bool = False
         raise RunnerError("R1I_TRUSTED_PATH_INVALID")
 
 def read_trusted_bytes(path: Path, reason: str, *, test_mode: bool = False) -> bytes:
-    trusted_path(path, test_mode=test_mode)
+    try:
+        trusted_path(path, test_mode=test_mode)
+    except RunnerError as exc:
+        raise RunnerError(reason) from exc
     try:
         before = path.lstat()
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -171,6 +179,11 @@ def current_head(context: Context) -> str:
 
 def load_and_check_authority(context: Context) -> dict[str, str]:
     values = parse_authorization(context.authorization, context)
+    authority = read_trusted_bytes(context.main_authority, "R1I_MAIN_AUTHORITY_UNVERIFIED", test_mode=context.test_mode)
+    if authority != TRUSTED_MAIN_AUTHORITY_RECORD or hashlib.sha256(authority).hexdigest() != TRUSTED_MAIN_AUTHORITY_SHA256:
+        raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
+    if values["trusted_main_sha"] != TRUSTED_MAIN_SHA:
+        raise RunnerError("R1I_MAIN_AUTHORITY_MISMATCH")
     if current_head(context) != values["trusted_main_sha"]:
         raise RunnerError("R1I_MAIN_AUTHORITY_MISMATCH")
     return values
@@ -218,7 +231,17 @@ def without_owned_table(snapshot: Any) -> Any:
     return {"nftables": [_normalize(item) for item in snapshot["nftables"] if not _owned_object(item)]}
 
 def has_r1i_material(snapshot: Any) -> bool:
-    return any(_owned_object(item) for item in snapshot.get("nftables", [])) if isinstance(snapshot, dict) else False
+    def has_newconn_log(value: Any) -> bool:
+        if isinstance(value, dict):
+            log = value.get("log")
+            if isinstance(log, dict) and re.fullmatch(r"AEGIS_NEWCONN(?:\s.*)?", str(log.get("prefix", ""))):
+                return True
+            return any(has_newconn_log(item) for item in value.values())
+        if isinstance(value, list):
+            return any(has_newconn_log(item) for item in value)
+        return False
+
+    return any(_owned_object(item) or has_newconn_log(item) for item in snapshot.get("nftables", [])) if isinstance(snapshot, dict) else False
 
 def ensure_no_marker(context: Context) -> None:
     marker = context.canonical_dir / ATTEMPT_MARKER
@@ -343,7 +366,7 @@ def apply(context: Context, executor: Executor | None = None) -> None:
 def live_context() -> Context:
     if os.geteuid() != 0 or os.environ.get("AEGIS_R1I_SUCCESSOR_LIVE_AUTHORIZED") != "YES":
         raise RunnerError("R1I_LIVE_AUTHORIZATION_REQUIRED")
-    return Context(LIVE_REPO_ROOT, LIVE_CANONICAL_DIR, LIVE_AUTHORIZATION, LIVE_STATE_DIR, LIVE_RUNNER, LIVE_RUNNER.with_name("r1i-successor.nft"), TRUSTED_GIT, TRUSTED_NFT)
+    return Context(LIVE_REPO_ROOT, LIVE_CANONICAL_DIR, LIVE_AUTHORIZATION, LIVE_STATE_DIR, LIVE_RUNNER, LIVE_RUNNER.with_name("r1i-successor.nft"), TRUSTED_GIT, TRUSTED_NFT, LIVE_MAIN_AUTHORITY)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
