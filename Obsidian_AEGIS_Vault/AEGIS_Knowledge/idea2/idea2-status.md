@@ -17,6 +17,35 @@ edit_policy: owner-writable
 
 ## Machine C Live signed-clock compatibility — source checkpoint, 2026-10-08
 
+### Isolated Boot timing diagnostic task — 2026-10-09
+
+Owner: Pub; branch `codex/idea2-boot-timing-diagnostic`; base PR410 exact source
+`2a807216f8f87bdc6a61f3d0ede66dcc8145a1f6`. State: PARTIAL HANDOFF — SOURCE VERIFIED.
+Production mutation allowed: NO. PR410 and installed Machine A/C are untouched.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| BT-S1 | Default-off, bounded Monitor/Engine Boot phase correlation | SOURCE VERIFIED | Diagnostic Node 8/8; Python 8/8; focused Monitor 92 pass/1 conditional skip; Engine/Agent 411/411; independent source review 0 Critical/Important/Minor | `0b342b44c6dff0421ec026364677e41b418e7167` | PARTIAL | human review, dependency/clock gates, separately authorized observation | separate stacked Draft; no deployment |
+
+Scope is monotonic timing observation only: random non-authoritative request ID,
+fixed redacted phases/outcomes, capped records/window, failure-isolated logging.
+The 500 ms deadline, retry rules, crypto, RBAC, session/grant/lease authority and
+camera lifecycle are unchanged. Slow diagnostic output is isolated from the
+Monitor application loop and Engine response path. Implementation/runbook:
+`IDEA2-AEGIS_Monitor/docs/boot-timing-diagnostic.md`.
+
+Final neutral Monitor: 251 pass / 1 pre-existing Archive assertion failure /
+109 conditional skips. The failing assertion and referenced Engine orchestrator
+are byte-identical to the task base; no Archive fix is included. Vite build,
+governance 61/61, Vault (two existing canvas warnings), static/diff and changed-content
+secret checks pass. Sole source-task receipt:
+[[90-Status/logs/2026-10-09_191100_pub_boot-timing-diagnostic]].
+
+Remaining: exact-head independent/human review; dependency acceptance; separate
+authorization for live diagnostic enablement/observation; unresolved Production
+clock-discipline proof. No root cause of intermittent transport latency or permanent
+Machine C Live recovery is claimed. No camera sampling loop is introduced.
+
 Machine C's authenticated `/producer/boot` proof returned HTTP 200 with valid
 MAC, nonce, Node, and boot ID, but its observed 607 ms clock distance exceeded
 the former Monitor 500 ms offset rejection rule. The 500 ms *probe-duration*
