@@ -18,6 +18,19 @@ The historical R1I runner, authorization, marker, and consumed attempt remain
 immutable. This successor is not registered in the historical Phase-4 stage
 catalog and cannot promote or rewrite historical evidence.
 
+## Canonical state path
+
+The live successor owns the isolated canonical directory
+`/var/lib/aegis-idea3-r1i-successor`. Its authorization file is
+`/var/lib/aegis-idea3-r1i-successor/authorization.txt` and its durable state
+is under `/var/lib/aegis-idea3-r1i-successor/state`. This path is intentionally
+separate from the service-owned Core directory `/var/lib/aegis-idea3`; the
+runner never modifies, migrates, or creates state in that Core directory.
+Before any future G6 execution, the isolated directory must be provisioned as
+a root-owned, non-symlink, non-group/world-writable directory (preferably
+mode 0700) beneath trusted root-owned ancestors. The runner's existing
+trusted-path and one-shot checks remain the enforcement boundary.
+
 ## Authorization and authority
 
 A future owner authorization file must be a regular, non-group/world-writable

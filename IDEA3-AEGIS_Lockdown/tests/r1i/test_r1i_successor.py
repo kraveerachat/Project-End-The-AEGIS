@@ -7,6 +7,7 @@ import os
 import stat
 import subprocess
 import sys
+from types import SimpleNamespace
 from dataclasses import replace
 from pathlib import Path
 
@@ -106,6 +107,38 @@ def test_exact_successor_contract_is_reviewed_input_rule():
     text = CONTRACT.read_text()
     assert text == "create table inet aegis_idea3_r1i\nadd chain inet aegis_idea3_r1i input { type filter hook input priority -10; policy accept; }\nadd rule inet aegis_idea3_r1i input meta nfproto ipv4 ct state new tcp flags & (syn | ack) == syn limit rate 50/second burst 60 packets log prefix \"AEGIS_NEWCONN \" level info\n"
     assert "forward" not in text and "flush" not in text and "delete" not in text
+
+def test_live_state_paths_use_isolated_root_owned_canonical_directory():
+    expected = Path("/var/lib/aegis-idea3-r1i-successor")
+    assert runner.LIVE_CANONICAL_DIR == expected
+    assert runner.LIVE_AUTHORIZATION == expected / "authorization.txt"
+    assert runner.LIVE_STATE_DIR == expected / "state"
+    assert runner.LIVE_CANONICAL_DIR != Path("/var/lib/aegis-idea3")
+
+@pytest.mark.parametrize(
+    "ancestor_stat",
+    [
+        SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=1000),
+        SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=0),
+        SimpleNamespace(st_mode=stat.S_IFDIR | 0o775, st_uid=0),
+    ],
+    ids=["foreign-owner", "symlink", "group-writable"],
+)
+def test_untrusted_canonical_ancestor_fails_closed_without_consuming_attempt(monkeypatch, tmp_path, ancestor_stat):
+    target = tmp_path / "canonical"
+    ancestor = tmp_path / "ancestor"
+    parts = [Path("/"), ancestor, target]
+    monkeypatch.setattr(runner, "_path_chain", lambda _path: parts)
+
+    def fake_lstat(path):
+        if path == ancestor:
+            return ancestor_stat
+        return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0)
+
+    monkeypatch.setattr(Path, "lstat", fake_lstat)
+    with pytest.raises(runner.RunnerError, match="R1I_TRUSTED_PATH_INVALID"):
+        runner.trusted_path(target, directory=True)
+    assert not (target / runner.ATTEMPT_MARKER).exists()
 
 def test_apply_preserves_real_table_chain_rule_json_and_dynamic_counters(tmp_path):
     context, fake = setup(tmp_path, post=post_ruleset())
