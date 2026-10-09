@@ -36,11 +36,10 @@ replayed authorization. It also refuses if the canonical successor marker
 already exists. The historical R1I-GLOBAL-ATTEMPT-CONSUMED marker is read
 only by surrounding governance and is never changed by this runner.
 
-The live path additionally requires root, the fixed canonical directory
-/var/lib/aegis-idea3/r1i-successor, and the explicit runtime setting
-AEGIS_R1I_SUCCESSOR_LIVE_AUTHORIZED=YES. The fixture seam additionally
-requires AEGIS_R1I_SUCCESSOR_FIXTURE=YES and is test-only; it does not
-authorize Production.
+The live path additionally requires root, fixed canonical/state/source/Git/nft
+paths, and the explicit runtime setting AEGIS_R1I_SUCCESSOR_LIVE_AUTHORIZED=YES.
+There is no production-reachable fixture option. Hermetic tests inject a fake
+executor in-process, so tests cannot resolve Production nft from PATH.
 
 ## Execution boundary
 
@@ -50,15 +49,19 @@ mutation, and stops on any difference. It then atomically consumes the fresh
 successor marker and applies only the contract file.
 
 After mutation it captures the complete ruleset and the stateless dedicated
-table. The surrounding ruleset must be byte-equivalent to the pre-state and
+table. Comparison removes every table, chain, rule, set, or other object whose
+exact family/table is inet/aegis_idea3_r1i; unrelated objects are preserved
+while irrelevant metadata and dynamic counter values are normalized. The
+surrounding ruleset must be byte-equivalent to the pre-state and
 the owned table must have exactly the contract shape. A failed install or
 ambiguous post-state consumes the attempt and never retries.
 
 ## Rollback
 
-Rollback is allowed only when the complete current ruleset still has the
-expected unchanged surrounding state and the dedicated table validates as the
-exact owned shape. It deletes only inet/aegis_idea3_r1i, then requires the
+Verify and rollback repeat current trusted authorization, exact successor and
+attempt marker binding, trusted state, snapshot hash, surrounding-state, and
+exact-owned-table checks. Rollback is allowed only when those checks pass. It
+deletes only inet/aegis_idea3_r1i, then requires the
 complete ruleset to equal the pre-mutation snapshot. Drift, failed capture,
 failed deletion, or any uncertain outcome stops and leaves manual escalation;
 the runner never flushes or replaces unrelated nftables state.
