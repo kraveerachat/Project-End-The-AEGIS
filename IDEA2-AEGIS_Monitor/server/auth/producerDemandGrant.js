@@ -25,7 +25,7 @@ const integer = value => Number.isSafeInteger(value)
 const finite = value => typeof value === 'number' && Number.isFinite(value)
 const monotonicMs = () => performance.now()
 const MAX_PROBE_MS = 500
-const MAX_ENGINE_OFFSET_MS = 1_000
+const MAX_ENGINE_OFFSET_MS = 900
 const MAX_DB_OFFSET_MS = 500
 const MAX_MONITOR_CLOCK_STEP_MS = 25
 const DRIFT_GUARD_MS = 100 // Provisional: Production DB/Engine drift must be validated separately.
