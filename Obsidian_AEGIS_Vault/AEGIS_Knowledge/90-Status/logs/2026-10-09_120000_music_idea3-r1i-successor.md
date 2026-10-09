@@ -25,7 +25,8 @@ edit_policy: append-by-new-file
 ## Source files changed
 
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/r1i-successor/r1i_successor.py —
-  distinct one-shot authority, snapshot, apply, verify, and rollback runner.
+  distinct one-shot authority, independently pinned trusted-main authority,
+  foreign AEGIS_NEWCONN detection, snapshot, apply, verify, and rollback runner.
 - IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/r1i-successor/r1i-successor.nft —
   exact reviewed R1I contract.
 - IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py — hermetic mocked-nft
@@ -39,10 +40,17 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- \`pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` — pass:
-  13 passed.
-- \`pytest -q IDEA3-AEGIS_Lockdown/tests/r1i\` — fail: 125 passed, 1
-  pre-existing historical stage-registry assertion failed, 7 skipped.
+- Final implementation/evidence checkpoint: db34c274 (the receipt-bearing
+  commit follows this checkpoint, per the development-session workflow).
+- Historical evidence correction: the original receipt recorded 13 focused
+  passes at the earlier checkpoint. The corrected PR #416 head independently
+  reproduced 18 passes before this final bounded remediation; the final
+  remediation adds trusted-main and foreign-log regressions, superseding that
+  count below without rewriting the historical claim.
+- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` — pass: 23 passed.
+- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i\` — fail:
+  48 passed, 1 pre-existing historical stage-registry assertion failed, 7
+  skipped.
 - \`pytest -q IDEA3-AEGIS_Lockdown/tests/test_r1_acceptance.py\` — pass:
   89 passed.
 - \`pytest -q IDEA3-AEGIS_Lockdown/tests/test_pr11_phase4_harness.py --maxfail=1\`
