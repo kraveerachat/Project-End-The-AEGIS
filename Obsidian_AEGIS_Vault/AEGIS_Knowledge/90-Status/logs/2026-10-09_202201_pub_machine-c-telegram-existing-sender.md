@@ -45,6 +45,8 @@ Source work is locally verified; runtime delivery is NOT TESTED.
 
 ## Verification evidence
 
+- `python -B -m unittest discover -s tests -p test_telegram_delivery.py -q` — PASS: 26 pass / 0 fail / 0 skip (final focused gate; full evidence below).
+
 Environment: isolated Windows development worktree, Python 3.12 through an
 existing development venv (no installed runtime changes), Node 24.14.0.
 Engine commands below run from `IDEA2-AEGIS_CCTV-Operator/detection-engine`;
