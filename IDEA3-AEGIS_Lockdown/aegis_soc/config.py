@@ -165,6 +165,13 @@ ALERT_SOURCE_UID = _optional_int("AEGIS_ALERT_SOURCE_UID")
 # R1D: the historical-incident disposition channel is INERT by default: it exists only when this flag is exactly YES (and the
 # profile is production, a detector authority is configured and no disposition has ever been recorded). The peer must be uid 0.
 R1D_DISPOSITION_ENABLED = os.getenv("AEGIS_R1D_DISPOSITION_ENABLED", "")
+# Manual CUT channel for the Python Desktop: INERT unless exactly YES. CUT only; it carries no RESTORE authority.
+LOCAL_CUT_ENABLED = os.getenv("AEGIS_LOCAL_CUT_ENABLED", "")
+# It additionally needs a dedicated absolute socket path (pre-provisioned, Core-owned directory), ONE operator uid (never 0) and an
+# optional transport gid. Any of them missing keeps the channel disabled (fail closed).
+LOCAL_CUT_SOCKET = os.getenv("AEGIS_LOCAL_CUT_SOCKET", "").strip()
+LOCAL_CUT_OPERATOR_UID = _optional_int("AEGIS_LOCAL_CUT_OPERATOR_UID")
+LOCAL_CUT_SOCKET_GID = _optional_int("AEGIS_LOCAL_CUT_SOCKET_GID")
 # OD-F1-DEPLOY-01: the dedicated F1 alert transport. Constants on purpose (no environment override): the general runtime
 # directory and the Recovery runtime are never an alert path. The group is filesystem reachability only; the uid is the authority.
 ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"

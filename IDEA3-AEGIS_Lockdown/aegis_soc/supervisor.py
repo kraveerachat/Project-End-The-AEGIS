@@ -21,6 +21,7 @@ from pathlib import Path
 from . import config
 from . import database as db
 from . import historical_disposition as hd
+from . import local_cut
 from . import local_restore as lr
 from . import recovery_core as rc
 from . import recovery_protocol as rp
@@ -230,6 +231,7 @@ class AegisSupervisor:
         )
         self.restore_credential = restore_credential if d4_enabled else None
         self.local_restore = None
+        self.local_cut = None
         self.recovery = rc.CoreRecoveryService(self)
         self.recovery_server = None
         self.alert_server = None
@@ -695,6 +697,28 @@ class AegisSupervisor:
         server.start()
         self.local_restore = server
 
+    def start_local_cut(self) -> None:
+        """Optional manual-CUT channel. INERT unless explicitly enabled and fully configured; it never blocks or fails the Core."""
+        if self.local_cut is not None or not local_cut.enabled(config.LOCAL_CUT_ENABLED) or not lr.local_restore_supported():
+            return
+        operator_uid = config.LOCAL_CUT_OPERATOR_UID
+        if operator_uid is None or operator_uid == 0 or not config.LOCAL_CUT_SOCKET:
+            self.log_event("ERROR", "local_cut_unconfigured", reason="OPERATOR_UID_OR_SOCKET_MISSING_OR_ROOT")
+            return
+        gate = local_cut.LocalCutGate(self, allowed_uid=operator_uid, audit=db.log_event, audit_strict=db.log_event_strict)
+        try:
+            server = local_cut.LocalCutServer(config.LOCAL_CUT_SOCKET, gate, socket_gid=config.LOCAL_CUT_SOCKET_GID)
+            server.start()
+        except (lr.LocalRestoreError, OSError) as error:
+            self.log_event("ERROR", "local_cut_failed", error=type(error).__name__)
+            return
+        self.local_cut = server
+
+    def stop_local_cut(self) -> None:
+        server, self.local_cut = self.local_cut, None
+        if server is not None:
+            server.close()
+
     def stop_local_restore(self) -> None:
         server, self.local_restore = self.local_restore, None
         if server is not None:
@@ -900,6 +924,7 @@ class AegisSupervisor:
             self.bind_callbacks()
             self.recover_protocol_state()
             self.start_local_restore()
+            self.start_local_cut()
             self.start_recovery()
             self.start_alert_ingress()
             self.start_historical_disposition()
@@ -937,6 +962,7 @@ class AegisSupervisor:
             self.stop_historical_disposition()
             self.stop_alert_ingress()
             self.stop_recovery()
+            self.stop_local_cut()
             self.stop_local_restore()
             self.children.stop_all()
             self.mqtt.stop()
