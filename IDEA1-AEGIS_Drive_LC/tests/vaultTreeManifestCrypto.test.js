@@ -5,8 +5,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { encryptManifestRevision, decryptManifestRevision, ManifestCryptoError } from '../src/lib/vaultTreeManifestCrypto.js'
 import { generateTrkBytes, wrapTrkSlots, unwrapTrkSlots, rewrapTrkSlots } from '../src/lib/vaultTreeKeys.js'
-import { createGenesisManifest } from '../src/lib/vaultTreeManifest.js'
-import { treeLimitsFrom, PADDING_BUCKETS } from '../src/lib/vaultTreeLimits.js'
+import { generateManifestDekBytes, wrapManifestDek } from '../src/lib/vaultTreeKeys.js'
+import { createGenesisManifest, validateManifest } from '../src/lib/vaultTreeManifest.js'
+import { canonicalEncode, canonicalDecode, padToBucket, CanonicalError } from '../src/lib/vaultTreeCanonical.js'
+import { manifestCiphertextAad } from '../src/lib/vaultTreeAad.js'
+import { treeLimitsFrom, PADDING_BUCKETS, VAULT_TREE_CLIENT_LIMITS } from '../src/lib/vaultTreeLimits.js'
+import { v1GoldenManifest } from './helpers/vaultManifestV1GoldenFixture.mjs'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { b64ToBytes, bytesToB64 } from '../src/lib/vaultCrypto.js'
 
 const subtle = globalThis.crypto.subtle
@@ -140,4 +146,114 @@ test('MC-7 degraded key envelope still decrypts; two bad slots decrypt nothing',
   assert.equal(degraded.status, 'DEGRADED')
   await decryptManifestRevision(degraded.trk, env, ctxFor(m), LIMITS)
   await assert.rejects(unwrapTrkSlots(kek, { primary: { ...slots.primary, wrappedTrkB64: flip(slots.primary.wrappedTrkB64) }, recovery: { ...slots.recovery, wrappedTrkB64: flip(slots.recovery.wrappedTrkB64) } }, TRK_CTX), (e) => e.code === 'TRK_UNRECOVERABLE')
+})
+
+// ── Unified Preview P2a: v1 bytes frozen, v2 canonical form, AAD binds the schema version ─────
+
+const GOLDEN = JSON.parse(readFileSync(new URL('./fixtures/vaultManifestV1Golden.json', import.meta.url), 'utf8'))
+const CID = 'AAECAwQFBgcICQoLDA0ODw=='
+const preview = (kind, src, over = {}) => ({
+  kind, profile: 'vp1', blobRef: { formatVersion: 2, id: `d-${kind}-${src.id}` }, contentId: CID, sourceBlobRef: { ...src },
+  mime: kind === 'motion' || kind === 'proxy' ? 'video/mp4' : 'image/webp', width: 480, height: 270, plainSize: 40_000, createdAtClient: NOW,
+  ...(kind === 'motion' || kind === 'proxy' ? { durationMs: 6000 } : {}), ...over,
+})
+function v2Manifest(n = 50, kinds = ['thumb', 'poster', 'motion']) {
+  const m = bigManifest(n)
+  m.schemaVersion = 2
+  for (const node of m.nodes.values()) {
+    if (node.kind !== 'file') continue
+    node.contentFormat = 'mp4'
+    node.previews = kinds.map((k) => preview(k, node.blobRef))
+  }
+  return m
+}
+/** the same manifest built with every object's keys inserted in reverse order */
+const reverseKeys = (v) => {
+  if (v instanceof Map) return new Map([...v].reverse().map(([k, x]) => [k, reverseKeys(x)]))
+  if (Array.isArray(v)) return v.map(reverseKeys)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).reverse().map(([k, x]) => [k, reverseKeys(x)]))
+  return v
+}
+
+test('MC-V1-GOLDEN v1 canonical bytes equal the vector frozen at origin/main 07633c93, and decode back', () => {
+  const golden = new Uint8Array(Buffer.from(GOLDEN.canonicalB64, 'base64'))
+  assert.equal(golden.length, GOLDEN.byteLength)
+  assert.equal(createHash('sha256').update(golden).digest('hex'), GOLDEN.sha256Hex)
+  const bytes = canonicalEncode(v1GoldenManifest())
+  assert.equal(bytes.length, golden.length)
+  assert.equal(Buffer.compare(Buffer.from(bytes), Buffer.from(golden)), 0, 'v1 canonical encoding changed — existing revisions would no longer match')
+  assert.equal(Buffer.compare(Buffer.from(canonicalEncode(reverseKeys(v1GoldenManifest()))), Buffer.from(golden)), 0, 'key insertion order must not matter')
+  const back = canonicalDecode(golden)
+  assert.equal(back.schemaVersion, 1)
+  assert.equal(validateManifest(back).ok, true)
+  assert.deepEqual(back, v1GoldenManifest())
+  assert.equal(Buffer.compare(Buffer.from(canonicalEncode(back)), Buffer.from(golden)), 0)
+})
+
+test('MC-V2-1 v2 canonical round trip deep-equals the input; encoding ignores key insertion order', () => {
+  const m = v2Manifest(40, ['thumb', 'poster', 'motion', 'proxy'])
+  validateManifest(m, LIMITS)
+  const bytes = canonicalEncode(m, LIMITS)
+  const back = canonicalDecode(bytes, LIMITS)
+  const sorted = { ...m, nodes: new Map([...m.nodes].sort(([a], [b]) => (a < b ? -1 : 1))) }
+  assert.deepEqual(back, sorted)
+  assert.equal(validateManifest(back, LIMITS).ok, true)
+  assert.equal(Buffer.compare(Buffer.from(canonicalEncode(reverseKeys(m), LIMITS)), Buffer.from(bytes)), 0)
+  assert.equal(Buffer.compare(Buffer.from(canonicalEncode(back, LIMITS)), Buffer.from(bytes)), 0)
+})
+
+test('MC-V2-2 canonical decoder: v2 keys are UNKNOWN_KEY under schema 1; unknown keys inside a preview are rejected', () => {
+  const v1WithPreviews = { ...v2Manifest(3), schemaVersion: 1 }
+  assert.throws(() => canonicalDecode(canonicalEncode(v1WithPreviews, LIMITS), LIMITS), (e) => e instanceof CanonicalError && e.code === 'UNKNOWN_KEY')
+  const v2 = v2Manifest(3); [...v2.nodes.values()][1].previews[0].secret = 'x'
+  assert.throws(() => canonicalDecode(canonicalEncode(v2, LIMITS), LIMITS), (e) => e instanceof CanonicalError && e.code === 'UNKNOWN_KEY')
+  const v2b = v2Manifest(3); [...v2b.nodes.values()][1].previews[0].sourceBlobRef.extra = 1
+  assert.throws(() => canonicalDecode(canonicalEncode(v2b, LIMITS), LIMITS), (e) => e instanceof CanonicalError && e.code === 'UNKNOWN_KEY')
+  const v2c = v2Manifest(3); [...v2c.nodes.values()][1].previews = [42]
+  assert.throws(() => canonicalDecode(canonicalEncode(v2c, LIMITS), LIMITS), (e) => e instanceof CanonicalError && e.code === 'BAD_TYPE')
+})
+
+test('MC-V2-3 a 10 000-node v2 manifest with 3 previews per file stays within maxDecodedBytes or fails with the size error (never truncates)', () => {
+  const m = v2Manifest(10_000)
+  let bytes
+  try { bytes = canonicalEncode(m) } catch (e) {
+    assert.ok(e instanceof CanonicalError && e.code === 'LIMIT_DECODED_BYTES', `unexpected ${e?.code}`)
+    return
+  }
+  assert.ok(bytes.length <= VAULT_TREE_CLIENT_LIMITS.maxDecodedBytes)
+  const back = canonicalDecode(bytes)
+  assert.equal(back.nodes.size, 10_000)
+  assert.equal(validateManifest(back).ok, true)
+})
+
+test('MC-V2-4 encrypt/decrypt with manifestSchemaVersion 2 round-trips; v1 context cannot open a v2 revision', async () => {
+  const trk = await trkFor(await fakeKek())
+  const m = v2Manifest(30)
+  const ctx = ctxFor(m)
+  assert.equal(ctx.manifestSchemaVersion, 2)
+  const env = await encryptManifestRevision(trk, deep(m), ctx, LIMITS)
+  const back = await decryptManifestRevision(trk, env, ctx, LIMITS)
+  assert.equal(back.schemaVersion, 2)
+  assert.deepEqual(back.nodes.get(ID(5)).previews, m.nodes.get(ID(5)).previews)
+  await assert.rejects(decryptManifestRevision(trk, env, { ...ctx, manifestSchemaVersion: 1 }, LIMITS), (e) => e instanceof ManifestCryptoError)
+  await assert.rejects(decryptManifestRevision(trk, env, { ...ctx, manifestSchemaVersion: 3 }, LIMITS), (e) => e instanceof ManifestCryptoError)
+})
+
+test('MC-V2-5 the plaintext schemaVersion must equal the revision schema version (no v1 body under a v2 AAD, or vice versa)', async () => {
+  const trk = await trkFor(await fakeKek())
+  const v1 = bigManifest(5)
+  await assert.rejects(encryptManifestRevision(trk, deep(v1), { ...ctxFor(v1), manifestSchemaVersion: 2 }, LIMITS), (e) => e instanceof ManifestCryptoError && e.code === 'BAD_INPUT')
+  await assert.rejects(encryptManifestRevision(trk, deep(v1), { ...ctxFor(v1), manifestSchemaVersion: 2 }, LIMITS, { skipValidation: true }), (e) => e instanceof ManifestCryptoError && e.code === 'BAD_INPUT', 'binding is not skippable')
+  // hand-built ciphertext (bypassing encryptManifestRevision): a v1 body authenticated under a v2 AAD
+  const ctx2 = { ...ctxFor(v1), manifestSchemaVersion: 2 }
+  const { padded, paddedLength } = padToBucket(canonicalEncode(v1, LIMITS), PADDING_BUCKETS.filter((b) => b <= LIMITS.maxDecodedBytes))
+  const dekBytes = generateManifestDekBytes()
+  const dek = await subtle.importKey('raw', dekBytes, { name: 'AES-GCM' }, false, ['encrypt'])
+  const wrapped = await wrapManifestDek(trk, dekBytes, ctx2)
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12))
+  const ciphertext = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: manifestCiphertextAad({ ...ctx2, paddedPlaintextLength: paddedLength }) }, dek, padded))
+  const smuggled = { ciphertext, ivB64: bytesToB64(iv), ...wrapped }
+  await assert.rejects(decryptManifestRevision(trk, smuggled, ctx2, LIMITS), (e) => e instanceof ManifestCryptoError && e.code === 'MANIFEST_INVALID')
+  const v2 = v2Manifest(5)
+  await assert.rejects(encryptManifestRevision(trk, deep(v2), { ...ctxFor(v2), manifestSchemaVersion: 1 }, LIMITS), (e) => e instanceof ManifestCryptoError && e.code === 'BAD_INPUT')
 })

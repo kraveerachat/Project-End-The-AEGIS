@@ -12,10 +12,17 @@
 
 import { caseFold } from './unicodeCaseFold.js'
 import { VAULT_TREE_CLIENT_LIMITS } from './vaultTreeLimits.js'
+import { FORMAT_IDS } from './preview/formats.js'
+import { PREVIEW_KINDS, MAX_PREVIEWS_PER_NODE, TIMED_PREVIEW_KINDS, PREVIEW_PROFILE_RE, previewProfileBounds } from './vaultPreviewProfiles.js'
 
 const te = new TextEncoder()
 
-export const MANIFEST_SCHEMA_VERSION = 1
+// Unified Preview P2a: this build READS schema 1 and 2 but WRITES only 1 (P2A_WRITES_V2=NO).
+// Any other version fails secure (UNSUPPORTED_SCHEMA_VERSION) — never "best effort" read a newer schema.
+export const MANIFEST_SCHEMA_VERSION_WRITE = 1
+export const MANIFEST_SCHEMA_VERSIONS_READ = Object.freeze([1, 2])
+/** kept for existing importers — always the WRITE version */
+export const MANIFEST_SCHEMA_VERSION = MANIFEST_SCHEMA_VERSION_WRITE
 export const NODE_KINDS = Object.freeze(['folder', 'file'])
 export const LIFECYCLE_STATES = Object.freeze(['active', 'trashed', 'purge-pending'])
 const BLOB_FORMAT_VERSIONS = Object.freeze([1, 2])
@@ -23,10 +30,16 @@ const BLOB_FORMAT_VERSIONS = Object.freeze([1, 2])
 const ID_RE = /^[A-Za-z0-9_-]{22}$/
 const TOP_KEYS = new Set(['schemaVersion', 'treeId', 'generation', 'revisionId', 'baseRevisionId', 'rootNodeId', 'createdAtClient', 'nodes', 'recentOperationIds'])
 const NODE_KEYS = new Set(['nodeId', 'kind', 'parentNodeId', 'name', 'createdAtClient', 'modifiedAtClient', 'lifecycle', 'blobRef', 'mediaType', 'plainSize'])
+// schema v2 = v1 node keys + two OPTIONAL file-only keys (spec §8.2); every other level is unchanged
+const NODE_KEYS_V2 = new Set([...NODE_KEYS, 'contentFormat', 'previews'])
+const PREVIEW_KEYS = new Set(['kind', 'profile', 'blobRef', 'contentId', 'sourceBlobRef', 'mime', 'width', 'height', 'durationMs', 'plainSize', 'createdAtClient'])
 const LIFECYCLE_KEYS = new Set(['state', 'trashedAtClient', 'trashedFromParentNodeId'])
 const BLOBREF_KEYS = new Set(['formatVersion', 'id'])
 const MAX_MEDIA_TYPE_BYTES = 255
 const MAX_BLOB_ID_LEN = 128
+const MAX_CONTENT_FORMAT_BYTES = 32
+/** canonical standard base64 of exactly 16 bytes (the V2 blob envelope's contentId) */
+const CONTENT_ID_RE = /^[A-Za-z0-9+/]{21}[AQgw]==$/
 
 export class ManifestError extends Error {
   constructor(code, message = code) {
@@ -80,8 +93,64 @@ const checkKeys = (obj, allowed, where) => {
   for (const k of Object.keys(obj)) if (!allowed.has(k)) fail('UNKNOWN_KEY', `${where}.${k}`)
 }
 
-function validateNode(id, n, limits, rootNodeId) {
-  checkKeys(n, NODE_KEYS, 'node')
+const isPosInt = (v) => Number.isSafeInteger(v) && v > 0
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+const isBlobRef = (r, versions) => versions.includes(r.formatVersion) && typeof r.id === 'string' && r.id.length > 0 && r.id.length <= MAX_BLOB_ID_LEN
+
+/** one manifest-v2 preview entry (spec §8.2) — structure always, profile bounds only for profiles this build knows */
+function validatePreview(p) {
+  if (!isObj(p)) fail('PREVIEW_BAD_FIELD', 'preview entry')
+  checkKeys(p, PREVIEW_KEYS, 'node.previews[]')
+  if (!PREVIEW_KINDS.includes(p.kind)) fail('PREVIEW_BAD_KIND')
+  if (typeof p.profile !== 'string' || !PREVIEW_PROFILE_RE.test(p.profile)) fail('PREVIEW_BAD_PROFILE')
+  if (!isObj(p.blobRef)) fail('PREVIEW_BAD_BLOB_REF')
+  checkKeys(p.blobRef, BLOBREF_KEYS, 'node.previews[].blobRef')
+  if (!isBlobRef(p.blobRef, [2])) fail('PREVIEW_BAD_BLOB_REF') // a derivative is always a V2 blob
+  if (typeof p.contentId !== 'string' || !CONTENT_ID_RE.test(p.contentId)) fail('PREVIEW_BAD_CONTENT_ID')
+  if (!isObj(p.sourceBlobRef)) fail('PREVIEW_BAD_SOURCE_REF')
+  checkKeys(p.sourceBlobRef, BLOBREF_KEYS, 'node.previews[].sourceBlobRef')
+  if (!isBlobRef(p.sourceBlobRef, BLOB_FORMAT_VERSIONS)) fail('PREVIEW_BAD_SOURCE_REF')
+  if (typeof p.mime !== 'string' || p.mime.length === 0 || te.encode(p.mime).length > MAX_MEDIA_TYPE_BYTES) fail('PREVIEW_BAD_MIME')
+  if (!isPosInt(p.width) || !isPosInt(p.height) || !isPosInt(p.plainSize) || !isTs(p.createdAtClient)) fail('PREVIEW_BAD_FIELD')
+  if (TIMED_PREVIEW_KINDS.includes(p.kind) ? !isPosInt(p.durationMs) : p.durationMs !== undefined) fail('PREVIEW_BAD_DURATION')
+  const b = previewProfileBounds(p.profile, p.kind)
+  if (!b) return // unknown (future) profile: effectivePreviews() ignores it
+  if (!b.mimes.includes(p.mime)) fail('PREVIEW_BAD_MIME')
+  const long = Math.max(p.width, p.height), short = Math.min(p.width, p.height)
+  if (long > b.maxLongEdge || short > b.maxShortEdge || p.plainSize > b.maxPlainSize) fail('PREVIEW_OUT_OF_BOUNDS')
+  if (b.maxDurationMs !== null && p.durationMs > b.maxDurationMs) fail('PREVIEW_OUT_OF_BOUNDS')
+}
+
+/**
+ * The manifest-v2 preview entry rule, exported unchanged for the D-1 preview-index shard codec:
+ * structure always; vp1 bounds (MIME, edges, size, duration) only for profiles this build knows.
+ * Throws ManifestError (PREVIEW_*); an unknown profile passes structurally and must be ignored by readers.
+ */
+export const validatePreviewEntry = validatePreview
+
+/** v2-only file keys; a folder may carry neither */
+function validateNodeV2Fields(n) {
+  if (n.kind !== 'file') {
+    if (n.contentFormat !== undefined || n.previews !== undefined) fail('FOLDER_HAS_PREVIEWS')
+    return
+  }
+  if (n.contentFormat !== undefined) {
+    const f = n.contentFormat
+    if (typeof f !== 'string' || te.encode(f).length > MAX_CONTENT_FORMAT_BYTES || !(f === '' || FORMAT_IDS.includes(f))) fail('BAD_CONTENT_FORMAT')
+  }
+  if (n.previews === undefined) return
+  if (!Array.isArray(n.previews)) fail('PREVIEW_BAD_FIELD', 'previews')
+  if (n.previews.length > MAX_PREVIEWS_PER_NODE) fail('LIMIT_PREVIEWS')
+  const kinds = new Set()
+  for (const p of n.previews) {
+    validatePreview(p)
+    if (kinds.has(p.kind)) fail('PREVIEW_DUPLICATE_KIND')
+    kinds.add(p.kind)
+  }
+}
+
+function validateNode(id, n, limits, rootNodeId, schemaVersion) {
+  checkKeys(n, schemaVersion === 2 ? NODE_KEYS_V2 : NODE_KEYS, 'node')
   if (n.nodeId !== id || !isId(id)) fail('DUP_NODE', 'map key must equal nodeId')
   if (!NODE_KINDS.includes(n.kind)) fail('BAD_FIELD', 'kind')
   if (!(n.parentNodeId === null || isId(n.parentNodeId))) fail('BAD_FIELD', 'parentNodeId')
@@ -116,6 +185,7 @@ function validateNode(id, n, limits, rootNodeId) {
     if (n.blobRef !== undefined) fail('FOLDER_HAS_BLOB')
     if (n.mediaType !== undefined || n.plainSize !== undefined) fail('BAD_FIELD', 'folder has file fields')
   }
+  if (schemaVersion === 2) validateNodeV2Fields(n)
 }
 
 /**
@@ -124,8 +194,8 @@ function validateNode(id, n, limits, rootNodeId) {
  */
 export function validateManifest(m, limits = VAULT_TREE_CLIENT_LIMITS) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) fail('BAD_FIELD', 'manifest')
+  if (!MANIFEST_SCHEMA_VERSIONS_READ.includes(m.schemaVersion)) fail('UNSUPPORTED_SCHEMA_VERSION', String(m.schemaVersion))
   checkKeys(m, TOP_KEYS, 'manifest')
-  if (m.schemaVersion !== MANIFEST_SCHEMA_VERSION) fail('BAD_SCHEMA')
   if (!isId(m.treeId) || !isId(m.revisionId) || !isId(m.rootNodeId)) fail('BAD_FIELD', 'ids')
   if (!(m.baseRevisionId === null || isId(m.baseRevisionId))) fail('BAD_FIELD', 'baseRevisionId')
   if (!Number.isSafeInteger(m.generation) || m.generation < 1) fail('BAD_FIELD', 'generation')
@@ -140,7 +210,7 @@ export function validateManifest(m, limits = VAULT_TREE_CLIENT_LIMITS) {
 
   const childrenOf = new Map()
   for (const [id, n] of m.nodes) {
-    validateNode(id, n, limits, m.rootNodeId)
+    validateNode(id, n, limits, m.rootNodeId, m.schemaVersion)
     if (n.parentNodeId === null) continue
     const p = m.nodes.get(n.parentNodeId)
     if (!p) fail('PARENT_MISSING')
@@ -184,6 +254,19 @@ export function validateManifest(m, limits = VAULT_TREE_CLIENT_LIMITS) {
 }
 
 // ── derived views (index จาก validateManifest) ───────────────────────────────
+
+const NO_PREVIEWS = Object.freeze([])
+
+/**
+ * preview entries that may be used for this file node right now: the entry's sourceBlobRef equals the
+ * node's current blobRef (a replaced file never shows a stale preview) AND this build knows its profile.
+ * Anything else is ignored — never an error (spec §8.2, §10). Expects a node from a validated manifest.
+ */
+export function effectivePreviews(node) {
+  if (!node || node.kind !== 'file' || !Array.isArray(node.previews) || !node.blobRef) return NO_PREVIEWS
+  const { formatVersion, id } = node.blobRef
+  return Object.freeze(node.previews.filter((p) => p?.sourceBlobRef?.formatVersion === formatVersion && p.sourceBlobRef.id === id && previewProfileBounds(p.profile, p.kind) !== null))
+}
 
 /** ไล่ parent ขึ้นไปจนถึง root (ไม่รวมตัวเอง) — มี visited set และเพดานความลึก */
 export function ancestorsOf(index, nodeId) {

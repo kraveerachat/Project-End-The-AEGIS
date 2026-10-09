@@ -20,6 +20,18 @@ describe('device evidence', () => {
     expect(screen.getAllByText('ESP32-LOCK-01').length).toBeGreaterThan(0)
   })
 
+  it('keeps observed authenticated uplink separate from requested and physical relay state', () => {
+    const live = {
+      ...snapshot,
+      mode: 'LIVE',
+      devices: [{ ...snapshot.devices[0], requestedRelayState: 'UNKNOWN', observedUplinkState: 'LOCKDOWN', physicalRelayState: 'NOT_VERIFIED' }],
+    }
+    render(<DevicesPage snapshot={live} />)
+    expect(screen.getByText('คำขอ: UNKNOWN')).toBeVisible()
+    expect(screen.getByText('อุปกรณ์รายงาน: LOCKDOWN')).toBeVisible()
+    expect(screen.getByText('หลักฐานทางกายภาพ: NOT_VERIFIED')).toBeVisible()
+  })
+
   it('shows topology as observed relationships instead of configurable controls', () => {
     render(<DevicesPage snapshot={snapshot} />)
     expect(screen.getByText('Observed topology')).toBeVisible()

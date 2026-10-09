@@ -1,0 +1,4 @@
+# AEGIS IDEA3 PR11 Phase 4 — PRE-L8p NTP RUNTIME REACTIVATION: permitted listener additions (same set the historical L5 approved; nothing wider).
+listen.udp.<AEGIS_AP_ADDRESS>:123
+listen.udp.127.0.0.1:323
+listen.udp.[::1]:323

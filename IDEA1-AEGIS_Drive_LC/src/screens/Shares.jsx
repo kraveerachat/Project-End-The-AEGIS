@@ -5,6 +5,7 @@ import { useApi, useNow } from '../lib/hooks.js'
 import { visibleFetchError } from '../lib/fetchState.js'
 import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtCountdown } from '../lib/format.js'
+import { SHARE_AUTH_LABEL, shareScopeChip } from '../lib/previewContent.js'
 
 /* ลิงก์แชร์ทำงานจริงตั้งแต่ต้นจนจบ: สร้าง → ได้ URL → ผู้รับเปิดแล้วได้ไฟล์
    (GET /s/:token — ดู server/routes/share.js) รหัสลิงก์ถูกตรวจด้วย bcrypt จริง
@@ -19,16 +20,10 @@ import { fmtCountdown } from '../lib/format.js'
    ตอนนี้มีการบังคับจริง แต่เป็น "การเทียบ IP ต้นทางที่ชั้นแอป" — แผงด้านล่างจึงพูด
    เท่าที่ทำได้จริง และระบุข้อจำกัดไว้ตรง ๆ ไม่วาดเป็น firewall */
 
-const SCOPE_CHIP = {
-  zones: { key: 'chipZoneRestricted', tone: 'accent' },
-  vlan: { key: 'chipVlanOnly', tone: 'accent' },   // ค่าเดิมของแถวก่อน migration
-  subnet: { key: 'chipSubnet', tone: 'accent' },
-  any: { key: 'chipAnyNetwork', tone: 'warn' },
-  // ⚠️ ต้องมีคีย์นี้จริง ไม่งั้น fallback `?? SCOPE_CHIP.any` จะทำให้ลิงก์สาธารณะ
-  //    ถูกแสดงเป็น "AEGIS-REACHABLE" ในตาราง = บอกขอบเขตผิดจากความจริง
-  public: { key: 'chipPublicInternet', tone: 'danger' },
-}
-const AUTH_LABEL = { password: 'authPassword', otc: 'authOtc', none: 'authNone' }
+/* Scope chip map + auth labels live in lib/previewContent.js so the table,
+   the Dashboard card and the hover previews can never label one link two ways.
+   ⚠️ `public` has its own entry there — a fallback to `any` would label an
+   Internet link as "AEGIS-REACHABLE", i.e. state the wrong scope. */
 
 /* ── Scope panel — พูดเท่าที่บังคับได้จริง ────────────────────────────
    ⚠️ ตั้งใจให้ "น่าเบื่อ" กว่าไดอะแกรมเดิม: ข้อความที่ตรงกับกลไกจริงมีค่ามากกว่าภาพ
@@ -102,37 +97,66 @@ function PublicInternetNotice({ t }) {
   )
 }
 
-/* ── One active-link row — collapses into hatch on revoke ────────── */
+/* ── One active-link row — collapses into hatch on revoke ──────────
+   Columns are declared once on .share-table (--share-cols) and shared by the
+   header and every row, so a value can never sit under the wrong heading and
+   a long Scope badge cannot push Auth/Expires sideways: Scope owns a fixed
+   track sized for the longest real label (TH/EN/ZH). Below the container
+   width that fits six columns the same cells reflow into a two-line card
+   (file + Revoke, then scope · auth · expires · hits) instead of squeezing.
+   The collapse uses grid-template-rows 1fr → 0fr, so it works for both row
+   heights without a hard-coded max-height. */
 function LinkRow({ t, link, now, revoking, onAskRevoke }) {
   const msLeft = link.expiresAt - now
   const isExpired = msLeft <= 0
-  const scopeChip = SCOPE_CHIP[link.scope] ?? SCOPE_CHIP.any
+  const scopeChip = shareScopeChip(link.scope)
+  const scopeLabel = t(scopeChip.key)
+  const hitsKnown = typeof link.hits === 'number' && Number.isFinite(link.hits)
   return (
-    <div
-      className="overflow-hidden transition-[max-height,opacity] duration-[var(--dur-slow)]"
-      style={{ maxHeight: revoking ? 0 : 64, opacity: revoking ? 0 : 1, transitionTimingFunction: 'var(--ease)' }}
-    >
-      <div
-        className={`grid items-center gap-3 px-4 h-14 border-b border-line text-[13px] ${revoking ? 'hatch hatch-ink3' : ''}`}
-        style={{
-          gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px',
-          filter: revoking ? 'saturate(0)' : 'none',
-        }}
-      >
-        <span className="min-w-0">
-          <span className="block font-medium text-ink truncate" title={link.fileName}>{link.fileName}</span>
-          <span className="block text-[11px] text-ink-3 truncate">{link.createdBy}</span>
-        </span>
-        <Chip tone={scopeChip.tone}>{t(scopeChip.key)}</Chip>
-        <span className="text-ink-2 whitespace-nowrap truncate">{t(AUTH_LABEL[link.authType] ?? 'authNone')}</span>
-        <span
-          className="font-mono text-[12px] whitespace-nowrap"
-          style={{ fontVariantNumeric: 'tabular-nums', color: msLeft < 3_600_000 ? 'var(--warn)' : 'var(--ink-2)' }}
+    <div className="share-row-shell" data-revoking={revoking ? 'true' : undefined}>
+      <div className="share-row-clip">
+        <div
+          role="row"
+          className={`share-row neo-table-row ${revoking ? 'hatch hatch-ink3' : ''}`}
+          data-expiring={!isExpired && msLeft < 3_600_000 ? 'true' : undefined}
         >
-          {isExpired ? t('expired') : fmtCountdown(msLeft, t('expired'))}
-        </span>
-        <span className="text-ink-2 text-right" style={{ fontVariantNumeric: 'tabular-nums' }}>{link.hits ?? 0}</span>
-        <Btn variant="dangerSoft" size="sm" className="justify-self-end" onClick={() => onAskRevoke(link)}>{t('revoke')}</Btn>
+          <span role="cell" className="share-cell share-cell--file">
+            <span className="share-file-name" title={link.fileName}>{link.fileName}</span>
+            <span className="share-file-owner">{link.createdBy}</span>
+          </span>
+          <span className="share-row-meta">
+            <span role="cell" className="share-cell share-cell--scope" data-label={t('colScope')} aria-label={`${t('colScope')}: ${scopeLabel}`}>
+              <span className="share-scope-badge" data-tone={scopeChip.tone} title={scopeLabel}>
+                <span className="share-scope-dot" aria-hidden />
+                <span className="share-scope-label">{scopeLabel}</span>
+              </span>
+            </span>
+            <span role="cell" className="share-cell share-cell--auth" data-label={t('colAuth')} aria-label={`${t('colAuth')}: ${t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}`}>
+              <span className="share-auth-value" title={t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}>
+                {t(SHARE_AUTH_LABEL[link.authType] ?? 'authNone')}
+              </span>
+            </span>
+            <span role="cell" className="share-cell share-cell--expires" data-label={t('colExpiresIn')} aria-label={`${t('colExpiresIn')}: ${isExpired ? t('expired') : fmtCountdown(msLeft, t('expired'))}`}>
+              <span className="share-expires-value">{isExpired ? t('expired') : fmtCountdown(msLeft, t('expired'))}</span>
+            </span>
+            <span role="cell" className="share-cell share-cell--hits" data-label={t('colHits')} aria-label={`${t('colHits')}: ${hitsKnown ? link.hits : '—'}`}>
+              <span className="share-hits-value">{hitsKnown ? link.hits : '—'}</span>
+            </span>
+          </span>
+          <span role="cell" className="share-cell share-cell--action">
+            <Btn
+              variant="dangerSoft"
+              size="sm"
+              className="share-revoke"
+              disabled={revoking}
+              aria-busy={revoking ? 'true' : undefined}
+              aria-label={`${t('revoke')} · ${link.fileName}`}
+              onClick={() => onAskRevoke(link)}
+            >
+              {t('revoke')}
+            </Btn>
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -369,7 +393,8 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 <PillInput
                   id="share-pw"
                   type="password"
-                  autoComplete="off"
+                  // new-password: browsers must never offer the account password here.
+                  autoComplete="new-password"
                   value={linkPassword}
                   onChange={(e) => { setLinkPassword(e.target.value); setCreateError(null) }}
                   placeholder={t('linkPasswordPlaceholder')}
@@ -436,11 +461,11 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                   </Btn>
                   <Btn variant="ghost" size="sm" onClick={() => setCreated(null)}>{t('done')}</Btn>
                 </div>
-                <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                <p className="neo-callout text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                   {t('shareLinkOnceWarn')}
                 </p>
                 {created.isPublic && (
-                  <p className="text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+                  <p className="neo-callout text-[11.5px] leading-relaxed rounded-[10px] px-3 py-2" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
                     {t('shareLinkPublicNote')}
                   </p>
                 )}
@@ -473,7 +498,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
       <div className="col-span-7 max-lg:col-span-12">
         <Card className="overflow-hidden">
           <div className="px-5 pt-5 pb-3 flex items-center gap-2">
-            <Link2 size={16} strokeWidth={1.5} className="text-ink-3" />
+            <span className="neo-panel-icon text-ink-3" aria-hidden><Link2 size={16} strokeWidth={1.6} /></span>
             <h2 className="text-[16px] font-semibold text-ink">{t('activeLinks')}</h2>
             <Chip tone="neutral" className="ml-auto">
               {filtered ? `${visibleShares.length} / ${shares.length}` : shares.length}
@@ -481,8 +506,8 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
           </div>
 
           {/* ตัวกรองของตารางนี้ — แทนที่ช่องค้นหาระดับระบบบนจอนี้ */}
-          <div className="px-5 pb-3 flex items-center gap-2.5 flex-wrap">
-              <div className="w-[168px]">
+          <div className="share-filters neo-toolbar px-5 pb-3 flex items-center gap-2.5 flex-wrap">
+              <div className="share-filter">
                 <PillSelect aria-label={t('filterScope')} value={fScope} onChange={(e) => setFScope(e.target.value)}>
                   <option value="all">{t('filterScope')} · {t('filterAll')}</option>
                   <option value="zones">{t('scopeZones')}</option>
@@ -490,7 +515,7 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                   <option value="public">{t('scopePublic')}</option>
                 </PillSelect>
               </div>
-              <div className="w-[168px]">
+              <div className="share-filter">
                 <PillSelect aria-label={t('filterExpiresWithin')} value={fExpiry} onChange={(e) => setFExpiry(e.target.value)}>
                   <option value="all">{t('filterExpiresWithin')} · {t('filterAll')}</option>
                   <option value="1h">{t('hour1')}</option>
@@ -499,19 +524,18 @@ export function Shares({ t, initialFileId = '', placeholderMode = false }) {
                 </PillSelect>
               </div>
           </div>
-          <div className="overflow-x-auto">
-            <div className="min-w-[720px]">
-              <div
-                className="grid gap-3 px-4 py-2 border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]"
-                style={{ gridTemplateColumns: 'minmax(150px, 1fr) 104px 100px 84px 36px 88px' }}
-              >
-                <span>{t('shareFile')}</span>
-                <span>{t('colScope')}</span>
-                <span>{t('colAuth')}</span>
-                <span>{t('colExpiresIn')}</span>
-                <span>{t('colHits')}</span>
-                <span />
+          <div className="share-table" role="table" aria-label={t('activeLinks')}>
+            <div role="rowgroup">
+              <div role="row" className="share-table-head neo-table-head">
+                <span role="columnheader" className="share-cell--file">{t('shareFile')}</span>
+                <span role="columnheader" className="share-cell--scope">{t('colScope')}</span>
+                <span role="columnheader" className="share-cell--auth">{t('colAuth')}</span>
+                <span role="columnheader" className="share-cell--expires">{t('colExpiresIn')}</span>
+                <span role="columnheader" className="share-cell--hits">{t('colHits')}</span>
+                <span role="columnheader" className="share-cell--action"><span className="sr-only">{t('revoke')}</span></span>
               </div>
+            </div>
+            <div role="rowgroup" className="share-table-body">
               {sharesApi.loading ? (
                 <div className="px-5 py-4"><SkeletonLoader type="table" /></div>
               ) : fetchError ? (

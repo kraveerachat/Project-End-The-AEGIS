@@ -4,59 +4,990 @@ aliases: ["04 - 🔒 IDEA3 AEGIS Lockdown"]
 tags: [aegis, lockdown, hardware, esp32, mqtt, firmware]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-30
+updated: 2026-10-07
 owner: music
 edit_policy: owner-writable
 ---
 
 # 🔒 IDEA3: AEGIS Lockdown
 
-> [!warning] Ownership and evidence boundary
-> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23" first (this reconciliation task; confirms PR #181 merged at `21d7b7824e6edf1950a7bd914f5d780366fd13c7` and its PR #182 recovery receipt merged at `f2f92425...`; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, still not host-verified; defines the exact host-verification contract required before `SOFTWARE_BLOCK_IP`/`SOFTWARE_UNBLOCK = IMPLEMENTED_AND_HOST_VERIFIED`; no live mutation performed), then "IDEA3 PR11 MVP dynamic IP containment — source implementation — 2026-09-22" (PR #181, now MERGED — no longer Draft; BLOCK_IP/UNBLOCK_IP source implemented through a root socket-activated nftables helper; Core stays unprivileged; generic attacker events now use software containment instead of automatic CUT; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, not host-verified), then "IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22" (PR #178 merged at `3b91fc40`; IDEA3 Final Project scope formally frozen as Security Orchestrator + Physical Containment MVP; PR11 exit criteria and PR12 A1–A7 acceptance defined; software IP blocking and live cross-IDEA integrations open; IDEA2 narrowed preservation decision pending; production hardening deferred; `PR11_MVP_COMPLETE = NO`, `PR12_FINAL_ACCEPTANCE = OPEN`), then "IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22" (PR #178 merged; canonical threshold 90%, PR #174 conflict resolved for repository purposes; live L1 blocked on disk usage 96%, IDEA2 §10, and authorizations), then "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+## IDEA3 Security Center Web final UI/UX — repository-only UI preserved after PR #421 integration — 2026-10-10
 
-> **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
-
----
-
-## IDEA3 Security Center Web final UI/UX — repository only — 2026-09-30
-
-> [!important] The final Security Center Web UI/UX (foundation, operational pages, supporting pages, browser QA) is **implemented and verified in the repository only**. It is **NOT deployed**: Production still serves the WEB-R2 build documented below. Live adapter wiring, PR11 Phase 4 runtime, V4/L7/L8 and ESP32 work are unchanged and separate.
-> `WEB_FINAL_UIUX = REPOSITORY_ONLY`, `WEB_TESTS = 35 files / 634 tests PASS`, `WEB_BUILD = PASS`, `BROWSER_QA = PASS (Brave/Chromium 154 headless, 1440/1180/1024/390, Live NOT_CONFIGURED + Demo)`, `API_CONTRACT_CHANGED = NO`, `PRODUCTION_MUTATION = NO`
+> [!important] PR #258's approved Security Center Web UI/UX remains preserved in the reconciled branch. The current `main` merge adds read-only IDEA3 Core incidents, Audit aggregates, and ESP32 evidence; it does not redesign the twelve-page layout, change the Web API contract, or enable Production/Recovery/hardware mutation.
+> `WEB_FINAL_UIUX = PRESERVED`, `PR421_CORE_EVIDENCE = PRESERVED`, `PRODUCTION_MUTATION = NO`, `PR258_RECEIPT = EXISTING_AND_IMMUTABLE`
 
 ### Current Task
 
-Task: IDEA3 Security Center Web final UI/UX (W1 + W2 + W3)
-Branch: `feat/idea3-web-final-uiux-parallel` (original base `21b52d5e`)
-Owner: music
-PR: Draft (see the PR for the number)
-Current state: repository implementation and browser QA complete; awaiting human review
-Started: 2026-09-29
-Last checkpoint: `5adfccf9`
+Task: PR #258 final UI integration after PR #421 merge
+Branch: `feat/idea3-web-final-uiux-parallel`
+Owner: `music`
+PR: #258 Draft
+Current state: reconciled repository implementation; independent exact-head review pending
+Started: 2026-10-10
 Production mutation allowed: NO
-
-**Goal.** Finish the Security Center Web surfaces so every page states what its evidence proves and what it does not.
-**Scope.** `IDEA3-AEGIS_Lockdown/web/**` client source and client tests only.
-**Out of scope.** Core runtime, `deploy/pr11-phase4/**`, L6c/L7/L8/L9, Recovery runtime, ESP32, MQTT command path, Production, backend routes/providers/domain/security.
-**Safety boundaries.** UNKNOWN stays fail-closed; no CONTAINED state; ACK/STATUS is never execution or physical proof; requested state is never physical evidence; Recovery real execution stays disabled; the browser never controls MQTT/ESP32/GPIO/relay.
-**Acceptance.** Full Web tests and build pass; every route inspected in a real browser at desktop, laptop and phone widths with no overflow, console error or failed request.
 
 ### Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| S1 | Foundation: shell, tokens, shared components, drawer | CLOSED | 577 tests, build | `d9b9d30a` | PASS | — | S2 |
-| S2 | Operational pages, evidence semantics, response chain | CLOSED | 611 tests, build | `b78b84e6` | PASS | — | S3 |
-| S3 | Supporting pages, Live feed routing, browser/a11y/contrast QA | CLOSED | 634 tests, build, browser QA | `5adfccf9` | PASS | human review; separate governed Web release | — |
+| PR258-INT-1 | Merge current `main` after PR #421 into the existing PR #258 UI branch; preserve UI and Core evidence | IN PROGRESS | focused Web tests, build, collaboration and Vault validation pending | merge commit | pending | exact-head independent review; human review/merge only | run verification, update Draft PR |
 
 ### Durable facts
 
-- IDEA1/IDEA2 pages prefer their dedicated event arrays and fall back to the normalized `snapshot.integration.events` feed (client-only); that feed has no source IP, and only FRESH rows are counted.
-- `auditIntegrity` is produced by no provider, so tamper evidence is reported NOT VERIFIED until a backend supplies it.
-- Execution proof and physical verification are never observable in Live today; the UI shows them as not observed / not verified.
-- Two moderate `npm audit` findings are dev-only (`vitest` → `@vitest/mocker`), pre-existing, and absent from `--omit=dev`.
-- Receipt: `90-Status/logs/2026-09-30_010735_music_idea3-web-final-security-center-uiux.md`.
+- Audit keeps PR #258's provenance and fail-closed tamper wording while displaying PR #421's allowlisted Core aggregate counts with one global `latestAt` timestamp.
+- Devices keeps requested relay state, observed authenticated uplink state, and physical relay evidence distinct; ACK never proves physical relay state.
+- The existing immutable receipt remains `90-Status/logs/2026-09-30_010735_music_idea3-web-final-security-center-uiux.md`; no second receipt is created for this integration session.
 
 ---
+
+## IDEA3 H0 shared-document reconciliation — owner-reported evidence — 2026-10-09
+
+The original PR408 H0 baseline remains preserved as a 2026-10-08-period claim:
+the serial port was not opened, identity was not read, and no reset, write,
+erase, GPIO, broker, Production, or Recovery action occurred during that test
+period. The later owner report is a separate evidence layer, not a rewrite of
+that baseline.
+
+The owner subsequently reported ESP32-D0WD-V3 revision 3.1 identity and a
+successful MAC read; the MAC is intentionally not published and no raw
+identity artifact/hash is included. The owner also declared a complete
+read-only ROM/no-stub backup at 115200 baud: `4,194,304` bytes, SHA-256
+verification **PASS**, bootloader and partition headers **EXPECTED**, firmware
+writing **NO**, flash erasing **NO**, and backup restoration tested **NO**. The
+validator records `hardware_behavior_observed=NOT_OBSERVED`; the earlier
+460800-baud backup failure remains historical evidence.
+
+Codex 1's merged companion `idea3-flash-backup-diagnostics.md` and
+`flash-backup-diagnostics.py` provide the repository-only validator contract;
+the focused synthetic/local diagnostic result is 8/8 PASS and the validator
+preserves owner-declared evidence with `hardware_behavior_observed=NOT_OBSERVED`;
+it does not prove hardware identity, provisioning, restoration, or production
+readiness. Codex 2's merged companion `idea3-hardware-f2-f5-fail-secure-review.md` records F2 as
+**FAIL-OPEN by design analysis** when relay/ULN2003 coil supply is lost and F5
+as **NOT PROVEN as complete link isolation** with pin-2-only switching. Both
+remain physical-security blockers.
+
+Independent repository tests and owner-reported observations remain separate;
+no claim below promotes the owner report to independent hardware acceptance.
+
+Current verification is bounded and reconciled: the completed host-offline
+suite (`test_offline_core_acceptance.py`, `test_protocol_v1.py`, and
+`test_local_e2e_acceptance.py`) recorded `199 passed, 10 skipped` in the
+supplied host log, and host governance recorded `33 passed, 0 failed`. This is
+offline repository/governance evidence only; physical acceptance is absent.
+The direct offline protocol/dispatch/MQTT/restore suite's
+`474 passed, 1 skipped, 11 failed` remains a separate local layer, with the failures caused by
+sandbox `AF_UNIX` bind `EPERM` in alert-ingress/local-restore tests. The
+`tests/offline_acceptance.py` wrapper remains unusable here because its configured
+PlatformIO interpreter lacks pytest and its legacy matcher returns zero tests;
+the web Vitest command is blocked because dependencies are unavailable. Vault
+validation passes with two pre-existing Canvas owner-data warnings; the focused
+collaboration-policy harness result is recorded separately above. PR #413 is
+MERGED by `f0e4fcfd` from source commit
+`7d6e30550b81423400625c03522716969b3402b7`; PR #414 is MERGED by
+`31a68fa222a64c309cb064f32f82ed9faf5d37e0` from source commit
+`f6b2eac9bd7e4ab289968f4ff151942a62402d64`. PR413 contributes read-only,
+owner-declared backup-diagnostic evidence with
+`hardware_behavior_observed=NOT_OBSERVED` (198 owner-host tests reported);
+PR414 contributes F2 **FAIL-OPEN** and F5 **NOT PROVEN** engineering findings.
+PR #405 is merged by `9065a094` with offline-only B1 evidence (33 passed, 1
+strict expected xfail). CTu remains immutable failure, CTv remains
+`CLOSED_FAIL`, Recovery remains blocked, and isolated hardware/Production
+acceptance remain **UNVERIFIED**.
+
+## IDEA3 PR405 B1 authorization-output remediation — repository-only — 2026-10-08
+
+The PR405 B1 regression guard is narrowed correctly. The strict xfail covers
+only the known L9 malformed-record acceptance gap: the byte-pinned predecessor
+`p4-stage-gate.sh` still accepts an unexpected `recovery_authorization` field
+on L9, and this task does not edit that frozen gate. A separate non-xfail
+contract now checks that L9 and every affected historical stage always emit
+`LIVE_STAGE_AUTHORIZED=NO` for that field. A disposable copy of the gate was
+mutated to emit `LIVE_STAGE_AUTHORIZED=YES`; the new safety predicate rejected
+that output. Focused offline verification is 33 passed / 1 expected xfail.
+
+The earlier PR405 receipt's full-suite count of 163 failures plus 56 errors is
+not a valid baseline claim for this remediation: it was not reproduced here
+and is not promoted as evidence. That immutable historical receipt remains
+unchanged; this section records the corrected current interpretation. No
+Production, hardware, broker, Recovery, CTu, or CTv action was performed.
+
+## IDEA3 CTv final pre-live proof closure — repository-only — 2026-10-08
+
+The CTv pre-live repair is complete in repository bytes only. Non-hermetic CTv now validates the frozen `DEVICE_ID` against the actual Production `core.env`, derives the governed detector baseline from actual host state, and records neither value as `UNKNOWN`. Hermetic fixtures remain limited to hermetic tests; non-hermetic execution captures fresh L0 PRE/POST evidence and runs the reviewed comparator plus fresh runtime checks for Core state, effective unit hardening, exact unit digest, exact drop-ins, detector preservation, Recovery unconsumed state, and device identity. Recovery now separates `CTV_EXECUTION_MAIN` from the current reviewed successor main and requires a successor receipt bound to the immutable host closeout digest and all relevant CTv digests. The runner records `CTV_REPOSITORY_RECEIPT=POSTLIVE_REVIEW_REQUIRED` and never promotes the pre-live partial receipt to a LIVE PASS receipt.
+
+`CTU_RESULT=FAIL_IMMUTABLE`, `CTU_ATTEMPT_CONSUMED=YES`, and `CTU_RERUN_ALLOWED=NO` remain untouched. `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, and `LIVE_EXECUTED=NO` remain the implementation boundary. No CTu/CTv/Recovery LIVE, Production mutation, governance-marker mutation, commit, push, or merge was performed. Additional deterministic pre-live blocker: `NONE`.
+
+### Current Task
+
+Task: IDEA3 CTv final pre-live proof closure
+Branch: `fix/idea3-ctv-live-proof-closure`
+Owner: `music`
+Current state: repository implementation verified; final pre-live review pending; LIVE not executed
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTv-Closure-1 | Close identity, real non-hermetic post-runtime proof, and Recovery execution/review-main circularity | READY FOR FINAL PRE-LIVE REVIEW | CTv successor 67 PASS; CTu/TrustedClock/Recovery focused suites PASS; full Recovery/harness 1004 PASS with 3 pre-existing CTv stage-registration expectation failures; vault validation PASS with 2 pre-existing canvas warnings; collaborationPolicy/vaultMultiWriter environment-blocked | repository repair PASS; LIVE intentionally unexecuted | human owner/integration review and manual Git closeout | merge review only; generate fresh exact-main authority before any future LIVE |
+
+## IDEA3 CTv successor after immutable CTu failure — repository implementation — 2026-10-08
+
+> [!important] CTu remains permanently consumed and failed: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_FAILURE_REASON=APPLY`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`. CTv is a distinct successor (`CTV_IS_CTU_RETRY=NO`) and has not run live: `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+Repository implementation now has an explicit frozen CLI (`AUTH_DIR --rehearse|--live`), a real non-consuming deterministic rehearsal, non-circular runtime runner SHA, separate template/bundle/control manifest domains, strict exact-main bundle/control checks, durable prepared and consumed-no-mutation journal phases, governed apply/rollback phases, PRE/POST capture and evidence manifest, and a CTv-aware Recovery successor gate. The pre-live target-unit path hotfix now makes the non-hermetic default resolve to the reviewed `deploy/aegis-idea3-core.service.example`; the hermetic `--unit-source` override remains supported. Exact-main audit coverage proves every CTv production repository dependency exists at `56beb898f5b4f8bd4b39d0934ef0f80bc9dc63e2`. CTv LIVE, Recovery LIVE, Production mutation, Core restart, Detector lifecycle, governance-marker mutation, merge, and Ready transition were intentionally not performed.
+
+### Current Task
+
+Task: IDEA3 CTv deterministic target-unit path hotfix
+Branch: `fix/idea3-ctv-target-unit-path`
+Owner: `music`
+PR: Draft pending
+Current state: repository-only path repair in progress; CTv LIVE NOT EXECUTED; Recovery LIVE NOT EXECUTED; human merge only
+Production mutation allowed by this task: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTv-Path-1 | Correct deterministic production Core unit path and audit CTv repository dependency closure | IN PROGRESS | TDD regression RED before fix; exact-main path audit PASS; remaining focused/full verification pending | source and regression changed; no live or Production action | complete required suites, receipt, commit, Draft PR | run verification, record receipt, commit/push if network permits |
+
+## IDEA3 CTu PRE-capture dependency-closure repair — repository-only — 2026-10-07
+
+> [!important] **Root cause confirmed by owner-authorized forensic evidence:** the post-PR387 frozen CTu bundle included `p4-l0-capture.sh` but omitted its two direct `$P4_HERE` runtime helpers, `p4-l5-clock.py` and `p4-l6c-tree-digest.py`. The historical PRE capture recorded every installed release as `<release-id>:UNREADABLE`, which set `partial=1` and ended with `L0_CAPTURE=PARTIAL` before `ctu_consume_attempt`. The protected evidence was read successfully; its SHA256 self-check passed (`PRE_SHA256SUMS_RC=0`). `time.trustedclock.state=UNAVAILABLE` was observed but is optional (`run_ro 0`) and is not a partial cause. No other deterministic PRE_CAPTURE blocker was found.
+
+Repository repair: `ctu_prepare_bundle()` now includes both helpers with the existing exact-main Git-object, regular-file/non-symlink, root-owned `0555`, manifest, strict checksum, and `ctu_verify_bundle()` controls. The immutable control snapshot trust closure also includes both helpers. Executable regressions construct a frozen-style bundle, reproduce BASE_MAIN missing-helper PARTIAL behavior, run repaired L0 capture to `COMPLETE` with a valid 64-hex release tree digest, refuse missing/tampered helper files, and mechanically derive the direct `$P4_HERE` dependency set. No other missing pre-consume local helper was found in the audited closure. `CTU_ATTEMPT_CONSUMED=NO`, `CTU_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, and `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO` remain unchanged. The failed runner `7e31328f6e6576c4c7514b02e0125f871be8f6734d59030c43e36152bb64bc95` and its Authorization/K3 remain permanently invalid.
+
+### Current Task
+
+Task: IDEA3 CTu L0 capture dependency-closure repair
+
+Current state: repository implementation and executable regression coverage PASS; owner-authorized historical PRE evidence read and SHA256 integrity verification PASS; the release catalog missing-helper failure is the only concrete `partial=1` cause; `time.trustedclock.state=UNAVAILABLE` is optional and not a partial cause; one existing host-socket regression remains unexecutable in this sandbox; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+
+Next: human review and merge only; after merge, generate fresh post-merge exact-main clone, root authority, control snapshot, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| CTu-S9 | CTu PRE-capture local dependency-closure repair (`p4-l5-clock.py` and `p4-l6c-tree-digest.py` in bundle and control snapshot trust closure; behavioral L0/integrity regressions) | READY FOR REVIEW | 5 new dependency-closure tests PASS; 362 affected CTu/Phase-4 tests PASS with one host-socket test deselected; owner-authorized historical PRE evidence read PASS; `PRE_SHA256SUMS_RC=0`; bash -n, py_compile, git diff --check PASS; immutable implementation and forensic receipts present | repository repair PASS; historical evidence integrity PASS; release catalog is the only concrete partial cause; `time.trustedclock.state=UNAVAILABLE` is optional/non-partial; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO | owner and independent exact-head Security/Governance review; human merge only; fresh authority and frozen artifacts after merge | fresh exact-main CTu authority before any LIVE execution; rerun socket-dependent regression where host capability permits |
+
+## IDEA3 CTu trusted work directory traversal contract repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In the latest CTu owner-run, bundle verification failed closed with `CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`. Forensic inspection of `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-07-ctu-20261007-214845` confirmed all 18 bundle files existed and matched expected sha256 sums when verified under root. However, the parent work directory `$WORK` (`ctu-work`) was created implicitly with `root:root 0700` (`---` for others), preventing the unprivileged operator user (`kittipat`, UID 1000) from traversing (`cd`) into `$bundle` (`0555`), triggering `Permission denied`. Repaired by introducing `ctu_prepare_work_dir()` in `p4-ctu-run-lib.sh` to explicitly create `$work` as `root:root 0711` (`--x` for group and others) and enforcing `ctu_verify_work_dir()` across all components (`run-ctu-owner.sh`, `stages/CTu/verify.sh`, apply and rollback routines). Mode `0711` permits directory traversal lookup (`--x`) without granting read/listing (`-r`) or write (`-w`) permissions to non-root users. The failed frozen runner bound to main `5d3245eaab9aa7337b570ef7fb949e937a46575b` / SHA `35441dd71996b4def12a89d948afe0c8fdbf43ab91291fead525378c0811df4c` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `WORK_DIR_TRAVERSAL_CONTRACT=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu trusted work directory traversal contract repair
+Branch: `fix/idea3-ctu-trusted-work-traverse`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh, run-ctu-owner.sh, verify.sh, and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S8 | CTu trusted work directory traversal contract repair (`p4-ctu-run-lib.sh` ctu_prepare_work_dir mode 0711 and ctu_verify_work_dir; `run-ctu-owner.sh` and `verify.sh` 0:711 checks; behavioral regression tests) | READY FOR REVIEW | 81 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu bundle manifest relative CWD verification repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** In `ctu_prepare_bundle()` (`IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh`), `CTU-BUNDLE-SHA256SUMS` was verified using `$CTU_SUDO sha256sum -c --quiet --strict "$bundle/CTU-BUNDLE-SHA256SUMS"` without changing CWD to the bundle directory. Because `sha256sum` resolves relative filenames relative to process CWD, verification deterministically failed whenever runner CWD was outside `$bundle`, triggering `post_fail CTU_BUNDLE` (`CTU_RESULT=FAIL_IMMUTABLE CTU_ATTEMPT_CONSUMED=NO reason=CTU_BUNDLE`). Fixed by executing `( cd "$bundle" && $CTU_SUDO sha256sum -c --quiet --strict CTU-BUNDLE-SHA256SUMS ) >/dev/null 2>&1`, matching `ctu_verify_bundle()`, `verify.sh`, and apply/rollback routines. Additionally sealed `$bundle/ctu-acceptance` to mode `0555` and `$bundle/CTU-BUNDLE-SHA256SUMS` to mode `0444`. The failed frozen runner bound to main `8f337dad15f4e89d2265a95741b90128c14e6a39` / SHA `ed1e656a24f7d126b87828b59d5b726b9d337d5887c4b4c5a8b26ed7b2b173e0` is invalidated for future LIVE use. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `FAILURE_PHASE=PRE_CONSUME_BUNDLE_PREPARATION`; `FAILURE_REASON=CTU_BUNDLE`; `BUNDLE_MANIFEST_CWD_VERIFICATION=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu bundle manifest relative CWD verification repair
+Branch: `fix/idea3-ctu-bundle-manifest-cwd`
+Owner: `music`
+Current state: repository repair in p4-ctu-run-lib.sh line 164 and behavioral regression tests implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority, clone, pins, frozen runner, Authorization, and K3 before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S7 | CTu bundle manifest relative CWD verification repair (`p4-ctu-run-lib.sh` line 164 subshell cd verification; seal ctu-acceptance to 0555 and manifest to 0444; behavioral regression tests) | READY FOR REVIEW | 80 focused CTu/repair tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu runner git eval library load quoting repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Frozen CTu runner entry failed closed before stage governance initialization (`fatal: cannot change to '"/home/.../ctu-live-main-6a5a7a7f"': No such file or directory` and `ctu_operator_identity_gate: command not found`). Inside bash command substitution `"$( ... )"`, backslash-escaped quotes `\"` expand to literal double-quote characters in `argv`, passing `"/path/to/repo"` to `git -C`. `run-ctu-owner.sh` line 49 is repaired to `eval "$(git -C "$REPO" show "$EXPECTED_MAIN:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-ctu-run-lib.sh")"`, preserving exact-main Git object loading without literal quotes. The failed frozen runner bound to main `6a5a7a7f31912b1bf51c0349beca6699184bcca3` (SHA `5fe09edc51133aa502e865fb817ee5b5b95faec126c447873e5bc574955b89d1`) is invalidated. CTu attempt remains unconsumed, CTu LIVE was NOT executed, zero Production runtime mutation occurred.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `RUNNER_GIT_EVAL_LIBRARY_LOAD=PASS`.
+
+### Current Task
+
+Task: IDEA3 CTu runner git eval library load quoting repair
+Branch: `fix/idea3-ctu-runner-git-eval-quoting`
+Owner: `music`
+Current state: repository repair to run-ctu-owner.sh line 49 and behavioral regression test implemented and verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently generate fresh post-merge exact-main CTu authority and frozen runner before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S6 | CTu runner git eval library load quoting repair (`run-ctu-owner.sh` line 49 unescaped quotes; behavioral regression test) | READY FOR REVIEW | 78 focused CTu/repair tests PASS, 83 recovery tests PASS, 676 recovery suite tests PASS, 59 vault/policy tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; generate fresh exact-main CTu authority and frozen runner after merge |
+
+## IDEA3 CTu control snapshot directory seal repair — pre-first-LIVE — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired:** Fresh post-merge CTu authority preparation reached `CTU_CONTROL_MANIFEST_SHA256=d910400b965a6b1883e1c266bd0d32f35904f1644478461e7c1b1af610de0bb1` and `CTU_TRUST_CLOSURE=PASS`, but immediate control verification failed closed with `reason=CONTROL_SOURCE_WRITABLE:ctu-acceptance`. `control_snapshot()` previously created directories with default umask without sealing them to `0555`, while `control_check()` rejects any write bit (`stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH`). `ctu_verifier_snapshot.py` now deterministically seals all snapshot directories (destination root and nested subdirectories `ctu-acceptance/`, `stages/CTu/`, `owner-run/`) to `0555` after files/manifest are written, immediately satisfying `control_check` without operator intervention. File modes (`0555` scripts, `0444` non-executable/manifest) and root ownership boundaries remain preserved. Zero Production runtime mutation occurred; CTu LIVE was NOT executed.
+
+`CTU_ATTEMPT_CONSUMED=NO`; `CTU_LIVE_EXECUTED=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`; `RECOVERY_LIVE_EXECUTED=NO`; `PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO`; `SNAPSHOT_DIRECTORIES_SEALED_0555=PASS`; `CONTROL_CHECK_FRESH_SNAPSHOT=PASS`. The failed preparation authority `/opt/aegis-idea3-ctu-authority-23f5d0f8b55ce1478f840b6df0ae8b75b9e62f46` is historical failed-preparation evidence only; it was neither modified nor reused.
+
+### Current Task
+
+Task: IDEA3 CTu control snapshot directory seal repair
+Branch: `fix/idea3-ctu-control-snapshot-directory-seal`
+Owner: `music`
+Current state: repository repair, deterministic 0555 directory seal, and 14 behavioral regression requirements implemented and locally verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently build fresh exact-main CTu authority before any LIVE execution
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S5 | CTu control snapshot directory seal repair (seal all dirs to 0555; fail-closed control_check) | READY FOR REVIEW | 77 focused CTu/repair tests PASS, 676 Recovery successor tests PASS, 59 vault/policy tests PASS, userns root-owned tests PASS; immutable receipt and Draft PR exist | repository repair PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_RUNTIME_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance review; human merge only; zero LIVE execution | independent exact-head review; human merge only; build fresh exact-main CTu authority after merge |
+
+## IDEA3 CTu exact-two predecessor drop-in preservation repair — repository-only successor — 2026-10-07
+
+> [!important] **Root cause confirmed:** CTu previously treated any Core `DropInPaths` as invalid, but the governed Production topology legitimately contains exactly `10-recovery.conf` and `20-f1-alert.conf`. This continuation adds a fail-closed exact-two contract bound to the exact-main Git template bytes: both paths must be regular non-symlinks owned `root:root` mode `0644`, with no third/foreign file; systemd ordering is compared semantically as a set. The gate runs before marker consumption and after install/reload/restart; rollback validates preservation and never removes or rewrites either predecessor drop-in.
+
+`CTU_DROPIN_PRECONSUME_GATE=PASS`; `CTU_DROPIN_EXACT_MAIN_BYTE_BINDING=PASS`; `CTU_DROPIN_FOREIGN_REFUSAL=PASS`; `CTU_DROPIN_MISSING_REFUSAL=PASS`; `CTU_DROPIN_SYMLINK_REFUSAL=PASS`; `CTU_DROPIN_POSTRESTART_PRESERVATION=PASS` (repository tests). The recovery template digest is `3bee66130df5715c715d7434e255cff4fd7fd289da765420ce1026cd1f88f0a5`; the alert template digest is `7acc031b9341e9684683c55cc55a5b378b971de0d37a554e596be737fa50f41c`. This is repository-only: `CTU_LIVE_EXECUTED=NO`, `CTU_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+### Current Task
+
+Task: IDEA3 CTu exact-two predecessor drop-in preservation repair
+Branch: `fix/idea3-ctu-dropin-preservation`
+Owner: `music`
+Current state: repository repair, exact-two predecessor drop-in preservation contract, and nounset verify-environment remediation implemented and locally verified; Draft PR #383 pending owner/integration re-review; LIVE NOT EXECUTED; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh exact-main CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S4 | Exact-two predecessor drop-in preservation contract and regression repair | READY FOR REVIEW | focused CTu suites (72 passed), nounset behavioral regression, and affected test suites pass; immutable receipt and Draft PR #383 exist | repository implementation PASS; zero Production mutation; CTU_ATTEMPT_CONSUMED=NO; CTU_LIVE_EXECUTED=NO; RECOVERY_ATTEMPT_CONSUMED=NO; RECOVERY_LIVE_EXECUTED=NO; PRODUCTION_MUTATION_PERFORMED=NO | owner and independent exact-head Security/Governance re-review of Draft PR #383; human merge only; zero LIVE execution | independent exact-head re-review; human merge only; freeze fresh exact-main CTu authority after merge |
+
+## IDEA3 Core TrustedClock sandbox repair — repository-only successor preparation — 2026-10-07
+
+> [!important] **Root cause confirmed and repaired in the repository.** The Core's required read-only `adjtimex(2)` TrustedClock probe was blocked by `ProtectClock=true` in the reviewed Core unit. The smallest fix changes only that setting to `ProtectClock=false`; `User=aegis-idea3`, `NoNewPrivileges=true`, empty `CapabilityBoundingSet=`, empty `AmbientCapabilities=`, and the existing unrelated hardening remain unchanged. Linux clock mutation authority is not granted: `CAP_SYS_TIME` is absent and the service is non-root with no ambient/bounding capabilities.
+
+`CTu` is a NEW governed successor stage, not an L7/F1u/R1Du/RRu retry. Its future LIVE boundary is limited to installing the reviewed Core unit, conditional `daemon-reload`, and one governed Core restart. The detector may move only through its existing `Requires=aegis-idea3-core.service` dependency; CTu issues no detector command. The frozen runner requires fresh CTu Authorization/K3, exact merged-main pins, one CTU-GLOBAL-ATTEMPT-CONSUMED marker immediately before the first host mutation, PRE/POST capture, compare, verification and fail-closed rollback.
+
+`CTU_REPOSITORY_IMPLEMENTED=YES`; `CTU_APPLICATION_RELEASE_DEPLOY_REQUIRED=NO`; `CTU_LIVE_EXECUTED=NO`; `CTU_PRODUCTION_MUTATION_PERFORMED=NO`; `CTU_CORE_RESTARTED=NO`; `CTU_DETECTOR_EXPLICITLY_COMMANDED=NO`; `ESP32_TOUCHED=NO`; `NTP_REACTIVATION_RERUN=NO`. All 12 reviewer blockers are resolved and mechanically proven: runner pre-capture order (`RUNNER_PRE_CAPTURE_ORDER=PASS`), pre-existing open episode support for Case A and Case B (`ALREADY_OPEN_LOCKDOWN_CASE=PASS`), detector single implicit lifecycle (`DETECTOR_SINGLE_CYCLE_PROOF=PASS`), signal-safe rollback without recursive trapping (`SIGNAL_SAFE_ROLLBACK=PASS`), atomic closeout immutability (`ATOMIC_CLOSEOUT=PASS`, `CTU_PASS_SURVIVES_ROLLBACK=NO`), CTu -> Recovery descendant history binding (`CTU_RECOVERY_DESCENDANT_BINDING=PASS`), real CTu freeze and verifier trust closure (`CTU_FREEZE_IMPLEMENTATION_EXISTS=YES`, `CTU_FREEZE_VERIFIER_EXISTS=YES`, `CTU_TRUST_CLOSURE=PASS`), Authorization and K3 V2 binding (`CTU_AUTH_BINDING=PASS`, `CTU_K3_BINDING=PASS`, `CTU_EXTRA_FIELDS_REFUSED=YES`), pre-consume gates and non-interactive sudo keepalive (`POST_CONSUME_SUDO_PROMPT_POSSIBLE=NO`), manual reconciliation inspection tooling (`CTU_MANUAL_RECONCILIATION_READY=YES`), restored security intent (`TRUST_SEAM_TEST_WEAKENED=NO`), and Recovery negative test matrix (`RECOVERY_CTU_GATE_NEGATIVE_TESTS=PASS`). Its fixed root-owned stage-global marker is consumed durably before mutation; every post-consumption failure is terminal and invokes bounded Core-unit rollback without reopening the marker. RRu remains consumed/PASS and immutable; Recovery remains `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Existing Recovery freeze/Authorization/K3 artifacts bound to the pre-repair main are stale after this repair merges and must not be reused. The required governed sequence is: `RRu PASS -> NTP successor PASS / consumed -> CTu -> CTu closeout -> fresh Recovery authority/freeze -> Recovery -> LVR -> L8 -> L9`.
+
+### Current Task
+
+Task: IDEA3 CTu Pre-Live Host Reconciliation (Dual Detector Baseline + Configured Device ID Pin Binding)
+Branch: `fix/idea3-ctu-prelive-host-reconcile`
+Owner: `music`
+Current state: repository repair complete; dual detector baseline (Mode A active / Mode B inactive preservation) and exact frozen DEVICE_ID pin binding verified; Draft PR pending owner/integration review; LIVE NOT EXECUTED
+Production mutation allowed by this task: NO
+Next: human review and merge only; after merge, independently freeze fresh CTu authority before any LIVE restart
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| CTu-S1 | Core TrustedClock sandbox repair and governed successor package | CLOSED | 18 focused CTu tests; 367 + 1,224 affected governance tests; 82 IP-containment tests; diff/vault/collaboration validation | repository-only repair PASS; no Production mutation | owner/integration review; CTu LIVE intentionally unexecuted | human review and merge |
+| CTu-S2 | Resolve 12 CTu reviewer blockers (runner order, open episode, detector cycle, signal rollback, atomic closeout, descendant binding, freeze/trust closure, auth binding, pre-consume sudo, reconciliation, security intent, negative matrix) | CLOSED | 12/12 dedicated blocker tests PASS (`test_ctu_blockers.py`); 24/24 repair tests PASS (`test_core_trusted_time_repair.py`); 74/74 recovery freeze tests PASS; 368 affected regression tests PASS; vault validation PASS; core governance PASS | all 12 reviewer blockers resolved; zero Production mutation | merged via PR #375 (`f3ab9229694dd2b8d95b345e3a444f9a00887e24`) | proceed to pre-live host reconciliation |
+| CTu-S3 | CTu pre-live host reconciliation: dual detector baseline contract (Mode A active cycle / Mode B inactive preservation), exact frozen DEVICE_ID pin binding (`aegis-relay-01`), and CTu/Recovery frozen-runner provenance closure | READY FOR REVIEW | focused CTu/core/recovery tests PASS except two pre-existing namespace trust-seam expectation failures; direct-call/replay and core.env TOCTOU tests PASS; bash -n/py_compile/diff checks pending final rerun | repository repair PASS; zero Production mutation; CTU-GLOBAL-ATTEMPT-CONSUMED=ABSENT; no stage retry; CTU_DIRECT_APPLY_BYPASS_CLOSED=YES; RECOVERY_DIRECT_PRIVILEGED_HANDLER_GATED=YES | owner and independent exact-head Security/Governance review; CTu LIVE intentionally unexecuted | human review and merge Draft PR |
+
+## IDEA3 RRu LIVE — CLOSED_PASS — 2026-10-07
+
+> [!important] **RRu executed once and PASSED.** `RRU_LIVE=CLOSED_PASS`, `RRU_LIVE_EXECUTED=YES`, `RRU_RESULT=PASS`, `RRU_PRODUCTION_DEPLOYED=YES`, `RRU_ATTEMPT_CONSUMED=YES`, `RRU_RERUN_ALLOWED=NO`. Production `current` now points at immutable release `954ce1c191885e9e90198a6f54a3d990bcf144fc`. The Core and detector processes were unchanged, no service restart or detector command occurred, and the successor is exactly the OLD runtime plus the manifested Recovery CLI entrypoint. `RECOVERY_RUNTIME_RELEASE_READY=YES`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-07_005834_music_idea3-rru-live-closeout.md`.
+
+> **Recovery has NOT run.** `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. The next governed action is independent review + human merge of this RRu closeout, followed by a NEW exact-main Recovery authority/freeze.
+
+### Current Task
+
+Task: IDEA3 RRu LIVE closeout → Recovery handoff
+Branch: `docs/idea3-rru-live-closeout`
+Owner: `music`
+Current state: RRu `CLOSED_PASS`; PR #373 in final review; Recovery NOT EXECUTED
+RRu rerun allowed: NO
+Recovery attempt consumed: NO
+Production mutation allowed by this closeout task: NO
+Next: finish exact-head independent review → human merge PR #373 → create NEW exact-main Recovery authority
+
+### Session Register
+
+| ID | Scope | State | Evidence | Result | Remaining | Next |
+|---|---|---|---|---|---|---|
+| RRu-S2 | RRu LIVE execution and canonical closeout | FINAL REVIEW | canonical RRu LIVE receipt; exact-head predecessor/successor gates; 279 focused regression tests; collaboration guardrails PASS | `RRU_LIVE=CLOSED_PASS`; `RRU_ATTEMPT_CONSUMED=YES`; `RRU_RERUN_ALLOWED=NO`; Recovery NOT executed | exact-head final review and human merge only | NEW exact-main Recovery authority after merge |
+
+## IDEA3 Recovery Runtime successor RRu — repository implementation (historical; RRu has since executed once and PASSED) — 2026-10-06
+
+> [!note] **Historical repository-only snapshot.** Statements below that `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`, no frozen runner/Authorization existed, or RRu had not run were true before the 2026-10-07 LIVE attempt and are SUPERSEDED by the CLOSED_PASS section above.
+
+> [!important] **RRu is a new governed successor stage, not a retry.** The deterministic release builder now treats `cli` as a first-class entrypoint alongside `supervisor`, `recovery_ui`, and `production_detector`, and the release tests prove the complete transitive closure, manifest/checksum entry, real built-release import, and D4 `/dev/null` interactive-terminal refusal. RRu is registered exactly once after `R1Bv` and before `Recovery`.
+>
+> RRu owns only one immutable Recovery-capable release installation and one atomic `current` transition OLD → NEW. Its repository machinery requires fresh Authorization + K3, exact-main/frozen-runner authority, `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`, and an absent `RECOVERY-GLOBAL-ATTEMPT-CONSUMED`. It journals before each mutation, proves NEW is exactly OLD plus the CLI entrypoint, preserves the running Core/detector processes and all captured surfaces, and bounds rollback to its own NEW release/pointer transition. It does not restart Core or detector, arm R1D, mutate core.env/credentials/nft/MQTT/SQLite/Recovery sockets, run ISOLATE/RESTORE/CLOSE, touch Production, or touch ESP32.
+>
+> **Historical pre-LIVE truth (superseded):** `RRU_REPOSITORY_IMPLEMENTED=YES`, `RRU_LIVE_EXECUTED=NO`, `RECOVERY_RUNTIME_RELEASE_READY=NO`; `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; `R1B_RESULT=FAIL_IMMUTABLE`, `R1BV_RESULT=PASS`. At that repository-only checkpoint no RRu Authorization, K3, frozen live runner, host install, current transition, or RRu receipt existed yet. These execution-state statements are historical only and are superseded by the RRu `CLOSED_PASS` section and current task above.
+
+### Historical RRu Task Snapshot (superseded)
+
+Task: IDEA3 Recovery Runtime release successor RRu
+Branch: `fix/idea3-recovery-release-cli-successor`
+Owner: `music`
+Historical state: REPOSITORY IMPLEMENTED / LOCAL VERIFIED; LIVE NOT EXECUTED
+Started: 2026-10-06
+Base SHA: `ee1f58c118d64bc635e16feefad6d1d6da0d5432`
+Production mutation allowed at that repository-only checkpoint: NO
+
+### Historical RRu Session Register (superseded)
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| RRu-S1 | Continue Claude handoff; builder CLI closure and governed RRu machinery | CLOSED | builder/registry/Recovery focused suites: 641 passed; policy/vault: 59 passed; shell, Python, secret scan, diff checks pass | `feac56f5` plus RRu implementation checkpoint | repository implementation PASS; LIVE intentionally unexecuted | owner/integration review; no LIVE execution | human review of Draft PR; no LIVE execution |
+
+## IDEA3 R1Bv LIVE — CLOSED_PASS (read-only successor validation of the existing failed R1B evidence) — 2026-10-06
+
+> [!important] **R1Bv executed once and PASSED.** `R1BV_LIVE=CLOSED_PASS`, `R1BV_LIVE_EXECUTED=YES`, `R1BV_RESULT=PASS`, `R1BV_VERIFY=PASS`, `R1BV_IS_R1B_RETRY=NO`, `R1BV_READ_ONLY_VALIDATION_ONLY=YES`. It generated no external event, mutated no incident or R1B marker, and never created or reconstructed the missing `R1B-ATTEMPT-WINDOW`. Mechanically proven: the root-owned canonical R1B marker time authority and the `[L, L+600]` historical bound, the expected-source binding, the real detector/Core chain with `CREATED` semantics, audit provenance AND audit hash-chain integrity, R1I state, current TrustedClock evidence (the validation environment only, not the historical R1B clock) and the PRE -> POST preservation comparison (`PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_154016_music_idea3-r1bv-live-closeout.md`.
+> **R1B stays `R1B_RESULT=FAIL_IMMUTABLE`** (`R1B_RESULT_REWRITTEN=NO`, `R1B_RERUN_ALLOWED=NO`). **Recovery predecessor: SATISFIED** by the immutable R1B failure plus this unique R1Bv LIVE PASS closeout. **Recovery R2-R8 is the NEXT governed work and has NOT run** (`RECOVERY_R2_R8_EXECUTED=NO`). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`; `R1I_MUST_REMAIN_INSTALLED=YES`. Sequence: R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv LIVE PASS -> Recovery R2-R8 NEXT -> LVR -> L8 -> L9.
+
+## IDEA3 R1Bv — repository implementation (historical; R1Bv has since executed once and PASSED, see the R1Bv LIVE section above) — 2026-10-06
+
+> [!note] **Historical at the repository implementation (superseded):** the `R1BV_LIVE_EXECUTED=NO`, "no LIVE closeout" and "Recovery blocked until an R1Bv LIVE PASS closeout" statements below were true only then and are SUPERSEDED by the R1Bv LIVE section above (R1Bv LIVE PASS recorded; Recovery R2-R8 still NOT executed).
+> [!important] **Repository only (at that merge).** `R1BV_REPOSITORY_IMPLEMENTED=YES`, `R1BV_LIVE_EXECUTED=NO`, `R1BV_IS_R1B_RETRY=NO`, `R1BV_READ_ONLY_VALIDATION_ONLY=YES`. R1Bv is a NEW non-mutating governed stage (registered after R1B) that validates the EXISTING failed R1B attempt's evidence read-only: no new event, no incident or R1B marker mutation, no window-record creation or reconstruction, no observation sleep. R1B stays `R1B_RESULT=FAIL_IMMUTABLE` (`R1B_RESULT_REWRITTEN=NO`); a future R1Bv success is its own separate result and never rewrites R1B.
+> **Time authority:** the ROOT-OWNED canonical R1B marker is the PRIMARY lower bound (`L`), the deadline is `L + 600` with NO grace or widening; the operator-writable local marker and the preserved runner output only corroborate (a disagreement fails closed). The existing `r1_acceptance` verifier is reused unchanged over the PRESERVED baseline with evidence pre-filtered to `[L, D]` and every chain time re-checked strictly. The expected source, the R1B evidence/authorization directories, the audit DB and the UID are LIVE pins, never repository constants. **Recovery:** the reusable `r1bv_recovery_predecessor_gate` (no Recovery stage exists yet) accepts only the unique R1B FAILURE closeout plus the unique R1Bv LIVE PASS closeout.
+> At that merge (superseded): `R1BV_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO` (at that time blocked until an R1Bv LIVE PASS closeout), `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `R1I_MUST_REMAIN_INSTALLED=YES`. No R1Bv authority, Authorization, frozen runner or LIVE closeout exists. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-06-idea3-r1bv-successor-validation-design.md`; README section 22.
+
+## IDEA3 R1B LIVE — FAIL_IMMUTABLE at `windowrecord` after a PROVEN genuine external event (historical at the R1B closeout; R1Bv has since been implemented and run LIVE with PASS, see the R1Bv LIVE section above) — 2026-10-06
+
+> [!note] **Historical at the R1B failure closeout (superseded for R1Bv).** The statements below that R1Bv was "required", not implemented / "NOT run live" (`R1BV_LIVE_EXECUTED=NO`) and that Recovery was "blocked until R1Bv PASS" were true only then and are SUPERSEDED by the R1Bv LIVE section above. **Current truth:** `R1BV_LIVE=CLOSED_PASS`, `R1BV_LIVE_EXECUTED=YES`, `R1BV_RESULT=PASS`, `R1B_RESULT=FAIL_IMMUTABLE`, `RECOVERY_PREDECESSOR_BY_R1BV=SATISFIED`, `RECOVERY_R2_R8_EXECUTED=NO`. The R1B facts below (failed, consumed, no rerun) are unchanged.
+> [!important] **R1B ran once, consumed its attempt and stays failed.** `R1B_LIVE=CLOSED_FAIL`, `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`, `R1B_FAILED_STAGE=windowrecord`, `R1B_RERUN_ALLOWED=NO`. Root cause (owner interpretation): `POST_OBSERVATION_SUDO_AUTH_EXPIRY_DURING_WINDOW_RECORD` — the post-observation durable window record could not be written, so `R1B_WINDOW_RECORD=ABSENT` (never fabricated or reconstructed), and the final capture and verifier were not reached. The canonical and local markers are present.
+> **The genuine event is real and preserved:** `R1B_GENUINE_EXTERNAL_EVENT=PROVEN` (iPad `192.168.1.180`, 12 unique destination ports 51000–51011, detector `SENT_BOUND`); the Core created NEW incident #2 (`OPEN`, `attacker_ip=192.168.1.180`) with audit rows `INCIDENT_BOUND` and `ALERT_ACCEPTED` (`CREATED`); incident #1 (historical) stays `CLOSED`. This does NOT turn R1B into a PASS and does NOT authorize a rerun.
+> **Next:** `R1BV_REQUIRED=YES`, `R1BV_AUTHORIZED=YES` — a new read-only successor validation (`R1BV_IS_R1B_RETRY=NO`) using only the existing R1B evidence, with no new event, no incident or marker mutation and no window-record reconstruction. At the time of the closeout it was not yet implemented; it was then IMPLEMENTED in the repository and has SINCE been run LIVE and PASSED (superseded: `R1BV_LIVE_EXECUTED=YES`, see the R1Bv LIVE section above). `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_EXECUTED=NO` (at the time blocked until R1Bv PASS — superseded: that predecessor is now satisfied; Recovery is still not executed). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_112233_music_idea3-r1b-live-failure-closeout.md`.
+
+## IDEA3 R1Dv LIVE — CLOSED_PASS (read-only validation of the committed R1D disposition) — 2026-10-06 (historical at the R1Dv closeout; R1B has since run once and failed immutably, see the R1B LIVE section above)
+
+> [!note] **Historical at the instant R1Dv closed.** The R1B execution-state statements in this section ("R1B has NOT run", `R1B_ATTEMPT_CONSUMED=NO`, `R1B_LIVE_EXECUTED=NO`) were true only then and are SUPERSEDED by the R1B LIVE section above: R1B has since executed once and is `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`, `R1B_FAILED_STAGE=windowrecord`, `R1B_RERUN_ALLOWED=NO`; R1Bv is required but not run and Recovery R2-R8 stays blocked until R1Bv PASS. R1Dv itself remains PASS.
+> [!important] **R1Dv executed once and PASSED.** `R1DV_LIVE=CLOSED_PASS`, `R1DV_LIVE_EXECUTED=YES`, `R1DV_RESULT=PASS`, `R1DV_VERIFY=PASS`, `R1DV_IS_R1D_RETRY=NO`, `R1DV_READ_ONLY_VALIDATION_ONLY=YES`; no R1D socket, no incident mutation, no disposition created. It validated the already committed R1D disposition (one attempt row, one disposition row, `RECOVERY_R8_CLOSE_COUNT=0`, incident #1 `CLOSED`, `PREEXISTING_OPEN_INCIDENT_COUNT=0`, one-shot index and audit integrity PASS) with TrustedClock evidence available (`SYNCED`) and an unchanged PRE -> POST comparison (`PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`, three informational disk findings). `R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES`.
+> **R1D stays `R1D_RESULT=FAIL_IMMUTABLE`** (`R1D_RESULT_REWRITTEN=NO`). At that time R1B had NOT run (`R1B_ATTEMPT_CONSUMED=NO`, `R1B_LIVE_EXECUTED=NO` — superseded, see the note above) and was a separate owner decision; Recovery R2-R8 was not executed (still true; blocked until R1Bv PASS). `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Runner SHA-256 `4403ffeb43f11f7936ed2ad76c306363a49655cf2191b761442ce3012c16b8c4`. Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_095103_music_idea3-r1dv-live-closeout.md`.
+
+## IDEA3 R1D LIVE — FAIL_IMMUTABLE after a COMMITTED disposition; R1Dv read-only validation (repository implementation; historical — R1Dv has since executed, see the R1Dv LIVE section above) — 2026-10-06
+
+> [!important] **R1D ran once and stays failed.** `R1D_RESULT=FAIL_IMMUTABLE` (stage result `FAIL`, `R1D_FAILED_STAGE=final`), `R1D_ATTEMPT_CONSUMED=YES`, `R1D_RERUN_ALLOWED=NO`. **The disposition itself committed:** `R1D_DISPOSITION_COMMITTED=YES`, `R1D_DISPOSITION=DISPOSED`, historical incident #1 `CLOSED` (one attempt row, one `INCIDENT_DISPOSED_HISTORICAL` row, `RECOVERY_R8_CLOSE_COUNT=0`), `PREEXISTING_OPEN_INCIDENT_COUNT=0`. The final comparison failed on `time.trustedclock.state` evidence UNAVAILABLE (`PRESERVATION_S10=FAIL`); root cause: the R1D immutable verifier snapshot lacked `aegis_soc/trusted_time.py` (clock drift is NOT proven). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_073302_music_idea3-r1d-live-failure-closeout.md`.
+> **Repository repair (as merged; R1Dv has since executed once and passed — see the section above):** the snapshot closure now includes every entry point (`trusted_time`) and its transitive imports, and the new NON-MUTATING governed stage `R1Dv` (`R1DV_IS_R1D_RETRY=NO`, `R1DV_READ_ONLY_VALIDATION_ONLY=YES`; no marker, no socket, no disposition) validates the committed R1D state. Stage order: `... R1Du R1D R1Dv R1B ...`. `R1DV_LIVE_EXECUTED=NO` at that merge (superseded: R1Dv LIVE PASS is closed above). R1B was blocked (`R1B_BLOCKED_UNTIL_R1DV_PASS_AND_CLOSEOUT=YES`) and its predecessor gate accepts Path A (legacy unique R1D PASS closeout) or Path B (the immutable R1D failure closeout plus a unique R1Dv LIVE PASS closeout) only; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`. Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-06-idea3-r1dv-post-r1d-validation-design.md`.
+> Claims boundary: `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`; at that merge `R1B_ATTEMPT_CONSUMED=NO` (superseded: R1B has since run once and failed immutably).
+
+## IDEA3 R1Du LIVE — CLOSED_PASS (deployment only) — 2026-10-06 (historical; R1D and R1B have since run and failed immutably, see the sections above)
+
+> [!important] **R1Du executed once and is permanently consumed.** `R1DU_LIVE=CLOSED_PASS`, `R1DU_LIVE_EXECUTED=YES`, `R1DU_PRODUCTION_DEPLOYED=YES`, `R1DU_ATTEMPT_CONSUMED=YES`, `R1DU_RERUN_ALLOWED=NO`, `R1DU_RELEASE_ID=ebffab6f8a6d7d98973fac7e89167352d529a87e`. The Core was restarted exactly once and runs the new release; the detector was cycled by systemd (Option A, zero explicit detector commands); the Core-private R1D channel is armed and served by the Core (`R1DU_R1D_CHANNEL_ARMED=YES`, `R1DU_R1D_SOCKET_SERVED_BY_CORE=YES`); apply, verify and the PRE/POST comparison passed with `SECRET_SCAN_HITS=0`.
+> R1Du proves deployment only: `R1DU_R1D_EXECUTED=NO`, `R1DU_INCIDENT_MUTATED=NO`. Historical incident #1 is still `OPEN` (`PREEXISTING_OPEN_INCIDENT_COUNT=1`); `R1D_ATTEMPT_CONSUMED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R2_R8_EXECUTED=NO`. The governed step that followed was R1D (it then ran and failed immutably after a committed disposition; see the R1D section above). Receipt: `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-06_070624_music_idea3-r1du-live-closeout.md`.
+
+## IDEA3 R1Du + R1D historical R1A incident disposition — repository implementation (historical PRE-LIVE snapshot; R1Du has since executed, see the R1Du LIVE section above) — 2026-10-06
+
+> [!note] **Historical PRE-LIVE snapshot (superseded for R1Du by the R1Du LIVE section above).** This section records the repository implementation as it stood when merged, before any live stage ran; its execution-state fields are NOT current. **Current:** `R1DU_LIVE=CLOSED_PASS`, `R1DU_LIVE_EXECUTED=YES`, `R1DU_PRODUCTION_DEPLOYED=YES`, `R1DU_ATTEMPT_CONSUMED=YES`, `R1DU_RERUN_ALLOWED=NO` (deployment only); at the R1Du closeout R1B had not run (`R1B_ATTEMPT_CONSUMED=NO`, since superseded: R1B has run once and failed immutably); R1D has since run once and failed immutably with a committed disposition (see the R1D section above; the R1D flags in this historical snapshot, `R1D_LIVE_EXECUTED=NO` / `R1D_ATTEMPT_CONSUMED=NO`, are no longer current) and `RECOVERY_R2_R8_EXECUTED=NO`. At the time of the snapshot, a governed pre-live blocker for R1B was resolved in the repository, not on any host. The immutable failed R1A attempt left incident #1 `OPEN`; R1B requires a NEW incident with `CREATED` semantics and its baseline refuses any open incident, and no reviewed path could close it. Owner-approved order: `R1A (immutable FAIL) -> R1Du -> R1D -> R1B -> Recovery R2-R8`. `R1DU_REPOSITORY_IMPLEMENTED=YES`, `R1D_REPOSITORY_IMPLEMENTED=YES` (at merge time the live-state fields were all `NO`; they are intentionally not repeated here as current state). `R1A_RESULT=FAIL_IMMUTABLE` and `R1A_RERUN_ALLOWED=NO` are untouched; R1B stays `R1B_IS_R1A_RETRY=NO` with its NEW-incident / `CREATED` / genuine-event / source-IP / one-attempt semantics unchanged (`R1B_NEW_INCIDENT_CREATED_SEMANTICS_UNCHANGED=YES`).
+
+- **Core authority:** a dedicated Core-private, root-only (kernel `SO_PEERCRED` uid 0), inert-by-default channel disposes of the one preserved historical incident in ONE atomic SQLite transaction (a single `INCIDENT_DISPOSED_HISTORICAL` audit row plus `OPEN -> CLOSED`, with the binding `R1D_BINDING_V1` confirmed against a digest the Core reconstructs itself); it is permanently dead after one use. Not Recovery R8: normal `CLOSE` stays R1-R7 gated and the disposed incident reports `NO_CORE_CLOSE_RECORD`. A past read-only R2/R6/R7 probe leaves no durable row and is NOT claimed absent.
+- **Stages:** R1Du (F1u-style Core upgrade carrying the authority; arms the channel with one exact core.env line; one governed Core restart) and R1D (one-shot, frozen-runner, marker-bounded disposition). R1B's predecessor gate additionally recognises the R1Du closeout and the new current release and requires the unique R1D LIVE PASS closeout. The R1D mutation set is exactly: one Core attempt row, one `INCIDENT_DISPOSED_HISTORICAL` audit row, the incident `OPEN -> CLOSED`, the hash-chain advance and ONE persistent partial unique SQLite index (`ux_audit_historical_disposition`); the Core channel is single-attempt (a durable attempt row is written when the first authorized peer connects).
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`. R1D PASS would prove only `PREEXISTING_OPEN_INCIDENT_COUNT=0` and `R1B_PRECONDITION_HISTORICAL_INCIDENT_CLEARED=YES`.
+
+## IDEA3 R1B successor governed stage — repository implementation (historical PRE-LIVE snapshot; R1B has since executed once and failed immutably, see the R1B LIVE section above) — 2026-10-06
+
+> [!note] **Historical PRE-LIVE snapshot — the execution-state fields below are NOT current** (current: `R1B_LIVE_EXECUTED=YES`, `R1B_ATTEMPT_CONSUMED=YES`, `R1B_RESULT=FAIL_IMMUTABLE`; see the R1B LIVE section above).
+> **Repository only (at that merge).** `R1B_IS_SUCCESSOR_GOVERNED_STAGE=YES`, `R1B_IS_R1A_RETRY=NO`, `R1B_REPOSITORY_IMPLEMENTED=YES`, `R1B_LIVE_EXECUTED=NO`, `R1B_ATTEMPT_CONSUMED=NO`. R1A stays `R1A_RESULT=FAIL_IMMUTABLE` (`R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`). R1B is ONE attempt (`R1B_NO_RETRY=YES`) with its own canonical marker, a genuine external event only (`R1B_SYNTHETIC_EVENT_ALLOWED=NO`), two pre-consume captures with TrustedClock `SYNCED` and no-drift comparison before the marker, and TrustedClock imported from the immutable verifier snapshot. `R1I_MUST_REMAIN_INSTALLED=YES`; `RECOVERY_R2_R8_BLOCKED_UNTIL_R1B_PASS=YES`; `RECOVERY_R2_R8_EXECUTED=NO`.
+
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`; a future R1B verifier PASS stays `R1B_PROMOTION=NOT_AUTOMATIC`.
+
+## IDEA3 R1A LIVE — CLOSED_FAIL; genuine detector-chain evidence PASS — 2026-10-05
+
+> [!danger] **R1A executed once and is permanently consumed.** `R1A_LIVE_EXECUTED=YES`, `R1A_ATTEMPT_CONSUMED=YES`, `R1A_RERUN_ALLOWED=NO`, `R1A_RESULT=FAIL`, `R1A_FAILED_STAGE=final`. The owner-run attempt opened one 180-second marker-bounded window and observed one genuine external event. The internal read-only R1 acceptance verifier returned PASS and post-failure forensic binding also passed (`REAL_DETECTOR_CHAIN_EVIDENCE=PASS`, `FORENSIC_CHAIN_BINDING=PASS`), but the governed stage failed before `r1a_hook_verify` because the generic PRE→POST preservation comparator failed. Do not rerun R1A and do not delete/reset the canonical marker, window record, incident or genuine evidence.
+
+- **Real chain evidence (owner-run read-only forensic observation; non-governed):** trusted external `port_scan` source event reconstructed; detector alert delivered to Core; detector UID/PID validated; one OPEN incident with `ALERT_ACCEPTED` and `INCIDENT_BOUND`; expected source binding PASS; source completion and detector alert inside the canonical marker window PASS; audit causal/window checks PASS. This is preserved evidence, not a governed R1A verdict and not an automatic project-claim promotion.
+- **Stage failure:** `PRESERVATION_S10=FAIL`, `COMPARE_RESULT=FAIL`, with one `NEW_OR_WORSENED_DRIFT` (`127.0.0.1:6463` listener added by an unrelated owner desktop application during the observation window) and one `INCOMPARABLE` key (`time.trustedclock.state=UNAVAILABLE` in both captures). Either finding was independently fatal under the frozen comparator contract. Read-only forensic reproduction showed the frozen control-snapshot clock helper could not import `aegis_soc`; a separate read-only probe performed only after the failed attempt with the verifier snapshot available returned `state=SYNCED reason=OK` and does not prove clock state during the R1A window. No post-hoc allowlist or retry is applied.
+- **Claims boundary:** `R1A_STAGE_VERIFY=NOT_REACHED`, `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `RECOVERY_R2_R8_EXECUTED=NO`. Recovery R2–R8 remains blocked. Any continuation must use a separately reviewed **new stage ID**. A post-attempt evidence adjudication mechanism cannot change `R1A_RESULT=FAIL`, satisfy/bypass an R1A receipt gate, or create `R1A_LIVE=CLOSED_PASS`; any promotion requires the new stage's own reviewed LIVE closeout. R1A itself cannot be replayed.
+- **R1I / hardware:** R1I remains installed during closeout; this section authorizes no rollback/removal. ESP32 was not used or touched by R1A.
+- **Receipt:** `90-Status/logs/2026-10-05_232827_music_idea3-r1a-live-failure-closeout.md`. Raw Production evidence and machine-local identifiers remain owner-local and are not committed.
+
+## IDEA3 R1A pre-live hardening (M2 durability, M6 frozen-runner authority) — repository implementation — 2026-10-05 (historical; superseded by R1A LIVE CLOSED_FAIL above)
+
+> [!note] **Historical repository-only state, superseded by the R1A LIVE closeout above.** Bootstrap authority repair (repository only). Privileged freezes run from a root-owned exact-main authority created by a system-only Phase A and invoked with isolated system Python; the tools also fail closed on an untrusted tool or source tree before any read; pins are full-string validated and the canonical directory's parent is always made durable before the marker. Nothing was run live.
+
+> [!important] **Repository implementation only.** `R1A_PRELIVE_HARDENING_REPOSITORY_IMPLEMENTED=YES`, `R1A_LIVE_EXECUTED=NO`, `R1A_ATTEMPT_CONSUMED=NO`. (M2) The canonical one-attempt marker and window record are forced durable (file, then containing directory) before the state machine proceeds; a failed barrier after the marker exists is a consumed fail-closed outcome with no observation and no retry, and a failed window-record barrier never lets FINAL or VERIFY run. (M6) A dedicated freeze/verify tool derives the frozen runner as the exact reviewed template (the `EXPECTED_MAIN` Git object, replacement objects disabled) plus only the allowlisted pin substitutions, and protects it root-owned and non-writable (production ancestor authority all the way to `/`, proven before root creates the file; the snapshot freeze commands carry the same pre-write proof and no `--trust-root` option; a narrower trust root exists only as a user-namespace-only test seam); the Authorization's runner SHA-256 binding is unchanged. No authorization, K3 or live frozen runner exists.
+
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+## IDEA3 R1A real detector acceptance stage — repository implementation — 2026-10-05 (historical; superseded by R1A LIVE CLOSED_FAIL above)
+
+> [!important] **Historical repository-only state, superseded by the R1A LIVE closeout above (IMPLEMENTED != LIVE EXECUTED).** `R1A_STAGE_ID_OWNER_APPROVED=YES`; `R1A` is registered in `P4_STAGES` after `R1I` and before `L8`. `R1A_GOVERNANCE_CLASS=MUTATING`, `R1A_ONE_ATTEMPT=YES`, `R1A_NO_RETRY=YES`, `R1A_GENUINE_EXTERNAL_EVENT_REQUIRED=YES`, `R1A_SYNTHETIC_ALERT_ALLOWED=NO`, `R1A_REAL_EVIDENCE_ROLLBACK_ALLOWED=NO`, `R1I_MUST_REMAIN_INSTALLED=YES`. `R1A_REPOSITORY_IMPLEMENTED=YES`, `R1A_LIVE_EXECUTED=NO`. The stage observes only: it generates no traffic, alert, journal line, Core write or database write; its rollback is evidence-preserving and acts on nothing; the existing fail-closed `r1_acceptance` verifier is the authority (its claim boundary is unchanged; its result document gains sanitized informational `evidence_times` for the R1A window binding, and Round 5 adds ONE fail-closed causality acceptance predicate, `AUDIT_ROW_AFTER_DETECTOR_ALERT`: the stored incident, `INCIDENT_BOUND` and `ALERT_ACCEPTED` whole-second timestamps must not be later than the detector's own alert line, with no tolerance or post-deadline grace; automatic success still promotes nothing). The independent review of PR #353 was repaired in the repository: the expected source IP is enforced, the acceptance window is bound to the consumed marker, the verifier runs only from an immutable manifested snapshot that is re-proved before FINAL, and one attempt is enforced TOTAL by ONE canonical stage-global marker whose location is fixed by the stage contract (not re-pinnable per runner). The live control plane is an immutable, root-owned manifested snapshot re-proved before every root execution (with Git replace objects disabled for every authority read), the canonical window record is mandatory, and the verifier refuses audit rows stored later than the detector's alert line. No authorization, K3 or frozen runner exists.
+
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. Recovery R2-R8 stays blocked until R1A/R1 succeeds; promotion needs a separately reviewed LIVE closeout.
+
+## IDEA3 R1I LIVE — CLOSED_PASS — 2026-10-05
+
+> [!important] **R1I LIVE executed once and passed (owner-run).** `R1I_LIVE=CLOSED_PASS`, `R1I_ATTEMPT_CONSUMED=YES`, `R1I_RERUN_ALLOWED=NO`, `R1I_LIVE_EXECUTED=YES`, `R1I_PRODUCTION_DEPLOYED=YES`, `PRODUCTION_NFT_NORMALIZATION=PASS_OBSERVED_LIVE`. The frozen successor runner at main `c111a29b9a2f386cbccccfdf57c84b6a9b4f23d5` created only `table inet aegis_idea3_r1i`: input hook only, priority `-10`, IPv4 only, `ct state new`, `tcp flags & (syn | ack) == syn`, `limit rate 50/second burst 60 packets`, `log prefix "AEGIS_NEWCONN "`, no verdict. `R1I_APPLY=PASS`, `R1I_VERIFY=PASS`, PRE/POST captures complete, `R1I_PRE_POST_COMPARE=PASS`, `PRESERVATION_S10=PASS`, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_APPROVED_CHANGE=3`; Core and detector were not restarted.
+
+- **Claims boundary (historical at R1I closeout; superseded for R1A execution by the current R1A LIVE section above):** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `R1A_EXECUTED=NO`. R1I installs the kernel-origin `AEGIS_NEWCONN` log producer only; it does not prove detector acceptance.
+- **Runtime-only:** the table is not persisted; a reboot removes it. It must stay installed for the separately governed R1A and must not be rolled back or removed now.
+- **Evidence:** `LIVE_EVIDENCE_LOCATION=OWNER_LOCAL_ARCHIVE`, retained unredacted by the owner; the public repository carries only the redacted closeout receipt `90-Status/logs/2026-10-05_063546_music_idea3-r1i-live-closeout.md`. Post-run Core/detector/current-release state is `OWNER_OBSERVED` (not re-read at closeout).
+
+## IDEA3 R1I input instrumentation stage — repository implementation — 2026-10-05 (superseded by the LIVE section above)
+
+> [!important] **Repository implementation only (IMPLEMENTED != LIVE EXECUTED != PRODUCTION DEPLOYED).** `FINAL_STAGE_ID=R1I` is owner-approved and registered in `P4_STAGES` after F1u and before the separately governed, still-unregistered R1A. `R1I_REPOSITORY_IMPLEMENTED=YES`, `R1I_LIVE_EXECUTED=NO`, `R1I_PRODUCTION_DEPLOYED=NO` (at the time of this repository section; superseded by the LIVE section above). The stage owns only `table inet aegis_idea3_r1i`, with an INPUT-only hook at priority `-10` (no forward hook), an IPv4-only exact initial-SYN match, and `AEGIS_NEWCONN` kernel logging at `50/second burst 60`. It has no verdict, does not alter `aegis_idea3` or `blocked_ipv4`, and does not restart Core/detector or create alerts/incidents. No Production nftables, traffic, alert, incident, Recovery, ESP32, or R1A action occurred.
+
+- **Claims boundary:** `R1I_REPOSITORY_IMPLEMENTED=YES`, `R1I_LIVE_EXECUTED=NO`, `R1I_PRODUCTION_DEPLOYED=NO`, `PRODUCTION_NFT_NORMALIZATION=NOT_PROVEN` (at the time; now `PASS_OBSERVED_LIVE`; a LIVE-preflight proof, not established by repository or private-namespace tests), `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. R1I installs a future producer only; it does not prove that producer is live or that R1A acceptance passed.
+- **Ownership:** apply creates the table through one atomic `create table` batch (an existing table is refused, never merged), journals ownership before mutation, and is one attempt only; a post-apply failure rolls back only provably exact owned state, otherwise reports `MANUAL_CLEANUP_REQUIRED`; verify and rollback require the exact stage-owned state; foreign drift fails closed; rollback removes only `inet/aegis_idea3_r1i`. Real-host nft output normalization is a LIVE-preflight proof, not claimed. The shared Phase-4 allow-list permits only the dedicated nft table/ruleset capture keys and no listeners.
+- **Receipt:** the immutable R1I implementation receipt is recorded under `90-Status/logs/` at task closeout.
+
+> [!warning] Ownership and evidence boundary
+> Owner: **Music**. The Security Center and Headless Core from PR #91 are on shared `main`. Project-sequence PR5 was merged through GitHub PR #117 at `58f19f2051170685757627a6baea90b264a877c4`; its owner-observed lab evidence covers the external fail-secure circuit, powered EN/reset behavior, and Router/Switch real-Ethernet CUT/RESTORE within the stated boundaries. PR9 passed its post-PR5 S7 verification at `e5863fc664e239b78f37dd4ce663bc1186f22744`, S8 recorded its one receipt, and GitHub PR #115 was merged by a human reviewer at `2c21cc3e5843bcd75eb1dd2b7f607a745cce254d`. PR9 `PRODUCTION_LIKE_VERIFIED` is local loopback/dry-run evidence only; `PRODUCTION_DEPLOYED = NO`. PR10 is IN PROGRESS. Its S1 documentation (the read-only real deployment inventory and architecture gate) reached `main` when a human reviewer merged GitHub PR #120 at `93170862cbf5b5a802042d12c84944abd39d9123` before PR10 was complete. That merge is a documentation checkpoint only. The owner accepted the PR10 architecture decisions D1–D8 on 2026-09-12, and the read-only live AEGIS Server inventory passed the same day (`LIVE_SERVER_INVENTORY = PASS`). The IDEA3 owner reported Kla's integration approval of the K1–K12 package for the D3/D5 shared infrastructure on 2026-09-12 (architecture/integration only), so **PR10 S1 is PASS / CLOSED**. PR10 remains IN PROGRESS. A human reviewer merged GitHub PR #122 at `b2f61ebf361a5e22f00d28e7e99dcbf3ce006d95`; it is the immutable S1 closeout. The owner approved the continuation model on 2026-09-12. PR10 S2 — the repository-only, non-Production Server → Core accepted-action boundary — is **PASS / CLOSED**: a human reviewer merged GitHub PR #123 at `d903327e56a744de3a535f105797a53f0dccebaf` (2026-09-12), with LOCAL / SIMULATED evidence only. No Production change is authorized, and nothing is deployed. PR11 (live cross-IDEA and authorized E2E) is **IN PROGRESS**. Its Phase 0 — the 0A repository/GitHub preflight and the 0B live read-only preflight — is **PASS / EVIDENCE COMPLETE** (owner gate, 2026-09-13). Phase 1A and Phase 1B are PASS. PR #127 merged the Phase 1 owner-decision package at `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`; its Music-owned Phase 1 decision-documentation reconciliation is **COMPLETE** with exactly one final receipt. Music's K1/K2/K3/K4/K5/K7/K9/K10/K12/D6 architecture/integration decisions are recorded. Kla and Pub are normal GitHub reviewers; Kla approved PR #131 before its human merge at `c448dfb914d2480f81fbc35abfbc8e5633dd3a38`, and Pub's review was not recorded. PR #132 merged the Phase 2 repository package at `509723680207b6fb8cbbe409d19ac7ad7dd9cc8a`; Phase 2 runtime remains incomplete. A human merged PR #133, the Phase 3 Core Live repository preparation, at `2742be27d9a904cf73378724ea831d9ef385948b`, after Kla and Pub (D6) APPROVED reviews. Phase 3 runtime is still incomplete. Music approved Phase 4 G1 on 2026-09-15, and PR #135 merged the Protocol v1 repository package at `f0a87ee1eb119a5107b63df008218a6163661123`; Phase 4 runtime is incomplete. The owner-run P2-E1 read-only Production evidence (2026-09-15) is recorded: K1 FAIL (live NGINX drift), K3 Public Share baseline PASS with non-overlap NOT PROVEN, K4 live recheck PASS, K7 BLOCKED, K8/K9/K10 BLOCKED, and K12 NOT PROVEN. A human merged that record as PR #136 at `1dc786353dd4dcea0a5959a926667470dd394ffe`. Pub approved it; Kla submitted no review, so the K1/K3/K7 owner decisions were not recorded. A docs-only follow-up asked Kla for them. A human merged it as PR #137 at `7a80596392520050acbe1d00c778959b002cda6b`, and Kla's APPROVED review had an empty body, so all three remain `PENDING_KLA`. The D4 Core-local RESTORE repository implementation is COMPLETE and LOCAL VERIFIED. A human merged it as PR #138 at `3fd8d4d1026b345f84d03b7294b9c9017f54bf55`. It has never run live, and Web, Telegram, and automatic RESTORE remain unavailable. K1 is now reconciled in the repository and merged (PR #144 at `e4183fefd83727eba82cdb6c0d94d14b4bf349e4`); the Phase 2B overlay form is merged (PR #145 at `c89eeecaf3c6b577dd96343861a1dc7091a8d31e`); neither merge changed the running HUB or enabled Phase 2B. The K1 reconciliation: the owner-captured live HUB artifact (`16cee162…`) is the reviewed baseline, the IR-1 `/security` browser route is added on top, the Phase 2B mTLS block is reviewed but not included, and a HUB routing contract test proves preservation plus the additions. K3 is CLEAR on the merged IDEA1 PR #141 closeout. A human merged Music's final approve-only K1/K3/K7 package as PR #139 at `8cf917bfab6ca9dc321839d08255562741374603` after an APPROVED review by `kraveerachat`, so the K1, K3, and K7 decisions are ACCEPTED. Owner-run read-only Stage A and K7 comparison evidence (2026-09-15/16) explained the running HUB's config-hash drift. Music's approve-only K3/K7 pre-mutation package is prepared for Kla's review on `docs/idea3-pr11-phase2-k3-k7-premutation-package`; K3 needs Kla's written confirmation that the IDEA1 window is closed. Phase 4 live work, Stage B, and all Production mutation remain unauthorized. Read "IDEA3 PR11 Phase 4 L7 #7 — LIVE ACCEPTANCE PROVEN — 2026-09-30" first (the CURRENT L7 result; L7 `L7_LIVE_ACCEPTANCE = PROVEN`, ESP32/L8 untouched), then the L7 #6 failed-attempt section that it supersedes, then "IDEA3 PR11 Post-Containment Reconciliation + Live-Readiness Contract — 2026-09-23" (this reconciliation task; confirms PR #181 merged at `21d7b7824e6edf1950a7bd914f5d780366fd13c7` and its PR #182 recovery receipt merged at `f2f92425...`; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, `SOFTWARE_IP_UNBLOCK = SOURCE_IMPLEMENTED`, still not host-verified; defines the exact host-verification contract required before `SOFTWARE_BLOCK_IP`/`SOFTWARE_UNBLOCK = IMPLEMENTED_AND_HOST_VERIFIED`; no live mutation performed), then "IDEA3 PR11 MVP dynamic IP containment — source implementation — 2026-09-22" (PR #181, now MERGED — no longer Draft; BLOCK_IP/UNBLOCK_IP source implemented through a root socket-activated nftables helper; Core stays unprivileged; generic attacker events now use software containment instead of automatic CUT; `SOFTWARE_IP_BLOCKING = SOURCE_IMPLEMENTED`, not host-verified), then "IDEA3 Final Project — PR11 MVP Scope Freeze — 2026-09-22" (PR #178 merged at `3b91fc40`; IDEA3 Final Project scope formally frozen as Security Orchestrator + Physical Containment MVP; PR11 exit criteria and PR12 A1–A7 acceptance defined; software IP blocking and live cross-IDEA integrations open; IDEA2 narrowed preservation decision pending; production hardening deferred; `PR11_MVP_COMPLETE = NO`, `PR12_FINAL_ACCEPTANCE = OPEN`), then "IDEA3 PR11 Phase 4 L1 disk-threshold owner decision reconciliation — 2026-09-22" (PR #178 merged; canonical threshold 90%, PR #174 conflict resolved for repository purposes; live L1 blocked on disk usage 96%, IDEA2 §10, and authorizations), then "IDEA3 PR11 Phase 4 Official L0 live baseline — durable closeout — 2026-09-21" (official post-repair read-only baseline accepted; disk 96% used blocks L1, disk threshold contract reconciliation required, IDEA2 §10 remains freshly blocking, L1 live backend not implemented fail-closed; `PHASE4_RUNTIME_COMPLETE = NO`, `PHASE4_LIVE_READINESS = NOT READY`), then "IDEA3 PR11 Phase 4 L0 harness portability and fail-closed repair — 2026-09-21" (repository repair of locale determinism, paths with spaces in argv-aware filesystem reads, and fail-closed metadata handling), then "IDEA3 PR11 Phase 4 live-readiness reconciliation — 2026-09-21", then "IDEA3 PR11 Phase 4 L1 package installation handler repository registration — 2026-09-21", then "IDEA3 PR11 Phase 3 runtime completion — in progress — 2026-09-17" (repository-only systemd 261 unit correction; `PHASE3_RUNTIME_COMPLETE = NO`), then "IDEA3 PR11 Phase 2 runtime — final closeout — 2026-09-17" (owner-run T3 wrong-CA and T4 revoked-certificate gates PASS; `PHASE2_RUNTIME_COMPLETE = YES`; K12, Phase 3, Phase 4, D4 live, and PR11 remain open), then "IDEA3 PR11 Phase 2 runtime — live evidence reconciliation — 2026-09-16" (Phase 2A PASS and Phase 2B activated live; its T3/T4 SKIP state is superseded), then "IDEA3 PR11 K10 server-held client CA amendment — 2026-09-16," then "IDEA3 PR11 Phase 2 runtime completion — post-#144/#145 reconciliation — 2026-09-16," then "IDEA3 PR11 Phase 2 pre-mutation owner package — K3, K7 — 2026-09-16," then "IDEA3 PR11 Phase 2 final owner-decision package — K1, K3, K7 — 2026-09-16," then "IDEA3 PR11 D4 Core-local RESTORE — repository implementation — 2026-09-16," then "IDEA3 PR11 Phase 2 Kla owner-decision confirmation — 2026-09-16," then "IDEA3 PR11 Phase 2 live evidence reconciliation — P2-E1 — 2026-09-15," then the Phase 4, Phase 3, Phase 2, Phase 1, Phase 0, and PR10 sections below. Total-control-power-loss behavior, deployment-grade mechanical hardening, final relay-cycle Twingate auto-recovery, live adapters, and production deployment remain open. ACK and protocol-correlated STATUS must never be promoted to direct electrical relay proof.
+
+> **Primary Function**: Automatic disconnection and physical lockdown system triggered upon critical threats (Physical Emergency Lockdown System). Commands ESP32 microcontrollers via secure MQTT + HMAC-SHA256 protocol.
+
+## Current governed state — Recovery R2-R8 repository implementation — 2026-10-06
+
+`RECOVERY_REPOSITORY_IMPLEMENTED=YES`
+`RECOVERY_LIVE_EXECUTED=NO`
+`RECOVERY_R2_R8_EXECUTED=NO`
+
+The single mutating Phase-4 `Recovery` stage is registered after `R1Bv` and
+before `L8`; it drives the Core-owned ordered R2-R8 ladder as one consumed,
+non-retriable attempt. Fresh same-day Authorization and K3 are required because
+Recovery mutates Production. Normal D4 remains owner-interactive and the runner
+records only its exit code; no secret enters the runner, argv, environment,
+pins, evidence, or Git. The repository does not execute Recovery LIVE.
+
+Sequence: `R1A FAIL_IMMUTABLE -> R1Du PASS -> R1D FAIL_IMMUTABLE -> R1Dv PASS -> R1B FAIL_IMMUTABLE -> R1Bv PASS -> Recovery R2-R8 IMPLEMENTED / LIVE NEXT -> LVR -> L8 -> L9`.
+
+### Session S2 — Recovery R2-R8 implementation continuation
+
+State: CLOSED · Branch: `feat/idea3-recovery-r2-r8-stage` · Starting SHA:
+`c6885cb1d949389fbaead66d2076a7727ccebc2b` · Production mutation allowed: NO
+
+The prior “no Recovery stage exists” wording below is historical/superseded.
+
+Implementation evidence: the independent review (3 CRITICAL, 7 IMPORTANT, 3 MINOR) was remediated in place: the owner reason is validated before the marker; the runner and root handlers prove the root-owned control and verifier snapshots, exact-main Git authority and the real stage gate before executing; one durable canonical attempt marker; real PRE/POST preservation with a semantic containment-delta allowance; root-owned work/result bound to the attempt; PASS from the Core's own durable evidence and CLOSE record; the RESTORE secret only into the pinned release CLI. Focused suites passed (331 stage/authority/preservation, 142 freeze/snapshot, 354 Core/evidence, 1,409 registry/harness); the full suite had only pre-existing or re-pinned failures. Recovery LIVE, Production mutation, R1B/R1Bv reruns, and ESP32 access remain explicitly unexecuted; a fresh independent review is still required.
+
+Final narrow remediation (fresh review F1–F4, M-a–M-c): the pinned D4 CLI now writes to an exclusive 0600 operator log under the private evidence directory via an explicit `AEGIS_LOG_PATH` (every operator and root `env -i` stage call sets one; none can fall back to a relative `aegis_soc.log`); before the marker the runner requires a terminal and rehearses the exact D4 command with stdin `/dev/null` (exit 2 plus the interactive-terminal refusal, no secret, no socket); one `sudo -v` is followed by a bounded `sudo -n -v` keepalive that is re-checked before the marker and before FINAL; the running Core's mandatory R2/R6/R7 configuration and its timezone are proven before the marker; the D4 closure is bound to the release `RELEASE-SHA256SUMS` through a 23rd pin. Repository only: `RECOVERY_LIVE_EXECUTED=NO`, `RECOVERY_R2_R8_EXECUTED=NO`.
+
+## IDEA3 F1u LIVE closeout — deployment PASS — 2026-10-05
+
+> [!important] **F1u LIVE executed once and passed its deployment boundary.** `F1U_LIVE_EXECUTED=YES`, `F1U_PRODUCTION_DEPLOYED=YES`, `F1U_APPLY=PASS`, `F1U_VERIFY=PASS`, `F1U_ROLLBACK=NOT_NEEDED`. The immutable release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314` was installed, activated, and the Core restarted exactly once. This proves deployment only; it does not prove real detector acceptance, R1, Recovery R2–R8, LVR, L8, or L9.
+
+- **Authority and evidence:** authoritative main was `912b18005bb2fc80bb4e8d1fe8aa88803ac27314`; the successful frozen runner SHA-256 is `540ee4b59727742ae159ae1a53f6063498ff344d511d07ce67582351b8b1d27d`. Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-05-f1u-20261005-035752`. Fresh `authorization-F1u.txt` and `k3-F1u.txt` match the successful successor run. The F1u attempt marker was consumed exactly once. The protected `f1u-work` directory was root-owned and unreadable to this closeout audit; the readable runner output, journals, checksums, capture logs, and compare reports are the evidence used below.
+- **Verified outcome:** PRE capture complete with valid SHA-256 manifest; APPLY complete; VERIFY PASS; POST capture complete with valid SHA-256 manifest; PRE→POST compare PASS; `FINDINGS_NEW_OR_WORSENED_DRIFT=0`; `PRESERVATION_S10=PASS`; secret scan `0` hits. The Core changed from PID `896` / release `55c7d18135142293267e8d1ea943d3639358d634` to PID `1956870` / release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314`, with `CORE_RESTART_INVOCATIONS=1`. Alert and Recovery surfaces remained served by the new Core.
+- **Option A detector cycle:** the detector changed from PID `115945` / release `c2238375de14678f2a67c039282d9aeff6d553e5` to PID `1956881` / release `912b18005bb2fc80bb4e8d1fe8aa88803ac27314`; `DETECTOR_CYCLED_BY_CORE_RESTART=YES`, `EXPLICIT_DETECTOR_COMMANDS=0`, `DETECTOR_UNIT_AND_SOURCE_UNCHANGED=YES`, and detector source digest `a91bcfc2…db9332` plus unit digest `da40399e…419b9` remained unchanged. Rollback was not invoked.
+- **Consumed / never rerun:** L8p, F1i, F1r, F1 attempt #2, and F1u are consumed. The retired `a6aeca70…` runner is not the authority and was not used for this closeout.
+
+- **Approved model:** `F1 CLOSED -> F1u -> R1A [owner-approved ID, NOT registered] -> Recovery R2-R8 -> LVR -> L8 -> L9`. `F1u` is registered after `F1` in `P4_STAGES`; `R1A` is not registered and has no handler or runner. L8p, the F1i LIVE attempt, the F1r LIVE attempt and F1 attempt #2 are consumed and MUST NOT be rerun.
+- **Why:** PR #342's Core change (`ALERT_ACCEPTED`) is in neither `c2238375…` (where `current` points) nor the older running Core. F1u installs ONE new immutable release, switches `current` OLD -> NEW, restarts the Core EXACTLY ONCE, and proves the restarted Core runs from the NEW release (its working directory, not the pointer).
+- **Detector lifecycle (OPTION A):** the detector unit has `Requires=`/`After=` the Core, so the normal restart makes systemd stop D1 and start a NEW D2 from the NEW release. The owner approved this as an F1u-owned consequence; `IGNORE_DEPENDENCIES_USED=NO`; the unit and `Requires=` are untouched; the backend accepts only `systemctl show` and `systemctl restart aegis-idea3-core.service` (zero explicit detector commands). D2 is proven: `D2 != D1`, newer start, new InvocationID when reported, identical unit and `production_detector.py` bytes (`a91bcfc2…`), disabled, `Restart=no`, exactly one process, running from the NEW release. `NRestarts` is not lifecycle evidence.
+- **Rollback:** before the restart `current` is restored, only the owned release is removed and D1 is untouched; after it, the detector authority (unit, drop-in, digest, `Restart=no`, one process, pinned source) and the Core equivalence are re-proved BEFORE one more Core restart onto the OLD current release, which cycles the detector again (D1 -> D2 -> D3); unknown state escalates; no retry.
+- **Running-Core runtime (review round 2):** PRE `current` = `c2238375…`, PRE running Core = `55c7d181…`, PRE detector = `c223…`. The running release is now recorded explicitly (journal + L0 capture), never inferred from `current`. Rollback class `EXACT_PROCESS` | `EXACT_RELEASE` | `SAFE_EQUIVALENT`; the rolled-back Core runs `c223…`, which is NOT the PRE running release and is accepted only as `SAFE_EQUIVALENT` after a machine proof (identical payload digests except the manifest identity and `production_detector.py`, no other module references the detector; verified read-only on the real releases). No proof means preflight refuses. Never reported as exact PRE restoration.
+- **Comparator:** `current`, the Core and detector `MainPID`/`ExecMainStartTimestamp`, their running-release identity (by key; exact values proven by the runner gates) and exactly one new catalog entry may change; the shared L0 capture now also records the detector unit and the running Core/detector release, so the unit bytes, `UnitFileState`, state and `Result` must stay identical.
+- **Execution boundary (review round 3):** the release about to execute is re-proved immediately before the restart that executes it. Forward: `current` = NEW, NEW guard/id/source/detector/Core digests and the journaled NEW tree digest. Rollback (every class): `current` = OLD, OLD release authority (guard, id, pinned detector digest), and the OLD and PRE running-Core tree digests equal the preflight baselines; only then the equivalence proof is re-run. `EXACT_RELEASE` means identical release content. A changed or foreign NEW/OLD release or detector refuses with zero restarts.
+- **Shared IDEA3 Phase-4 harness surfaces touched (additive):** `p4-lib.sh`, `p4-stage-gate.sh`, `p4-compare.sh`, `p4-l0-capture.sh`, the shared stage-list tests and the shared-gate byte-pin tests (re-pinned).
+- **Predecessor gates (receipt content):** one canonical F1 attempt #2 closeout receipt and one canonical PR #342 foundation receipt; contradictory live claims, duplicates, split or malformed receipts refuse.
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`. F1u proves deployment only.
+- **Context only, not implemented:** the `AEGIS_NEWCONN` firewall-log producer is not proven deployed; R1A will need a separate read-only host preflight after F1u and possibly a separately governed instrumentation stage.
+- **Receipt:** `90-Status/logs/2026-10-05_021500_music_idea3-f1u-post-f1-core-upgrade.md`; design `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-05-idea3-pr11-phase4-f1u-post-f1-core-upgrade.md`.
+
+## IDEA3 Real Detector Acceptance / R1 — repository evidence package — 2026-10-05
+
+> [!important] **Repository implementation only (IMPLEMENTED != DEPLOYED != ACCEPTED).** PR #342 (Draft), based on main `0e7797bc`. `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, `ESP32_TOUCHED=NO`. Nothing was run against Production.
+
+- **`production_detector.py` is byte-identical to main**, so the deployed F1 detector digest `a91bcfc2…` stays valid and no detector restart is implied by this PR.
+- **Delivery provenance (Core change):** the Core ingress durably writes `ALERT_ACCEPTED uid pid attacker_ip action` from SO_PEERCRED. The verifier requires that pid to equal the detector baseline MainPID and the journald `_PID` of the detector's own `alert result=SENT_BOUND` line, so a direct `alert.sock` write by another process fails.
+- **Running Core release truth:** At the merged F1r/F1 evidence boundary, `/opt/aegis-idea3/current` points to `c2238375de14678f2a67c039282d9aeff6d553e5`, while the already-running Core remained on the pre-switch OLD release `55c7d18135142293267e8d1ea943d3639358d634` because no Core restart occurred (F1r and F1 did not restart it). Neither the deployed running Core nor the existing c223 release contains PR #342's `ALERT_ACCEPTED` change; restarting the existing c223 release is NOT sufficient.
+- **Deployment prerequisite:** Future prerequisite chain (a successor governed Core-deployment task/stage decision is still required): merge PR #342; build a NEW immutable release from a commit containing it; governed install and activation of that new release; one separately authorized Core restart; preserve the already-running detector; verify alert and recovery surfaces after restart. L8p, the F1i LIVE attempt, the F1r LIVE attempt and F1 attempt #2 are consumed and MUST NOT be rerun or replayed. Detector source is unchanged, so PR #342 alone requires no detector restart.
+- **Source-event provenance (observer-side):** the detector matches message TEXT, so a forged journal line could trigger a real alert. `aegis_soc/r1_acceptance.py` therefore reconstructs the detector's own rule (thresholds/regexes imported from the unchanged detector) from journal entries with journald-trusted metadata (sshd: `_SYSTEMD_UNIT`+`_EXE`+`_TRANSPORT`; kernel `AEGIS_NEWCONN`: `_TRANSPORT=kernel`) using the detector's EXACT windows (no skew widening) and strict causality (rule completion must not follow the detector's alert line and the alert must follow within 10 s), and fails closed if any rule-matching line for the address came from another source. Residual: root, or code inside the detector/sshd, can still forge.
+- **Evidence boundary:** the audit store is read `mode=ro` and copied by the SQLite online backup into an IN-MEMORY database only (WAL-aware, one consistent view); no raw audit copy is written to disk and only sanitized derived evidence is emitted.
+- **No claim promotion:** the module only verifies evidence. A pass yields `R1_EVIDENCE_VERIFIED=YES` / `REAL_DETECTOR_CHAIN_VERIFIED=YES`; every output still says `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`. There is no mode flag; promotion needs a later reviewed, owner-registered stage consuming this evidence.
+- **OWNER DECISION REQUIRED (nothing registered, no runner written):** (1) stage id — `R1A` is only a proposal; (2) whether p4 governance classifies it as mutating, since the expected external event makes the Production Core durably create an OPEN incident, `INCIDENT_BOUND` and `ALERT_ACCEPTED`; (3) one-attempt boundary; (4) failure / no-retry behaviour; (5) rollback policy — a real incident must NOT be deleted or undone just to restore the PRE state; (6) predecessor F1 closeout receipt gate.
+
+## IDEA3 F1 attempt #2 LIVE closeout — detector runtime PASS — 2026-10-04
+
+> [!important] **F1 attempt #2 was consumed exactly once and LIVE result = PASS.** `F1_PRODUCTION_DEPLOYED=YES`, `F1_DETECTOR_STARTED=YES`, and `F1_START_COUNT=ONE`. Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-04-f1-20261004-233030`. Exact main: `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`. The detector remained running at closeout evidence; its unit was disabled and `Restart=no`. Core was preserved and not restarted. This closeout performed no live mutation.
+
+- **Frozen pins:** runner SHA-256 `2d5cd074540b6a1c06c525acc60111160b3a8502863369c5b8c42d6147f4cdb8`; unit SHA-256 `da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9`; runtime release `c2238375de14678f2a67c039282d9aeff6d553e5`; production detector SHA-256 `a91bcfc228c6e0892d019923b51b33d3545c685e2b5fed229f1ad8f980db9332`.
+- **Preservation and comparison:** PRE/POST comparator `PASS` with zero new or worsened drift; exactly three INFO disk deltas only; secret scan `0`; rollback `NO`; Core preserved; authorization consumed and no retry permitted.
+- **Claims boundary:** `F1_REAL_DETECTOR_ACCEPTANCE=NOT_PROVEN`, `R1_VERIFIED=NOT_CLAIMED`, `RECOVERY_R1_R8_PROVEN=NO`, `CORE_RESTARTED=NO`, `RETRY_PERMITTED=NO`, and `ESP32_TOUCHED=NO`. No real detector acceptance or Recovery result is claimed.
+- **Evidence access limitation:** protected `f1-work` was unreadable to the closeout agent, so independent access to that protected work is not claimed. The material closeout claims were independently proven from the readable journal, owner log, PRE/POST capture bundles, marker, authorization copies and checksums.
+- **Receipt:** `90-Status/logs/2026-10-04_233030_music_idea3-f1-attempt2-live-closeout.md`.
+
+---
+
+## IDEA3 F1r LIVE closeout — current switched to the repaired release (pointer only) — 2026-10-04
+
+> [!important] **F1r was executed LIVE once (2026-10-04 22:27 +07) and PASSED.** `/opt/aegis-idea3/current` now resolves to `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5` (it was `…/55c7d18135142293267e8d1ea943d3639358d634`). **This proves POINTER ACTIVATION only:** no release was installed or deleted, the Core was NOT restarted (same MainPID 896, NRestarts 0) and is NOT claimed to run the NEW release, the detector was NOT started, no F1 attempt 2, no Recovery, no ESP32 action.
+
+- **Evidence (outside the repo, directly verified for this closeout):** `…/idea3-p4-evidence/2026-10-04-f1r-20261004-222707` — one consumed attempt marker (`consumed_at=2026-10-04T15:27:12Z`), fresh same-day F1r Authorization + K3, apply and verify PASS, PRE/POST capture hashes PASS, comparator PASS (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`), exactly one approved change (the `current` target key, re-derived from raw PRE/POST captures), release catalog unchanged, no rollback, secret scan zero hits.
+- **Detector:** absent (no unit, no process). **K3 caveat:** V2 owner self-attestation, not an independent IDEA1 confirmation.
+- **State:** the F1r authorization is consumed, no retry; the frozen runner is not re-run. F1 attempt 2 now has its F1r predecessor receipt once this closeout is merged, but it needs its own owner decision, fresh same-day records and a frozen runner pinned to the then-current main. The Core still needs a separately authorized restart to run from the NEW release. Real detector acceptance, Recovery R1-R8, LVR, L8 and L9 remain unproven.
+- **Receipt:** `90-Status/logs/2026-10-04_222950_music_idea3-f1r-live-closeout.md`.
+
+---
+
+## IDEA3 F1i LIVE closeout — repaired immutable release installed (install only) — 2026-10-04
+
+> [!important] **F1i was executed LIVE once (2026-10-04 21:45 +07) and PASSED.** The immutable release `c2238375de14678f2a67c039282d9aeff6d553e5` (source SHA exact, `production_detector.py` SHA-256 `a91bcfc2…db9332`) is now installed at `/opt/aegis-idea3/releases/c2238375de14678f2a67c039282d9aeff6d553e5`, root-owned, release guard PASS, tree digest `e1915797…31fc2`. **This proves INSTALLATION only.** `/opt/aegis-idea3/current` still resolves to `55c7d181…`; the Core was not restarted (MainPID 896, NRestarts 0 unchanged); credentials and `core.env` metadata are unchanged; the detector is still absent; no Recovery, no ESP32. F1r (the switch), F1 attempt 2, real detector acceptance, Recovery R1-R8, LVR, L8 and L9 are NOT executed and NOT proven.
+
+- **Evidence (outside the repo, directly verified for this closeout):** `…/idea3-p4-evidence/2026-10-04-f1i-20261004-214506` — one consumed attempt marker (`consumed_at=2026-10-04T14:45:15Z`), fresh same-day F1i Authorization + K3, apply and verify PASS, PRE/POST capture hashes PASS, comparator PASS (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`), exactly one release-catalog addition re-derived independently from the raw captures, no rollback, secret scan zero hits.
+- **Comparator note (non-blocking):** the approved finding is labelled `L6C_RELEASE_INSTALLED`, the shared reason-code constant of the existing relational one-release rule (accepts stage tokens L6c, L7u, F1i; emitted identically by earlier L6c and L7u live comparisons); the `stage F1i` allowance was enforced, not a stage mismatch.
+- **State:** F1i authorization is consumed, no retry; the frozen runner is not re-run. The successor F1r requires, from the merged pinned commit, the F1i closeout receipt (the one carrying the authoritative F1i result fields) — it still needs its own owner decision, fresh same-day records and a frozen runner pinned to the then-current main. K3 caveat: V2 owner self-attestation, not an independent IDEA1-owner confirmation.
+- **Receipt:** `90-Status/logs/2026-10-04_214807_music_idea3-f1i-live-closeout.md`.
+
+---
+
+## IDEA3 F1i post-L7 repaired-release install stage (OD-F1I-01) — repository only — 2026-10-04
+
+> [!note] Executed once on 2026-10-04 (live PASS, install only) — see the F1i LIVE closeout section above; this section describes the repository implementation.
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1i-repaired-release-install-stage`, based on main `c2238375` (PR #335). `F1I_STAGE_ID = F1i`, order `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`. **Nothing was executed:** no F1i run, no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1i/F1r/F1 Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32. `F1I_LIVE_EXECUTED = NO`, `F1I_RELEASE_INSTALLED = NO`.
+
+> [!warning] **Historical L6c maintenance reuse (2026-10-04) = LIVE EXECUTED, RESULT = FAIL, ROLLBACK = PASS.** `L6C_MAINTENANCE_ATTEMPT_LIVE_EXECUTED = YES`, `L6C_MAINTENANCE_ATTEMPT_RESULT = FAIL`, `L6C_MAINTENANCE_ATTEMPT_FAIL_REASON = L7_MATERIAL_PRESENT:/etc/aegis-idea3/credentials`, `L6C_MAINTENANCE_ATTEMPT_ROLLBACK = PASS`, `L6C_MAINTENANCE_ATTEMPT_PRE_RB_COMPARE = PASS`, `L6C_MAINTENANCE_ATTEMPT_AUTH_CONSUMED = YES`, `L6C_MAINTENANCE_ATTEMPT_RETRY = FORBIDDEN`, `RELEASE_INSTALLED = NO` (also `L6C_MATERIAL_RESIDUE = NO`, `PRESERVATION_S10 = PASS`, `L6C_LIVE_ACCEPTANCE = NOT_PROVEN`; evidence `…/2026-10-04-l6c-20261004-185831`, read-only verified). The installer itself succeeded; the stage's own verifier failed closed, by design.
+
+- **Why F1i exists:** the L6c verifier is intentionally PRE-L7 (credentials and `core.env` absent, Core unit `not-found`) and is false by design on the current post-L7 host. **L6c is not changed and stays historically correct for a pre-L7 install**; it is never reused post-L7.
+- **What F1i owns:** only the creation of `/opt/aegis-idea3/releases/<frozen release id>` through the reviewed installer, called exactly once. It never creates `/opt/aegis-idea3` or `releases`, never touches `current`, credentials, `core.env`, units, the Core, the detector, broker, Recovery or the ESP32.
+- **Post-L7 preservation (verify):** credentials, `core.env` and a loaded/running Core unit are PRESERVED, never required absent: metadata unchanged (content compared in memory inside apply only; no content or digest persisted), `current` identical, Core same MainPID/NRestarts, new release guarded root-owned with exact id/source SHA/clean tree/detector digest and unchanged tree digest, detector absent (unit and standalone process).
+- **Comparator:** captured key `host.aegis_idea3.release_catalog`; zero allow-keys; the existing relational one-release rule gets the label `stage F1i`; the runner also proves the added entry carries the journaled tree digest; current/listener/material/Core drift fail.
+- **Rollback:** ownership is a strict journal-state boundary — `installing` (outcome unknown) and `installer_failed` are NEVER deletion authority (a valid-looking or even `RELEASE_ALREADY_INSTALLED` foreign target is left untouched and escalated); only `installed`/`applied` WITH a journaled tree digest own the release, and then it proves current, real directory, guard, id, source SHA, detector digest and tree digest before removing exactly that directory; never a parent, an old release, `current`, credentials, `core.env` or units; unknown state fails closed. (Independent review of PR #336 found, and this revision fixed, a bug where a foreign valid release could be deleted.)
+- **Chain:** F1r now requires, from the pinned commit, exactly ONE receipt with `F1I_LIVE_EXECUTED=YES`, `F1I_RELEASE_INSTALLED=YES` and `F1I_RELEASE_ID=<its NEW_RELEASE_ID>`; F1 still requires F1r; the runtime release pins stay as defense in depth.
+- **Not authorized / not run:** F1i live, F1r live, F1 attempt 2. The failed L6c maintenance authorization is consumed and never reused.
+- **Limitation:** repository tests prove repository behavior only; verify detects secret-material drift through metadata (including ctime) and apply additionally compares content in memory; the release catalog digest is the existing tree-state digest.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-04-idea3-pr11-phase4-f1i-post-l7-release-install.md`. **Receipt:** `90-Status/logs/2026-10-04_192634_music_idea3-f1i-repaired-release-install-stage.md`.
+
+---
+
+## IDEA3 F1r current-release activation stage (OD-F1R-01) — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1r-current-release-activation-stage`, based on main `2107f197` (PR #333). `F1R_STAGE_ID = F1r`, `F1R_ORDER = AFTER_REPAIRED_RELEASE_INSTALL_BEFORE_F1_ATTEMPT_2`, `F1R_CORE_RESTART_POLICY = NO_RESTART`. **Nothing was executed:** no L6c run, no release installed, `/opt/aegis-idea3/current` unchanged, Core not restarted, detector not started, no F1r/F1/L6c Authorization or K3 created, no runner frozen, Production not mutated, no Recovery, no ESP32.
+
+> [!note] State kept distinct: **F1 attempt 1** = historical live FAIL + rollback PASS (authorization consumed, never reused). **PR #333 repair** = merged repository fix (corrected unit digest `da40399e…419b9`, detector exit code 3). **F1r** = repository implementation only (this entry). **L6c repaired-release install** = NOT YET AUTHORIZED. **F1r live** = NOT YET AUTHORIZED. **F1 attempt 2** = NOT AUTHORIZED.
+
+- **Why F1r exists:** the detector unit runs the INSTALLED release's `production_detector.py`; production still resolves release `55c7d181…` (detector digest `b2ab3434…`, no `EXIT_JOURNAL_SOURCE_UNAVAILABLE`). The repaired release (`2107f197…`, detector digest `a91bcfc2…`) differs from it in exactly `production_detector.py` and the manifest. The repository had an install step (L6c, install-only, never touches `current`) but no governed step that only switches `current`; L7u switches it together with a Core restart and is closed.
+- **Operational order (superseded 2026-10-04 by the F1i section above):** the first F1r decision named an L6c maintenance reuse as the repaired-release install; that reuse failed closed (L6c is a pre-L7 stage) and the order is now `L7 -> L7u -> L8p -> F1i -> F1r -> F1 -> Recovery R1-R8 -> LVR -> L8 -> L9`, with F1r requiring the F1i closeout receipt.
+- **What F1r owns:** only the atomic switch of `/opt/aegis-idea3/current` between two already-installed immutable releases (journal OLD → re-read → temp symlink + `os.replace` → exact `readlink`/`realpath` check). It installs nothing; its privileged backend can only `systemctl show`, so the Core's MainPID, NRestarts and cwd cannot change through F1r. **Changing `current` does not move the running Core to the new release.**
+- **Rollback:** owns only a journalled switch; refuses (no mutation) if `current` is not exactly where this attempt left it; restores the exact OLD target atomically; proves Core PID/NRestarts unchanged and the detector absent; never deletes a release.
+- **Comparator:** capture key `host.symlink./opt/aegis-idea3/current.target`; `stages/F1r/allow-keys.txt` approves only that key, the runner proves the exact OLD→NEW values from the PRE/POST records, zero listener additions, zero allowances for PRE→RB.
+- **Future F1 attempt 2:** the F1 runner template gained runtime pins (`EXPECTED_RUNTIME_RELEASE_ID`, `EXPECTED_RUNTIME_RELEASE_SOURCE_SHA`, `EXPECTED_PRODUCTION_DETECTOR_SHA256`) and a read-only gate before PRE capture and again before the one-shot consume, so F1 cannot consume its attempt while Production resolves the old detector. `UNIT_SHA256` remains a separate pin; no existing F1 gate was weakened.
+- **Independent review fixes (same PR):** (1) the read-only `check`/`check-runtime` gates now run through `$SUDO` (root read authority; `/opt/aegis-idea3` is `755 root:root` on this host today but is not assumed readable, and `sudo -v` alone does not elevate), a denied read is a fixed refusal and a failed elevation stops the run before the attempt is consumed; (2) detector absence now covers a standalone `aegis_soc.production_detector` process as well as the systemd unit (preflight, apply, verify, `check-runtime`, rollback postcondition) and is re-proved after PRE and right before `F1R-ATTEMPT-CONSUMED`; (3) the future F1 receipt gate requires exactly one receipt with both `F1R_LIVE_EXECUTED=YES` and `F1R_CURRENT_SWITCHED=YES`, in addition to the runtime pins.
+- **Limitation:** repository tests prove repository behavior only; `/proc/<CorePID>/cwd` is root-only here (recorded `UNREADABLE` when unreadable); the zero-tolerance compare would roll back on any unforeseen captured record that changes with `current`.
+- **Receipt:** `90-Status/logs/2026-10-04_163650_music_idea3-f1r-current-release-activation-stage.md`.
+
+---
+
+## IDEA3 F1 live attempt 1 FAILED (rolled back) — successor repair, repository only — 2026-10-04
+
+> [!warning] **F1 attempt 1 = LIVE EXECUTED, RESULT = FAIL, ROLLBACK = PASS.** Its authorization is **consumed** (`F1-ATTEMPT-CONSUMED`) and is never reused, reset or retried. `F1_ATTEMPT_1_LIVE_EXECUTED = YES`, `F1_ATTEMPT_1_RESULT = FAIL`, `F1_ATTEMPT_1_ROLLBACK = PASS`, `F1_ATTEMPT_1_PRE_RB_COMPARE = PASS`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO` (the stage's success claim is not made: the one start it issued ended immediately and the unit was removed). `F1_REAL_DETECTOR_ACCEPTANCE = NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `R1_VERIFIED = NOT_CLAIMED`.
+
+> [!important] Repository-only successor (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-f1-detector-journalctl-proc-and-fail-closed`, based on main `3bfdcd72` (PR #332). **No new live attempt was performed or authorized; no Authorization/K3 was created; no future runner was frozen; Production was not mutated.** The failed attempt-1 evidence directory and authorization were only read.
+
+- **Attempt 1 (owner-run, main `3bfdcd72`, evidence `…/2026-10-04-f1-20261004-153333`; figures from the owner's report and the readable `owner-run.log`, the root-owned attempt journal was not read by this agent):** `F1_APPLY=FAIL reason=DETECTOR_NOT_RUNNING`; one start was issued; the detector logged `ALERT_SOCKET=PASS` and `[F1-DETECTOR] started`; its `journalctl` then printed `Failed to get boot ID: No such file or directory`; systemd logged `aegis-idea3-detector.service: Deactivated successfully`. The stage failed closed, rolled back (`F1_ROLLBACK=PASS`), and `PRE_RB_COMPARE=PASS` (`FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `PRESERVATION_S10=PASS`). Post-rollback: `LoadState=not-found`, `ActiveState=inactive`, `SubState=dead`, `MainPID=0`, unit file and process absent. The attempt journal recorded `core_env_preserved=false`, `daemon_reload=true`, `phase=rolled_back`, `start_issued=true`, `unit_sha256=748a4c5b…211772a`.
+- **Root cause (confirmed from source and reproduced locally without touching the host):** (A) the detector's `journalctl -f` needs `/proc/sys/kernel/random/boot_id` (`libsystemd-shared` reads it), and `ProcSubset=pid` hides `/proc/sys`. In a throwaway unprivileged user+mount namespace, `journalctl -f -n 0 -o cat` under `proc subset=pid` exits 1 with exactly `Failed to get boot ID: No such file or directory`, while the same command with a full `/proc` keeps following. (B) `production_detector.run()` returned `0` when the journal iterator ended and `main()` never inspected the follower's exit status, so journal loss became a clean exit 0 (“Deactivated successfully”).
+- **Repair (this task):** the detector unit drops `ProcSubset=pid` (new rendered SHA-256 `da40399ef57b1e29cf30dc63792f67ded15333faacd8a3e04feb1c8e60d419b9`; every other active line is unchanged and pinned by test, including `ProtectProc=invisible`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernel*`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname`, `RestrictAddressFamilies=AF_UNIX`, `RestrictNamespaces`, empty capability sets, `Restart=no`); the unit verifier now refuses any `ProcSubset=` line (`UNIT_PROC_SUBSET_BREAKS_JOURNAL_READER`); `production_detector` returns the new `EXIT_JOURNAL_SOURCE_UNAVAILABLE = 3` (never 0) when the follower ends, exits nonzero, or cannot start, logging only `[F1-DETECTOR] stopping reason=JOURNAL_SOURCE_UNAVAILABLE journal_exit=<n>`; `EXIT_TRANSPORT_UNAVAILABLE = 2` and all detection/rate-limit/cooldown/socket behavior are unchanged. Other services that use `ProcSubset=pid` (Core, containment) are untouched.
+- **Verify path unchanged and pinned:** a future F1 stage still requires `ActiveState=active`, `SubState=running`, `MainPID>0`, `Result=success`, `NRestarts=0`, `UnitFileState=disabled`, `Restart=no` (each deviation has a test) and refused attempt 1's exact failure shape.
+- **Deployment caveat (not solved here):** the detector unit runs `/opt/aegis-idea3/current/venv/bin/python -m aegis_soc.production_detector`, i.e. the INSTALLED release's copy. The unit fix is deliverable by a future F1 attempt, but the fail-closed exit-code change reaches Production only through a new immutable release install, which F1 does not perform; that is a separate owner decision. A future attempt run with the old release still gains the unit fix (the journal reader works) but not exit code 3.
+- **Still true:** the old frozen runner/authorization are pinned to the failed unit digest and must not be reused. A future attempt-2 needs a new owner decision, a fresh AUTH_DIR with fresh same-day `authorization-F1.txt` + `k3-F1.txt`, a new frozen runner pinned to the then-current merged main and the new unit digest, and is **NOT authorized**.
+- **Limitation:** repository tests prove repository behavior only; no live systemd PASS is claimed. Whether any other sandbox directive would also stop the real `journalctl` under systemd is not proven until a governed attempt-2.
+- **Receipt:** `90-Status/logs/2026-10-04_154730_music_idea3-f1-attempt1-failure-repair.md` (this successor task's own receipt; the PR #332 receipt is immutable and unchanged).
+
+---
+
+## IDEA3 F1 governed detector unit install/start stage — repository only — 2026-10-04
+
+> [!note] Superseded in part (state only) 2026-10-04: this stage was merged as PR #332 and executed once live (attempt 1 FAILED and rolled back) — see the section above. The pinned unit digest `748a4c5b…211772a` below is the failed attempt's; the corrected unit is `da40399e…419b9`.
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-governed-detector-install-stage` (Draft PR, unmerged). `OWNER_DECISION = STAGE_F1_REGISTERED_AFTER_L8P_BEFORE_L8` (use `F1`, not `F1b`; same-day Authorization + K3, `stage=F1`, no extra field). Nothing was executed live: `F1_PRODUCTION_DEPLOYED = NO`, `F1_DETECTOR_STARTED = NO`, the detector unit is still not installed, the Core was not restarted, no alert was injected, no R1 incident exists, Recovery R1-R8 was not run, no ESP32/serial.
+
+- **Read-only live preflight (owner root check, 2026-10-04, main `e8efe3bb`):** `AEGIS_ALERT_SOURCE_UID=948`, `AEGIS_RECOVERY_OPERATOR_UID=1000`, Recovery socket path/gid `947`, R2/R6/R7 probe settings present, alert directory `aegis-idea3:aegis-idea3-alert 2750`, `alert.sock` `0620`, detector account uid 948, the RUNNING Core carries uid 948. The detector unit was `not-found`; the observer `--once` reported `incident: none` (R1 FAILED = no incident, expected).
+- **What the stage adds:** `P4_STAGES` gains `F1` (`L8p F1 L8`); `p4-f1-deploy.py` installs the exact pinned unit (rendered SHA-256 `748a4c5b…211772a`, `root:root 0644`, no-overwrite), `daemon-reload`, then calls the reviewed `p4-f1-alert-source.py` `start_detector` once, verifies, and rolls back only a journalled install; `stages/F1/*`, `p4-f1-run-lib.sh` (marker `F1-ATTEMPT-CONSUMED`, receipt gate requiring the canonical L8p closeout result) and the inert `owner-run/run-f1-owner.sh`.
+- **Boundaries preserved:** no Core restart, no `core.env`/user/group change, no enable, no alert injection, no CUT/RESTORE, no ESP32/serial, no retry; a pre-existing unit is never replaced or removed.
+- **Claims boundary:** a future successful F1 run proves only `F1_PRODUCTION_DEPLOYED` and `F1_DETECTOR_STARTED`; `F1_REAL_DETECTOR_ACCEPTANCE` stays `NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `R1_VERIFIED = NOT_CLAIMED`. The detector follows NEW journal lines once started, so a naturally occurring REAL validated alert in the window is an external production event: F1 neither injects, fabricates, accepts nor rolls it back and does not claim `RECOVERY_LIVE_EXECUTED = NO`.
+- **Hardening (pre-ready review):** `core.env` bytes are compared in memory only and never persisted or digested (only `CORE_ENV_PRESERVED=YES`); the unit must be exactly installed-but-never-started (`UnitFileState=disabled`, `ActiveState=inactive`, `MainPID=0`, …) after `daemon-reload` and immediately before the one start, so a concurrently started detector is never adopted.
+- **Limitation:** the shared L0 capture does not observe the detector unit, so the compare covers other Core-host records only; the stage proves the unit by its own exact checks.
+- **Next:** human review/merge, then the owner freeze workflow (frozen runner, fresh `authorization-F1.txt` + `k3-F1.txt`, pinned main, pinned unit digest) before any live F1 run.
+- **Receipt:** `90-Status/logs/2026-10-04_134839_music_idea3-f1-governed-detector-install-stage.md`.
+
+---
+
+## IDEA3 L8p attempt 2 reconciliation closeout — L8p CLOSED — 2026-10-04
+
+> [!important] **L8p attempt 2 reconciliation = PASS. L8p provisioning = PROVEN. L8p is now CLOSED.** Original runner full-success line = **NO** (the historical runner never printed it and its own formal result stayed NOT_PROVEN); reconciliation result = **PASS**. Recovery R1-R8, LVR and full L8 acceptance are **NOT yet proven**.
+
+- **What happened:** the owner ran the merged one-off tool `reconcile-l8p-attempt2.py` exactly once on main `9e5ce3d7` (exit code 0). It re-proved the preserved attempt-2 evidence (consumed marker, canonical 12-field JSON, historical runner log shape, capture checksums, first-write marker), proved the only secret-value hits were the two temporary work artifacts, removed exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`, and proved the strict full-tree secret scan has 0 hits and everything else unchanged.
+- **What did not happen:** no second hardware attempt, no device action during the reconciliation, no ESP32/serial/flash/reset, no CUT/RESTORE, no Production service mutation. Only the two temporary host-side work artifacts were removed (bounded host-side evidence-tree mutation).
+- **Result semantics:** the reconciled results `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS` are recorded in the closeout receipt; they do not claim that the historical runner printed them. The L8p one-shot receipt gate now blocks any further L8p live attempt (`L8P_ALREADY_PROVISIONED`).
+- **Receipt:** `90-Status/logs/2026-10-04_075127_music_idea3-l8p-attempt2-reconciliation-closeout.md`. Historical receipts were not rewritten.
+
+---
+
+## IDEA3 L8p attempt 2 reconciliation contract — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-attempt2-reconciliation-contract`. `OWNER_DECISION = ATTEMPT2_SPECIFIC_HOST_ONLY_BOUNDED_RECONCILIATION_APPROVED`, `PHYSICAL_RECOVERY_REQUIRED_BEFORE_RECONCILIATION = NO`, `DEVICE_RETRY_ALLOWED = NO`. This change adds a one-off, host-only BOUNDED reconciliation tool (no device or service mutation; its only mutation is a bounded host-side deletion of exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin`) and its hermetic tests; it performs **no** cleanup on the real attempt-2 evidence, creates no acceptance receipt, and touches no device, serial port, service or Production state.
+> `LIVE_RECONCILIATION_EXECUTED = NO`. Attempt 2's formal result is still `L8P_PROVISIONING = NOT_PROVEN` until the merged tool is actually run successfully by the owner.
+
+- **Tool:** `deploy/pr11-phase4/reconciliation/reconcile-l8p-attempt2.py` — hard-bound to run id `l8p-20261004-041840`, the attempt-2 evidence and freeze directory names, the frozen runner SHA-256 and the firmware digest; arguments `--evidence-root`, `--freeze-dir`, `--input-dir` only; standard library only, no device capability.
+- **Gates before any deletion:** authority (runner digest, the consumed marker in its real location and shape — `auth/L8p-ATTEMPT-CONSUMED`, a regular 0600 file holding `consumed_at=<UTC>`, verified present on the real attempt-2 history by a read-only check and never created, repaired or replaced by the tool — and Authorization/K3 identical to the evidence copies), the one canonical 12-field JSON bundle, the historical `owner-run.log` shape (the original full-success line must be absent), PRE/POST/RB `SHA256SUMS`, the first-write marker, and exactly the two known secret-hit files by class.
+- **Cleanup and proofs:** removes exactly `l8p-work/nvs.csv` and `l8p-work/nvs.bin` (any deletion error fails closed: a `CLEANUP`-phase failure that reports the exact mutation state, never an authoritative field); proves every other file and directory unchanged (in-memory manifest), zero hits in the unchanged full-tree scan, captures and JSON re-verified, markers still present. Any failed gate prints `L8P_ATTEMPT2_RECONCILIATION=FAIL` and no authoritative field.
+- **Result semantics:** on success it prints narrowly defined reconciliation results including `L8P_LIVE_EXECUTED=YES` / `L8P_PROVISIONING=PASS`, which are NEW owner-approved results, not claims about the historical runner (`ORIGINAL_RUNNER_FULL_SUCCESS_LINE = NO`). A separate closeout receipt is created only after a successful run.
+- **Receipt:** `90-Status/logs/2026-10-04_064914_music_idea3-l8p-attempt2-reconciliation-contract.md`.
+
+---
+
+## IDEA3 L8p attempt 2 forensic closeout + secret-staging lifecycle fix — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-secret-staging-lifecycle`, based on `b440b102`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3. Attempt 2's records, marker, frozen runner and evidence were not modified.
+> Historical, immutable: L8p attempt 2 CONSUMED its authorization; the first hardware write STARTED; flash, NVS readback, firmware readback and signed boot verification all PASS (`PASS_BOOT_LOCKDOWN`), failure boundary NONE, verify PASS, PRE->POST/PRE->RB compares PASS, S10 PASS — and the runner then failed only at the final secret scan (2 hits, both stage-owned work artifacts), after which the post-write rollback held fail-secure with zero device action and no retry. `L8P_PROVISIONING = NOT_PROVEN` stands; no acceptance is claimed.
+
+- **Root cause:** `l8p-work/nvs.csv` (all four secrets, plaintext) and `l8p-work/nvs.bin` (Wi-Fi/MQTT values) are the canonical flow's temporary staging files, and they sit inside the EVID tree the full scan covers. No secret value was found anywhere else (owner forensic: 209 files, 2 hits).
+- **Fix:** new host-only `stages/L8p/cleanup.sh` removes exactly those two files after apply+verify (before the POST capture and the scan); the post-first-write `rollback.sh` branch does the same (zero device action, hold-and-evidence unchanged). `l8p_secret_scan` is unchanged and has no exclusions.
+- **Reconciliation of attempt 2:** `OWNER_DECISION_REQUIRED` — no existing repository contract defines a post-hoc closeout of a consumed post-write attempt, and none states physical recovery as a hard gate before later stages.
+- **Receipt:** `90-Status/logs/2026-10-04_043853_music_idea3-l8p-attempt2-forensic-and-secret-staging-lifecycle.md`.
+
+---
+
+## IDEA3 L8p attempt 1 forensic closeout + PRE-capture / compare fixes — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-pre-capture-contract-and-compare-arity`, based on `720ca262`. This fix touched no Production service, NTP, serial device or ESP32 and created no Authorization/K3.
+> Historical, immutable: L8p attempt 1 (freeze `2026-10-04-l8p-19pin`) CONSUMED its one-shot authorization and stopped **before the first hardware write**: `ATTEMPT1_L8P_PROVISIONING = NOT_PROVEN`, `ATTEMPT1_FIRST_HARDWARE_WRITE = NOT_STARTED`, `ATTEMPT1_FIRST_WRITE_MARKER = NO`, `ATTEMPT1_DEVICE_ACTION_TAKEN = NONE`, `ATTEMPT1_FLASH_PERFORMED = NO`. Owner forensic PRE->RB comparison with the real two-argument comparator: `COMPARE_RESULT = PASS`, `PRESERVATION_S10 = PASS`, 0 new/worsened drift, 0 incomparable (only 3 informational disk-space deltas). Old Authorization/K3 and the old frozen runner are NOT reusable; a successor attempt is required. No L8p acceptance is claimed.
+
+- **Root cause 1:** `stages/L8p/apply.sh` required the whole PRE `capture.log` line to equal `L0_CAPTURE=COMPLETE`; the canonical log line is `<TIMESTAMP> L0_CAPTURE=COMPLETE evidence=<path>`. Fixed with a field-aware check; `SHA256SUMS` verification unchanged.
+- **Root cause 2:** the L8p owner runner passed the report path as a third positional argument to the two-argument `p4-compare.sh`. Fixed: the report path is only the redirection target; no allow keys added.
+- **Tests:** stand-ins now behave like the real scripts (real log format; comparator exits 2 unless `$# == 2`); tests also run the REAL capture and the REAL comparator.
+- **Receipt:** `90-Status/logs/2026-10-04_032049_music_idea3-l8p-attempt1-forensic-and-pre-capture-compare-fix.md`.
+
+---
+
+## IDEA3 L8p esptool interpreter pin — repository only — 2026-10-04
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-l8p-esptool-interpreter-pin`, based on `a47ad8f3`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, `ESP32_TOUCHED = NO`, `SERIAL_ACCESSED = NO`, `FLASH_PERFORMED = NO`, `L8P_LIVE_EXECUTED = NO`. No L8p Authorization/K3, frozen runner or attempt marker was created. This does not claim L8p acceptance.
+
+- **Root cause (found by the L8p final preflight):** the L8p orchestration Python (`PY` / `AEGIS_PYTHON_BIN`) was also the implicit esptool launcher (`[sys.executable, esptool.py, ...]`). The `aegis-idea3-core` interpreter cannot import the pinned esptool's dependencies (`No module named 'serial'`), so a live run would have failed after the one-shot attempt was consumed.
+- **Fix:** a nineteenth frozen runner pin `ESPTOOL_PYTHON` (never committed with a value), passed as `AEGIS_L8P_ESPTOOL_PYTHON` -> `apply.sh` -> `--esptool-python` -> `load_backend` -> `HardwareDevice` + `SubprocessExecutor` (one launcher, a mismatch is refused). `AEGIS_PYTHON_BIN` is unchanged. The L8p stage profile makes the explicit interpreter mandatory in hardware mode (no fallback); L8 is unchanged.
+- **Pre-consume gate:** `l8p_esptool_python_gate` runs the pinned `esptool.py --help` under the frozen interpreter in a scrubbed environment in the runner's pre-gates, before the PRE capture and the attempt marker (no serial open, no flash command, no installation). Smoke-tested read-only: it fails under `aegis-idea3-core` and passes under `aegis-esptool` and the PlatformIO `penv` interpreter.
+- **Still open:** merge/review, a new freeze pinned to the then-current main with `ESPTOOL_PYTHON` chosen by the owner, a fresh same-day L8p Authorization/K3, the owner-run LIVE attempt.
+- **Receipt:** `90-Status/logs/2026-10-04_021000_music_idea3-l8p-esptool-interpreter-pin.md`.
+
+---
+
+## IDEA3 post-NTP forensic fix — capture read-only + final NTP gates — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-post-ntp-capture-readonly-and-l8p-ntp-gates`, based on `0ab80a1a`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no time daemon started or stopped, `timedatectl show-timesync` never run on the host, no serial/esptool/ESP32 access, no Authorization, K3, attempt marker or frozen runner created.
+> `OLD_NTP_ATTEMPT_STATUS = CONSUMED` (APPLY and pre-POST VERIFY passed; final readiness after the POST capture INVALIDATED / NOT_PROVEN; never rerun or reused), `SUCCESSOR_REQUIRED = YES`, `NTP_RUNTIME_READY_FOR_L8P = NO` (host observed timesyncd active / chronyd inactive / no UDP :123), `L8P_LIVE_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`.
+
+- **Root cause (from code; journal timing consistent):** `p4-l0-capture.sh` ran `timedatectl show-timesync`, which activates a stopped `systemd-timesyncd`; `chronyd.service` has `Conflicts=systemd-timesyncd.service`, so the POST capture stopped chronyd. The NTP runner then printed PASS from the stale pre-POST VERIFY.
+- **Fix:** capture queries timesyncd only while already `active`/`running`, else the sentinel `TIMESYNCD_INACTIVE_NOT_QUERIED`; NTP runner PASS requires a FINAL read-only `ntpreact_runtime_ready_gate` after POST capture/compare (rollback otherwise); the L8p owner runner runs the same gate in its pre-gates and again after the PRE capture before the attempt is consumed (no attempt, serial access, reset or write if NTP is absent). Disk, receipt, one-shot, S10, secret and no-CUT/RESTORE gates are unchanged.
+- **Still open:** a new governed NTP successor attempt (new frozen runner, AUTH_DIR, Authorization/K3, owner authorization); the observed `/` disk gate (81% vs the runner's 80%); L8p itself.
+- **Receipt:** `90-Status/logs/2026-10-03_180500_music_idea3-post-ntp-capture-readonly-fix.md`.
+
+---
+
+## IDEA3 PRE-L8p NTP runtime reactivation successor — repository only — 2026-10-03
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-pre-l8p-ntp-runtime-reactivation`, based on `2f174eca`. Nothing was executed live: `PRODUCTION_MUTATION_PERFORMED = NO`, no `systemctl` action, no serial/esptool/ESP32 access, no MQTT publish, no CUT/RESTORE, no relay/uplink wiring. No Authorization, K3, attempt marker, frozen runner or evidence directory was created.
+> `L5_LIVE_ACCEPTANCE = HISTORICAL_PROVEN_UNCHANGED` (not re-run, not invalidated), `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `PRE_L8P_NTP_RUNTIME_REACTIVATION = NOT_RUN`, `NTP_RUNTIME_READY_FOR_L8P = NO`, `L8P_LIVE_EXECUTED = NO`, `L8_ACCEPTANCE = NO`.
+
+- **Why the post-reboot state is expected:** L5 mutated runtime `ActiveState` only (stop `systemd-timesyncd`, start `chronyd`) and never enabled/disabled either unit, so after a reboot `chronyd` is inactive/disabled, `systemd-timesyncd` is active/enabled and nothing listens on UDP/123, while `/etc/chrony.conf` is still the rendered L5 config. That matches the approved L5 design and `K12 = NOT_PROVEN`; it is not a defect.
+- **Successor package:** `deploy/pr11-phase4/reactivation/pre-l8p-ntp-runtime-reactivation/` (+ `p4-ntp-reactivation-lib.sh`, inert pinned template `owner-run/run-pre-l8p-ntp-runtime-reactivation-owner.sh`). The whole live mutation is `systemctl stop systemd-timesyncd.service` then `systemctl start chronyd.service`; no enable/disable, no `/etc/chrony.conf` write, `UnitFileState` asserted before and proven unchanged. Read-only PRE gates cover exact unit states, AP `10.77.30.1/28`, the approved config SHA-256 (`20e283e4…35fe`, equal to the L5 renderer output), no alternate chronyd config path, no port-123 listener and the shared L5 TrustedClock predicate. Rollback restores the exact runtime baseline and only proves (never repairs) `UnitFileState` and the config.
+- **Governance:** fresh same-day `stage=L5` Authorization/K3 with the exact `PRE_L8P_NTP_RUNTIME_REACTIVATION` scope, a dedicated one-attempt marker consumed after preflight, PRE capture and a pre-consume S10 guard, frozen operator identity and runner digest, no reuse of any L5 Authorization/K3/marker (the historical L5 reference is refused), no automatic retry.
+- **On success only:** `PRE_L8P_NTP_RUNTIME_REACTIVATION=PASS`, `NTP_RUNTIME_READY_FOR_L8P=YES`, `NTP_LISTENER_ADDRESS=10.77.30.1:123`; runtime readiness is perishable (the next reboot returns to timesyncd). L8p needs its own fresh authorization.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-pre-l8p-ntp-runtime-reactivation-design.md`. **Receipt:** `90-Status/logs/2026-10-03_095200_music_idea3-pre-l8p-ntp-runtime-reactivation.md`.
+
+---
+
+## IDEA3 dnsmasq boot-order repair — repository only — 2026-10-02
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-boot-order`, merged as PR #305 (`827251f2`; updated 2026-10-03, the live host is still on the old unit). Nothing was deployed or restarted: `PRODUCTION_MUTATION_PERFORMED = NO`, `DNSMASQ_RESTARTED = NO`, `NETWORK_CHANGED = NO`, `CORE_RESTARTED = NO`, `ESP32_TOUCHED = NO`, L8p / F1 detector / Recovery R1-R8 not run.
+> `DNSMASQ_ROOT_CAUSE = PROVEN` (boot ordering race), `REPAIR_REPOSITORY_IMPLEMENTED = YES`, `REPAIR_DEPLOYED = NO`, `V8_RUNTIME_RECOVERY = PASS (historical, preserved)`, `K12_PERSISTENCE_OBSERVED = YES`, `K12_FORMALLY_PROVEN = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Reboot (read-only evidence):** operator-initiated `sudo /usr/bin/reboot` on tty3 at 21:58:50 and 22:00:55 +07; orderly, no crash indicators; the operator's reason is not in the journal. The Core returned on release `55c7d181…` with both sockets recreated, which is an observation, not a K12 acceptance.
+- **Finding:** `aegis-idea3-dnsmasq.service` failed on every observed boot with `unknown interface wlp0s20f3` and `start-limit-hit`: it started after `NetworkManager.service` but about three seconds before NetworkManager auto-activated `aegis-idea3-ap` and assigned `10.77.30.1/28`. Config valid, no port conflict. The reboot observation identified a separate dnsmasq startup-order gap outside the previously proven V8 runtime acceptance; V8 acceptance is not invalidated.
+- **Repository fix:** the canonical unit template gains a read-only, bounded (30 s per attempt, five attempts, about 160 s worst case) `ExecStartPre` gate for the exact approved interface, IPv4/prefix, AP mode and channel, rendered identically by `p4-ap-network.py` and the L4 handler (the inline L4 copy was replaced by the shared template). dnsmasq config, AP values, DHCP/DNS, NetworkManager profile and V8 `autoconnect=yes` are unchanged.
+- **Independent review (fixed before merge):** the first revision would have broken every L34/V5–V8 reactivation, because `l34_dnsmasq_unit_gate` compared the installed unit byte-for-byte with the now-placeholder raw template, and the L34 fixtures hid it by installing the raw template. The gate now compares against the canonical template rendered with the fixed approved L34 values (still exact byte identity; raw template, old pre-gate unit and any mutation are refused). No live mutation occurred. The shared library hash changed intentionally after V8 (owner-approved re-pin of only the V6, V7 and V8 library pins; old -> new hashes in the receipt); handlers, runners, allow files and historical V6/V7/V8 live results are untouched.
+- **Still required:** review/merge, then a separately governed live stage to install and qualify the unit and observe a reboot, before the device-network path (R5/R7) is relied on. L8p stays serial-only and is not blocked by dnsmasq.
+- **Receipt:** `90-Status/logs/2026-10-02_222500_music_idea3-dnsmasq-boot-order-repair.md`.
+
+---
+
+## IDEA3 governed dnsmasq unit repair package (`dnsmasq-unit-boot-order-repair`) — repository only — 2026-10-03
+
+> [!note] Superseded (state only) 2026-10-03: this package's first live attempt was consumed and failed closed at S10; the SAFE_STOPPED successor later PASSED live — see the two sections above. The "no live repair executed" wording below is the historical state at PR #308 time.
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-governed-live-repair`, merged as PR #308 (`61786bfb9bd4ff07ef70c19294442e750c594c6b`; updated 2026-10-03 — its first live attempt was consumed and failed at S10, see the next section). `PR305_REPOSITORY_FIX = MERGED` (PR #305, merge `827251f2478f03822c42ab43eadb50f73005d432`, an ancestor of main `1579712866ef0e83c5b949b0afed7a7969e0f80f`). `LIVE_REPAIR_EXECUTED = NO`, `REBOOT_VERIFICATION_EXECUTED = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `L8P_LIVE_EXECUTED = NO`, `RECOVERY_R1_R8 = NOT_RUN`, `LVR = NOT_RUN`, `L8 = NOT_RUN`, `ESP32_TOUCHED = NO`. No authorization, K3, frozen runner, attempt marker or evidence exists; nothing was deployed, restarted or changed on the host.
+
+- **Why:** the host still has the OLD pre-PR305 `aegis-idea3-dnsmasq.service`; the corrected L34 authority deliberately refuses it, so every L34/V5–V8 reactivation is blocked until the repaired unit is installed and qualified. No existing governed stage can do only that (V4–V8 require the unit to already match; L4 renders the whole AP network; V7/V8 are historical and never replayed), so a task-specific package follows the existing conventions. No L-number was invented.
+- **Live mutation scope (when separately authorized):** render the canonical template with the fixed approved values, atomically install the unit, `daemon-reload`, `reset-failed` + `start` (failed/start-limit-hit baseline) or one `restart` (running baseline) of `aegis-idea3-dnsmasq.service` only. Never the AP, NetworkManager, SSID/channel/IPv4, DHCP/DNS, nftables/forwarding, broker, Twingate, Core, Recovery, F1 detector, L8p, ESP32, serial, firmware, NVS or relay/CUT/RESTORE.
+- **Governance:** fresh same-day authorization + K3 (`stage=L4` records with the exact repair scope; no L4 acceptance claimed), exact-main frozen runner (inert as committed), one-shot attempt marker `DNSMASQ-UNIT-REPAIR-ATTEMPT-CONSUMED` consumed only after preflight and PRE capture, PRE → APPLY → VERIFY → POST → exact comparator → journal-owned rollback (before/after the unit replacement), explicit terminal verdict, no automatic retry.
+- **Reboot verification is separate** (`verify-dnsmasq-boot-order-after-reboot.sh`, read-only, never reboots): it records `K12_PERSISTENCE_OBSERVED` and, separately, `K12_FORMALLY_PROVEN = NO` (the repository holds no canonical K12 acceptance contract; that is an owner/integration decision).
+- **Design / receipt:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-dnsmasq-unit-boot-order-governed-repair-design.md`; `90-Status/logs/2026-10-03_*_music_idea3-dnsmasq-governed-live-repair.md`.
+
+---
+
+## IDEA3 dnsmasq SAFE_STOPPED governed successor — LIVE PASS — 2026-10-03
+
+> [!important] `DNSMASQ_SAFE_STOPPED_SUCCESSOR_LIVE = PASS`, `SUCCESSOR_LIVE_EXECUTED = YES`, `SUCCESSOR_LIVE_RESULT = PASS` (this supersedes only the older "SUCCESSOR_LIVE_EXECUTED = NO / repository only" readiness claim below). `DNSMASQ_UNIT_REPAIR_DEPLOYED = YES`, `DNSMASQ_S11_HOLD = RESOLVED`, `SUCCESSOR_ATTEMPT_CONSUMED = YES`, `SUCCESSOR_RETRY_ALLOWED = NO`. `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `REBOOT_VERIFICATION_EXECUTED = NO`, `L34_REACTIVATION = NOT_RUN`, `RECOVERY_R1_R8 = NOT_RUN`, `LVR = NOT_RUN`, `L8P = NOT_RUN`, `L8 = NOT_RUN`, `ESP32_TOUCHED = NO`, `CORE_RESTARTED = NO`.
+
+- **What ran:** one owner-authorized governed attempt on main `6227635c4e9efd89563494c180c49e70a38baaa6` (merge of PR #309) from the exact SAFE_STOPPED baseline, 2026-10-03 05:45 +07, from a real terminal. Frozen runner SHA-256 `3c5c6b94…6a31`; fresh Authorization SHA-256 `4ac19af2…8b91` and K3 V2 (`IDEA3_OWNER_SELF_ATTESTATION`, `NONE_KNOWN`) SHA-256 `14a37c54…db19`; marker consumed at 05:45:56 +07, after the pre-consume S10 guard.
+- **Result:** `S10_STABILITY_GUARD = PASS`; `DNSMASQ_REPAIR_APPLY = PASS` (unit install, `daemon-reload`, `start`; no reset-failed/restart); `DNSMASQ_REPAIR_VERIFY = PASS` (unit authority PASS, active/running, no start-limit-hit, AP mode/SSID/channel/IPv4 PASS, Core health PASS, broker unchanged PASS, forwarding policy PASS). PRE→POST comparator: `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0`, `FINDINGS_APPROVED_CHANGE=7`, `FINDINGS_INFO=3`, `PRESERVATION_S10=PASS`, `COMPARE_RESULT=PASS`; the approved changes were only dnsmasq inactive→active / dead→running, the three dnsmasq listeners (TCP and UDP `10.77.30.1:53`, UDP `:67` on `wlp0s20f3`) and dnsmasq `MainPID` / `ExecMainStartTimestamp`. Terminal verdict `DNSMASQ_REPAIR_RESULT = PASS`, `UNEXPECTED_DRIFT = NONE`, `BASELINE = safe_stopped`. Rollback `NOT_RUN`.
+- **Final observed state (read-only):** dnsmasq loaded/enabled/active/running, `Result=success`, `NRestarts=0`, `NeedDaemonReload=no`; the IDEA2 tunnel unchanged (active/running, same MainPID, historical `NRestarts=200`); `127.0.0.1:18002` and `0.0.0.0:8077` LISTEN; Monitor health PASS; all six required services active. `runtime_healthy = NOT_PROVEN` is not itself a failure under the accepted canonical S10 comparator when every required finding is zero.
+- **First attempt unchanged:** `FIRST_ATTEMPT_RESULT = ROLLBACK_FAILED_ESCALATE`, `FIRST_ATTEMPT_RETRY_ALLOWED = NO`; its AUTH_DIR, records, marker, runner and evidence were not touched or reused (the successor Authorization/K3 are fresh, enforced by path and digest denial).
+- **Limitation:** `CAPTURE_INTEGRITY_INDEPENDENTLY_RECHECKED = NO` (the capture directories are root-owned 0700 and no sudo was available to the closeout session); `RUNNER_REPORTED_CAPTURE_SHA256 = PASS`. The shell exit status of the live command was not persisted.
+- **Not claimed:** K12 PASS, reboot persistence, L34 acceptance, Recovery, LVR, L8p, L8, electrical relay proof, CUT/RESTORE proof.
+- **Next sequence:** L8p → Recovery R1–R8 → LVR → full L8 acceptance (each separately authorized). The dnsmasq orderly-reboot verification remains a separate unproven K12 item and is not a prerequisite to L8p.
+- **Receipt:** `90-Status/logs/2026-10-03_054700_music_idea3-dnsmasq-safe-stopped-successor-live-pass.md`.
+
+---
+
+## IDEA3 dnsmasq repair — first attempt CONSUMED (S10), SAFE_STOPPED governed successor — repository only — 2026-10-03
+
+> [!note] Superseded (state only) 2026-10-03: the successor described below was later executed live once and **PASSED** — see the section above. The `SUCCESSOR_LIVE_EXECUTED = NO` / `PRODUCTION_MUTATION_PERFORMED = NO` wording below is the historical state at implementation time and is kept unedited in meaning.
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `fix/idea3-dnsmasq-safe-stopped-successor` (base `61786bfb`). `FIRST_ATTEMPT = CONSUMED_FAILED_S10` and is never replayed (`OLD_ATTEMPT_RETRY_ALLOWED = NO`). `SUCCESSOR_IMPLEMENTATION = REPOSITORY_ONLY`, `SUCCESSOR_LIVE_EXECUTED = NO`, `PRODUCTION_MUTATION_PERFORMED = NO` in this task, `ESP32_TOUCHED = NO`. No Authorization, K3, frozen runner or marker exists for a successor.
+
+- **First attempt (historical, immutable):** the dnsmasq `APPLY` and `VERIFY` PASSED (unit authority, active/running, no start-limit-hit, Core health, broker unchanged); the PRE→POST S10 comparator failed closed because IDEA2 was already unhealthy before the mutation (tunnel unhealthy, `127.0.0.1:18002` absent). The governed rollback PASSED (`SAFE_STATE_RESTORED=YES`, old unit restored); the final PRE→RB comparator failed only on the same pre-existing IDEA2 baseline → terminal verdict `ROLLBACK_FAILED_ESCALATE`. dnsmasq is now in the `SAFE_STOPPED` state (inactive/dead/success/MainPID 0).
+- **Root cause (IDEA2):** the Twingate daemon was active but the interactive Twingate Resource authorization was not; after the owner ran `twingate start` the existing `Restart=always` IDEA2 tunnel recovered. Fresh read-only S10 recovery evidence: all five required lines PASS/0. This proves only the user/Resource authorization path was restored — no daemon or Connector defect is claimed.
+- **Successor changes (repository only):** exact `SAFE_STOPPED` baseline (`daemon-reload` → `start`, no `reset-failed`, no `restart`; journal-owned rollback back to SAFE_STOPPED); a task-specific comparator operation `DNSMASQ_SAFE_STOPPED_POST` (inactive→active, dead→running only); a PRE-CONSUME read-only S10 stability guard in the owner runner (second canonical capture + canonical compare, no allowance, five exact lines, else `NOT_STARTED_NO_MUTATION` with no marker); the historical consumed AUTH_DIR is on a hard denylist and a brand-new AUTH_DIR is required.
+- **Still required before any successor runs:** independent review and merge, a NEW exact-main frozen runner, a brand-new same-day AUTH_DIR/Authorization/K3, fresh read-only S10 proof, and explicit owner authorization of ONE attempt. `K12_AUTOMATIC_REBOOT_PERSISTENCE` stays `NOT_PROVEN`.
+- **Design / receipt:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-03-idea3-dnsmasq-safe-stopped-governed-successor-design.md`; `90-Status/logs/2026-10-03_040500_music_idea3-dnsmasq-safe-stopped-successor.md`.
+
+---
+
+## IDEA3 PR11 Phase 4 L7u SECOND governed LIVE attempt — SUCCESS, persistent — 2026-10-02
+
+> [!important] After PR #302 fixed the delta privilege boundary, the owner executed a DISTINCT second L7u attempt (main `55c7d181`, 2026-10-02 21:12 +07). It is **consumed** (`consumed_at=2026-10-02T14:12:19Z`) and its result is **persistent**. Repository closeout only: no runtime/source change, no new Production mutation by this closeout, no restart.
+> `L7U_LIVE_ACCEPTANCE = PROVEN` (this run only), `RUNNING_RELEASE = 55c7d18135142293267e8d1ea943d3639358d634` (was `f2a5cd75…`), `RECOVERY_TRANSPORT = PRESENT`, `F1_ALERT_TRANSPORT = PRESENT`, `L7U_CORE_RESTART_COUNT = ONE`, `L7U_SUCCESSFUL_EVIDENCE = /home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l7u-20261002-211217`
+> `RECOVERY_R1_R8_PROVEN = NO`, `LVR_PROVEN = NO`, `L8_AUTHORIZED = NO`, `L8_STARTED = NO`, `F1_DETECTOR_STARTED = NO`, `ESP32_TOUCHED = NO`, `RECOVERY_LIVE_EXECUTED = NO`, `NEW_LOGIN_SESSION_REQUIRED_BEFORE_OPERATOR_RECOVERY_SOCKET_USE = YES`
+
+- **First attempt (historical, unchanged):** evidence `2026-10-02-l7u-20261002-201221`, AUTH_DIR `l7u-governed-auth-9d04b797c28b-20261002-200750-r2`: APPLY/VERIFY/compare PASS, `L7U_DELTA=FAIL reason=UNEXPECTED:PermissionError`, automatic rollback PASS, old release restored, `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`, consumed. It is not rewritten and is not the accepted run.
+- **Second attempt:** frozen runner `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l7u-second-attempt-freeze-55c7d1813514-20261002-210426/run-l7u-owner.sh` (SHA-256 `5ac7264d…dad0f`), AUTH_DIR `/home/kittipat/Workspace/idea3-p4-evidence/l7u-second-attempt-auth-55c7d1813514-20261002-210926`. Log: `CAPTURE_PRE=COMPLETE SHA256=PASS`; `L7U_APPLY=PASS` (`L7U_CORE_RESTARTS=1`, `L7U_DETECTOR_STARTED=NO`); `L7U_VERIFY=PASS` (`L7U_RECOVERY_CHANNEL=PRESENT`, `L7U_ALERT_CHANNEL=PRESENT`); `CAPTURE_POST=COMPLETE SHA256=PASS`; PRE→POST `COMPARE_RESULT=PASS` (new/worsened drift 0, baseline-unhealthy 0, incomparable 0, 34 approved changes, `PRESERVATION_S10=PASS`); `L7U_DELTA=PASS` (first successful real-host run of the exact-value proof, through the PR #302 sudo boundary); `SECRET_SCAN_FILES=145 SECRET_SCAN_HITS=0`.
+- **Read-only state afterwards (this closeout):** `current` → the new release (installed guard PASS); Core active/running/enabled, `Result=success`, `NRestarts=0`; `SupplementaryGroups=aegis-idea3-recovery aegis-idea3-alert` and the live process `Groups: 946 947 950`; both groups, both `/run` directories and both listening unix sockets (`recovery.sock`, `alert.sock`) present; both drop-ins and tmpfiles rules present; no F1 detector unit or process running; IDEA2, Twingate, legacy mosquitto, L6b broker, dnsmasq and the AP active; forwarding 0.
+- **Operator session note (preserved from the runner):** the `aegis-idea3-recovery` supplementary membership for `kittipat` applies to NEW login sessions only. The current shell does not have it (it cannot list the 0750 recovery/alert directories). A new login session is an operational prerequisite before any operator Recovery socket use; this closeout did not run `newgrp` or re-login.
+- **Not proven / not authorized:** Recovery R1–R8, LVR, L8, the F1 detector start (a later F1 package, after this stage verified the Core alert socket), ESP32. `pre-root`/`post-root` are root-owned, so this closeout relied on the runner's recorded `SHA256=PASS`.
+- **Next (separate governed work):** Recovery R1–R8 preparation from the then-current main.
+
+---
+
+## IDEA3 PR11 Phase 4 L7u first LIVE attempt FAILED at the exact-value delta (permission boundary); auto-rollback PASS; repository fix in progress — 2026-10-02
+
+> [!warning] The one-shot L7u attempt (main `9d04b797`, 2026-10-02 ~20:12 +07, owner-run) is **consumed** (`consumed_at=2026-10-02T13:12:28Z`). Forward APPLY, VERIFY, POST capture and PRE→POST compare PASSED; the exact-value delta then failed with `UNEXPECTED:PermissionError` and the runner rolled back automatically. **Production WAS mutated by the attempt and the Core was restarted twice (forward and rollback).** It is not reusable.
+> `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`, `ATTEMPT = CONSUMED`, `ROLLBACK_RESULT = PASS`, `OLD_RELEASE_RESTORED = YES (f2a5cd75…)`, `RECOVERY_R1_R8_PROVEN = NO`, `LVR_PROVEN = NO`, `L8_AUTHORIZED = NO`, `F1_DETECTOR_STARTED = NO`, `ESP32_TOUCHED = NO`, `DELTA_FIX = MERGED (PR #302); this first attempt stays FAILED / consumed / historical — see the second-attempt section above`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l7u-20261002-201221`. Log: `CAPTURE_PRE=COMPLETE SHA256=PASS`; `L7U_APPLY=PASS` (`L7U_CORE_RESTARTS=1`, `L7U_DETECTOR_STARTED=NO`); `L7U_VERIFY=PASS` (`L7U_RECOVERY_CHANNEL=PRESENT`, `L7U_ALERT_CHANNEL=PRESENT`); `CAPTURE_POST=COMPLETE SHA256=PASS`; PRE→POST `COMPARE_RESULT=PASS` (new/worsened drift 0, baseline-unhealthy 0, incomparable 0, `PRESERVATION_S10=PASS`); `L7U_DELTA=FAIL reason=UNEXPECTED:PermissionError`; `L7U_ROLLBACK=PASS`; `CAPTURE_RB=COMPLETE SHA256=PASS`; PRE→RB `COMPARE_RESULT=PASS`.
+- **Root cause (PROVEN):** the runner invoked `p4-l7u-upgrade.py delta` as the normal user; `read_records` opens `host.tsv`/`services.tsv` under the root-owned `0700` `pre-root`/`post-root` captures. A read-only check confirmed the owner user cannot open them. Reproduced RED by a CLI test (`UNEXPECTED:PermissionError`).
+- **Read-only state check afterwards:** `current` → `f2a5cd75…` (the old release); the new release directory, the Recovery/alert groups, `/run` directories, drop-ins and tmpfiles rules are absent; `core.env` unchanged (size/mtime/mode/owner); Core active/running/enabled, `Result=success`, `NRestarts=0` (MainPID/start time differ from PRE, which the bounded rollback allows); IDEA2/Twingate/legacy mosquitto/L6b broker/dnsmasq active; forwarding 0; no detector running.
+- **Fix (Draft PR):** `delta` now runs through the existing sudo boundary and an unreadable capture is the explicit refusal `DELTA_CAPTURE_UNREADABLE_ROOT_REQUIRED`. Captures stay root-owned; apply/verify/rollback unchanged. Spec §12.
+- **Still required before any new attempt:** human merge of the fix, a NEW owner-frozen runner at the then-current main, fresh qualification, fresh same-day A-L7u + K3 in a brand-new `AUTH_DIR`, and an explicit owner decision. `delta` had never run against a real host before this attempt, so another live-only defect is possible.
+
+---
+
+## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor LIVE closeout — PASS (runtime recovery only) — 2026-10-02
+
+> [!important] The owner executed the governed successor V8 attempt once (main `3d8028f4`, 2026-10-02 19:42 +07). It is **consumed and not reusable**. Repository closeout only: no runtime/source/runner/handler change, no new Production mutation by this closeout, no reboot.
+> `V8_RUNTIME_RECOVERY = PASS`, `ORIGINAL_V8_ATTEMPT = FAILED / S-11 HOLD / CONSUMED / HISTORICAL` (unchanged), `GOVERNED_SUCCESSOR_V8 = PASS / CONSUMED`, `SUCCESSOR_ATTEMPT_CONSUMED = YES`, `AUTH_REUSABLE = NO`, `K3_REUSABLE = NO`, `RUNNER_REUSABLE_FOR_ANOTHER_ATTEMPT = NO`, `V8_RETRY_ALLOWED = NO`
+> `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`, `RECOVERY_R1_R8_PROVEN = NO`, `L7U_EXECUTED = NO`, `L8_AUTHORIZED = NO`, `L3_LIVE_ACCEPTANCE / L4_LIVE_ACCEPTANCE / L6B_LIVE_ACCEPTANCE = NOT CLAIMED`, `ESP32 = NOT_PROVEN`
+
+- **Evidence:** `/home/kittipat/Workspace/idea3-p4-evidence/2026-10-02-l34-v8-20261002-194210`. Owner-run log: baseline `FRESH`; read-only handler preflight `L34_V8_PREFLIGHT=PASS`; `CAPTURE_PRE=COMPLETE SHA256=PASS`; `L34_V8_APPLY=PASS`; `L34_V8_VERIFY=PASS`; PSK output scan `115 files, 0 hits`; `CAPTURE_POST=COMPLETE SHA256=PASS`; PRE→POST `COMPARE_RESULT=PASS`, `FINDINGS_NEW_OR_WORSENED_DRIFT=0`, `FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `FINDINGS_INCOMPARABLE=0` (39 approved changes, 4 info), `PRESERVATION_S10=PASS`.
+- **The one persistent change:** NetworkManager `aegis-idea3-ap` `connection.autoconnect` no → yes (the canonical comparison tolerated the libnm `[connection]/timestamp` per PR #299). The profile `.meta` record changed (size 378 → 360) and is the single approved persistent key; every other persistent file was unchanged.
+- **Runtime state recorded at POST:** AP active (`AEGIS-IDEA3`, channel 6, `10.77.30.1/28`), rfkill target unblocked, NM radio enabled, dnsmasq active/running (reset-failed + one start), broker active/running via its own systemd auto-restart (`BROKER_CONTROL_COMMAND_ISSUED=NO`, tuple stable), `TLS_PROBE=PASS`, Core unchanged (no control command; MainPID unchanged), unrelated Wi-Fi inactive, forwarding zero, legacy mosquitto/Twingate/IDEA2 unchanged. A later read-only check by this closeout still saw the AP, dnsmasq, broker and Core active and `connection.autoconnect=yes`.
+- **Historical objects, untouched:** the original attempt's `AUTH_DIR`, marker (`consumed_at=2026-10-02T09:50:11Z`), runner pin `9f5a0114` and evidence, and its receipt; the `8739847` and `98c3e77` freezes (stale, never used).
+- **Not proven:** reboot persistence (K12): dnsmasq may still lose its boot race with the interface, and the rfkill state file records the last shutdown state. Recovery R1–R8, L7u and L8 are separate later activities. `pre-root`/`post-root` are root-owned; this closeout relied on the runner's recorded `SHA256=PASS` for them and did not re-verify the capture checksums.
+
+---
+
+## IDEA3 PR11 Phase 4 L3/L4 V8 governed-successor clarification (docs only) — 2026-10-02
+
+> [!important] Governance clarification only (Draft PR, awaiting human merge). No runtime, runner, handler, marker or classifier change; Production not mutated; no Auth/K3; no runner freeze; no preflight; **no V8 live attempt and no successor attempt has run.** The sections below remain true.
+> `ORIGINAL_V8_ATTEMPT = FAILED / CONSUMED`, `ORIGINAL_AUTH_K3 = NOT_REUSABLE`, `V8_RETRY_ALLOWED = NO` (the consumed attempt itself can never be rerun), `GOVERNED_SUCCESSOR_ALLOWED = YES`, `CANONICAL_STAGE_ID_REUSED = YES` (`l34-v8-post-v7-persistent-ap-recovery`), `REQUIRES_NEW_AUTH_DIR = YES`, `REQUIRES_NEW_FREEZE = YES`, `REQUIRES_NEW_PREFLIGHT = YES`, `REQUIRES_FRESH_SAME_DAY_AUTH_K3 = YES`, `SUCCESSOR_LIVE = see the governed-successor LIVE closeout section above (superseded; it has run once and PASSED, consumed)`
+
+- **Resolves:** the older wording "a NEW stage or governed successor" below. A governed successor reuses the canonical V8 stage ID; it does not need a renamed stage. It is not a retry: the prior `AUTH_DIR`, authorization, K3, marker, frozen runner and evidence directory are never reused, and the successor uses the marker filename `L34-V8-REACTIVATION-ATTEMPT-CONSUMED` only inside its own brand-new `AUTH_DIR`. The seven conditions are in spec §5.1 (`IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`).
+- **Not claimed:** V8 live success, L3/L4/L6b acceptance, K12 reboot persistence.
+
+---
+
+## IDEA3 PR11 Phase 4 L3/L4 V8 live attempt FAILED (S-11 HOLD) — timestamp false positive; repository fix in progress — 2026-10-02
+
+> [!warning] The one-shot V8 live attempt (main `9f5a0114`, 2026-10-02 ~16:50 +07, owner-run) FAILED and its rollback proof also failed: **S-11 HOLD is ACTIVE; the host is in a safe hold; no host recovery was performed.** The consumed V8 authorization, marker (`consumed_at=2026-10-02T09:50:11Z`) and evidence (`2026-10-02-l34-v8-20261002-165006`) are historical and not reusable. V8 must not be retried.
+> `V8_LIVE = FAIL`, `S11_HOLD = ACTIVE (SAFE_HOLD)`, `ROOT_CAUSE = PROVEN (NetworkManager/libnm persisted [connection]/timestamp)`, `TIMESTAMP_REPOSITORY_FIX = LOCALLY_VERIFIED_ON_BRANCH (Draft PR #299, not merged)`, `HOST_RECOVERY = NOT_PERFORMED`, `V8_CONSUMED_ATTEMPT = NOT_REUSABLE`, `V8_RETRY_ALLOWED = NO`, `SUCCESSOR_LIVE_ATTEMPT = NOT_READY (BLOCKED_PENDING_BASELINE_RECONCILIATION)`, `BASELINE_FIX_IN_THIS_PR = NO`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **What happened:** the baseline classified FRESH and the read-only preflight passed. After the attempt marker was consumed, the apply made its journaled mutations (exact-id rfkill unblock, device autoconnect off, one radio enable, one `nmcli connection modify aegis-idea3-ap connection.autoconnect yes`); its profile-integrity proof (`l34_v8_persistent_verify … yes`) then failed with `L34_V8_PROFILE_CHANGED_BEYOND_AUTOCONNECT:aegis-idea3-ap.nmconnection`. No AP activation, no dnsmasq start and no broker/Core command ever happened. The rollback restored `autoconnect=no`, the radio, device autoconnect and rfkill, then its own final proof failed with the same invariant (`L34_V8_ROLLBACK=FAIL`, S-11 HOLD).
+- **Root cause (PROVEN):** a human-owner read-only canonical diff of the on-disk profile against the proven record set showed exactly one difference, `> [connection]/timestamp=1790896283`; profile stat `600 root:root` and `psk_lines=1` were unchanged. libnm's own keyfile writer emits the NetworkManager-maintained last-activation `timestamp` once the daemon rewrites an activated profile; the V8 canonicalizer excluded only autoconnect, uuid and secrets, so it flagged runtime bookkeeping as configuration drift. No semantic setting changed.
+- **Repository fix (this task, Draft PR):** `l34_v8_profile_canonical` now also ignores `[connection]/timestamp` **only when its value is a non-negative decimal integer**; a `timestamp` in any other section, a non-numeric value, or any other unknown key still changes the canonical set. The same function backs apply, verify and rollback proofs. Regression-first tests (RED against the old library, GREEN after) use libnm-writer fixtures and the NetworkManager-style simulator, plus negative controls (SSID, interface-name, mode/band/channel, IPv4/IPv6, key-mgmt, extra keys, mode drift, PSK-line count). This is repository/local verification only; it is NOT a live V8 success.
+- **Host state after the hold (read-only observation):** rfkill `phy0` soft-blocked, NM Wi-Fi radio disabled, `wlp0s20f3` unavailable, device autoconnect `yes` (PRE value), AP profile `connection.autoconnect=no`, 10.77.30.1 absent, dnsmasq failed/start-limit-hit (unchanged), no `:8883` listener, broker crash-looping on its own restart policy, Core PID/InvocationID unchanged, management route intact. Residuals: `wpa_supplicant` active and `p2p-dev-wlp0s20f3` present (NetworkManager started them when the radio came on; the rollback model tolerates them). The on-disk profile still carries the NetworkManager `timestamp` line.
+- **Baseline consequence (separate finding):** the current host tuple (phy `00`, p2p-dev present, `wpa_supplicant` active) is classified `MIXED_OR_UNRECOGNIZED` by `l34_baseline_classify` (FRESH needs no p2p-dev and wpa inactive; RESIDUAL needs phy `TH`), although the rollback handler tolerates exactly this state. A new stage cannot start from the hold state unless the host is first returned to a supported baseline (owner-governed normalization) or a separately reviewed classifier extension is merged. Neither is done by this task or its PR (`BASELINE_FIX_IN_THIS_PR = NO`, `HOST_RECOVERY_IN_THIS_PR = NO`); baseline reconciliation / governed recovery preparation is successor work.
+- **Still required before any new live attempt:** human merge of the fix, a NEW stage or governed successor with a fresh owner-frozen runner at the then-current main, a fresh root preflight that finds a supported baseline, and a fresh same-day `stage=L4` authorization and K3. V8 live acceptance, L3/L4/L6b acceptance and K12 are NOT claimed.
+
+## IDEA3 PR11 Phase 4 L3/L4 V8 post-V7 persistent AP recovery (OD-L34-V8-01) — repository only — 2026-10-02
+
+> [!important] New governed one-shot stage, repository implementation (as merged at PR #291). _Superseded by the live-attempt section above: V8 later ran once on 2026-10-02 and FAILED (S-11 HOLD)._ At the time of this implementation no authorization or K3 record existed and Production was not mutated; Core was not restarted; no ESP32; no L7u; Recovery R1–R8 not executed.
+> `V8_STAGE = l34-v8-post-v7-persistent-ap-recovery`, `V8_REPOSITORY = IMPLEMENTED (merged PR #291; canonicalizer false-positive fixed in the Draft PR above)`, `V8_LIVE = FAIL (see above; was NOT_RUN at implementation time)`, `V7_HISTORICAL_RESULT = IMMUTABLE`, `K12_AUTOMATIC_REBOOT_PERSISTENCE = NOT_PROVEN`
+
+- **Why:** V7 was explicitly `RUNTIME_ONLY`. After two reboots the AP profile (`autoconnect=no`) was never activated, `aegis-idea3-dnsmasq` hit its start limit and the L6b broker crash-looped again; the operator desktop session then disabled the Wi-Fi radio (read-only journal evidence, 2026-10-02). V7 is one-shot and must not be replayed.
+- **What:** a NEW stage with its own handlers, runner, marker (`L34-V8-REACTIVATION-ATTEMPT-CONSUMED`) and gate library (`p4-l34-v8-lib.sh`). It recovers the V7 baseline class (exact-id rfkill unblock, one radio enable, bounded ready-wait, one ifname-bound AP activation, dnsmasq reset-failed + one start, read-only wait for the broker's own restart, one TLS probe, stable broker/Core tuples) and makes exactly ONE persistent change: NetworkManager `aegis-idea3-ap` `connection.autoconnect` no → yes, journaled before it is made.
+- **Rollback:** journal-owned; restores `autoconnect=no` first, then unwinds dnsmasq, the AP, the radio, device autoconnect and the exact rfkill id; proves the profile semantically identical to PRE (canonical `[section]/key=value` records; key order and the daemon-assigned uuid ignored, autoconnect=false restored). It never touches the broker or Core, and never edits `/var/lib/systemd/rfkill` or NetworkManager state files.
+- **Still required before any live V8:** human merge, post-merge verification, a NEW owner-frozen runner at the new main, a fresh same-day `stage=L4` authorization and K3 record with the exact V8 scope (a V7 marker or V7 scope is refused), and a read-only preflight that finds the exact baseline. Reboot persistence acceptance (K12) remains a separate later activity. Spec: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l34-v8-post-v7-persistent-ap-recovery-design.md`.
+
+## IDEA3 R5 normal-path RESTORE + break-glass (OD-R5-BG-01) — repository only — 2026-10-02
+
+> [!important] Repository/local only (IMPLEMENTED != DEPLOYED). PR #287 (`feat/idea3-recovery-r5-normal-path-rebuild`) is **MERGED** on main (`8a41a8548c82c99d5934e89ea8b3428f3dae79f8`; `PR287_MERGED = YES`, `R5_REPOSITORY_MERGED = YES`). No Production mutation, Core restart, L7u, Recovery, ESP32, L8p or L8 execution. This section supersedes the F1 section's `R5_REPOSITORY_MERGED = NO` / `BREAK_GLASS_IMPLEMENTED = NO` held-back note for the branch state; PR #286 (L8p owner runner) is **MERGED** on main (`bfbe1dc68c241c36e7ed6d354545567a581b5553`); the L8p owner runner section below is reconciled accordingly.
+> `R5_REPOSITORY_IMPLEMENTED = YES`, `R5_LOCAL_VERIFIED = YES`, `BREAK_GLASS_IMPLEMENTED = YES`, `OD_R5_BG_01 = APPROVED`, `R5_PRODUCTION_DEPLOYED = NO`, `RECOVERY_LIVE = NOT_RUN`, `L7U_LIVE_FINAL = NOT_PROVEN`, `L8P_LIVE = NOT_AUTHORIZED`, `L8_LIVE = NOT_RUN`, `BREAK_GLASS_COUNTS_AS_R4 = NO`, `BREAK_GLASS_COUNTS_AS_R5 = NO`
+
+- **Normal RESTORE (R5):** R1 VERIFIED -> R3 VERIFIED -> live containment read-back -> fresh R2 VERIFIED -> D4 -> RESTORE. Missing live containment after a VERIFIED R3 is not convertible to break-glass.
+- **Break-glass (operational recovery only):** authenticated v1 LOCKDOWN, durable lockdown episode, fresh current-process LOCKDOWN proof, fresh R2 VERIFIED, D4, `RESTORE UPLINK`, `BREAK GLASS RESTORE UPLINK`, reason, explicit `break_glass=true`; one durable claim per episode spent before publish; normal path takes priority; Case A (no incident) and Case B (latest durable R3 FAILED) only.
+- **Boundary:** break-glass gives no R4/R5 acceptance credit. Merging requires a separate governed deployment stage.
+- **Receipt:** `90-Status/logs/2026-10-02_055732_music_idea3-r5-break-glass.md`.
+- **Authoritative main at this reconciliation:** `bfbe1dc68c241c36e7ed6d354545567a581b5553`. `PR #284 = MERGED`, `PR #286 = MERGED` (merge commit `bfbe1dc68c241c36e7ed6d354545567a581b5553`).
+
+---
+
+## IDEA3 PR11 Phase 4 L8p owner runner (inert template) — repository only — 2026-10-02
+
+> [!important] Repository-only; branch `feat/idea3-l8p-owner-runner`, pushed normally (no force-push) as PR #286, which is now **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553` (the owner runner is part of main; it remains an inert template). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, L8p, Recovery and L8 not run.
+> `L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, `L8P_OWNER_RUNNER_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+
+- **What it is:** `deploy/pr11-phase4/owner-run/run-l8p-owner.sh` (+ `p4-l8p-run-lib.sh`), following the L7u owner-run pattern. The committed copy is an **inert template**: eighteen `PIN_` values (including the frozen operator user and uid, enforced by the reused L7u identity gate before anything else) make it refuse until the owner freezes it outside the repository after the FINAL source set is merged. It holds no device logic; every device operation is the canonical L8p handler set (merged L8 `HardwareDevice` and signed BOOT verifier).
+- **Gates and flow:** same-day `stage=L8p` authorization + K3 through the reused `p4-stage-gate.sh --stage L8p --mode live`; predecessor receipts from the pinned commit **including a PROVEN final L7u** (none exists, so a real run fails closed today); runtime gates; PRE capture and checksum; one attempt (`L8p-ATTEMPT-CONSUMED`, never reused from L7u); apply once, verify, POST capture, PRE/POST compare, secret scan. A failure calls the canonical rollback (`L8P_DEVICE_ACTION_TAKEN=NONE`, after the first write `L8P_ROLLBACK=FAIL_SECURE_HOLD_AND_EVIDENCE`), then a mandatory RB capture and PRE->RB compare; no retry, reflash, erase, CUT, RESTORE or plaintext 1883; physical recovery stays manual.
+- **Success boundary:** only `L8P_LIVE_EXECUTED=YES` and `L8P_PROVISIONING=PASS`; `RECOVERY_R1_R8_PROVEN=NO`, `LVR_PROVEN=NO`, `L8_ACCEPTANCE=NO`, `ELECTRICAL_RELAY_PROOF=NO` (signed BOOT LOCKDOWN is firmware-reported, not electrical proof).
+- **Verification:** hermetic stub-only tests; see the receipt `90-Status/logs/2026-10-02_041051_music_idea3-l8p-owner-runner.md`.
+- **Still required before any live L8p:** a merged PROVEN final L7u receipt, freezing the runner, reviewed pins/artifacts and the written physical recovery procedure, same-day authorization and K3, and explicit owner live authorization. OD-L8P-01 stays `APPROVED` (L8p only; L8 remains `D4_ONLY`).
+
+---
+
+## IDEA3 PR11 Phase 4 L8p device provisioning stage on the canonical L8 backend — repository only — 2026-10-02
+
+> [!important] Repository-only. **PR #284 = MERGED** (merge commit `097416e0aba6d71a2e5d215fd5d43b3982c18f09`; main at the time was `fa22edd5…`; current authoritative main is `bfbe1dc68c241c36e7ed6d354545567a581b5553`). **No hardware, serial port, broker, network or Production was touched**; Core not restarted; L7u, Recovery and L8 not run.
+> `OD_L8P_01 = APPROVED`, `L8_HARDWARE_BACKEND = IMPLEMENTED_REPOSITORY / MERGED (PR #247)`, `L8P_REPOSITORY_IMPLEMENTED = YES`, `L8P_LOCAL_VERIFIED = YES`, `L8P_LIVE = NOT_AUTHORIZED`, `REAL_ESP32_TOUCHED = NO`, `RECOVERY_LIVE = NOT_RUN`, `LVR = NOT_RUN`, `L8_LIVE = NOT_RUN`, `ELECTRICAL_RELAY_PROOF = NO`
+
+- **Decision (OD-L8P-01):** for L8p only, `D4_LIVE_REQUIRED_BEFORE_L8P_FLASH = NO`; an owner-attested physical recovery procedure satisfies the pre-write recovery prerequisite. L8 is unchanged: `OD14_L8_RECOVERY_POLICY = D4_ONLY`, `INTERIM_RECOVERY_PROCEDURE = NOT_APPROVED`, `D4_LIVE_REQUIRED_BEFORE_L8_FLASH = YES`. Recorded in the L8 operational design.
+- **Stage:** `L8p` sits between `L7u` and `L8` (`L7 -> L7u -> L8p -> Recovery R1-R8 -> LVR -> L8`); it provisions the ESP32 only and claims no Recovery, LVR, L8 live or electrical-relay result. Spec: `docs/superpowers/specs/2026-10-02-idea3-pr11-phase4-l8p-device-provisioning-only.md`.
+- **One canonical flow:** L8p reuses the merged L8 `HardwareDevice`, executor, argv validator, NVS and firmware readback, single terminal reset, signed BOOT verifier and the 12-field evidence (file `l8p-<run_id>.json`, no 13th field). The old L8p backend (`f626776c`) was not ported. `p4-l8p-device.py` is thin governance (attestation, pins, NVS schema); the canonical `p4-l8-device.py` gained only a small fail-closed `StageProfile` hook (default = L8 with D4).
+- **Verification:** see the receipt `90-Status/logs/2026-10-02_023247_music_idea3-l8p-canonical-provisioning-stage.md`. Fixture and fake executor only.
+- **Still required before any live L8p:** the merged owner runner (`L8P_OWNER_RUNNER_REPOSITORY_IMPLEMENTED = YES`, `L8P_OWNER_RUNNER_MERGED = YES`, PR #286 **MERGED** at `bfbe1dc68c241c36e7ed6d354545567a581b5553`; still an inert template the owner must freeze), a merged PROVEN final L7u receipt, freezing the runner, reviewed firmware/partition pins and the written physical recovery procedure, same-day authorization plus K3, and explicit owner live authorization. `L8P_LIVE = NOT_AUTHORIZED`. F1 (PR #282) is preserved untouched.
+
+---
+
+## IDEA3 F1 production alert ingress (Recovery R1 source) — repository only — 2026-10-01
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Nothing was deployed, Production was NOT mutated, the Core was NOT restarted, L7u was NOT run, Recovery R1-R8 was NOT run live, no ESP32, no L8. F1 is inert until a separate governed deployment stage sets `AEGIS_ALERT_SOURCE_UID`.
+> `F1_REPOSITORY_IMPLEMENTED = YES`, `F1_LOCAL_VERIFIED = YES`, `F1_PRODUCTION_DEPLOYED = NO`, `F1_REAL_DETECTOR_ACCEPTANCE = NO`, `F1_MERGE_ALONE_CREATES_RESTORE_LOCKOUT = NO`, `R5_REPOSITORY_MERGED = NO`, `BREAK_GLASS_IMPLEMENTED = NO`, `R5_READY_FOR_PR = NO`
+
+- **What:** a Core-local AF_UNIX alert ingress in `aegis_soc/recovery_core.py` (`AlertIngress`, `AlertServer`) makes Recovery R1 reachable in production without MQTT. `SO_PEERCRED` authenticates the one uid in `AEGIS_ALERT_SOURCE_UID` before any request byte is read; the socket is `<runtime_dir>/alert.sock` (`0600`), production profile only, disabled when the uid is unset. Payload is exactly `{"v":1,"attacker_ip":"x.x.x.x"}` (256 bytes, 2 s deadline, token bucket, strict IPv4). The only effect is `recovery.bind_incident` via `supervisor.on_production_alert`; same IP `EXISTING`, a different IP while an incident is open `IGNORED_DIFFERENT_IP`. It cannot request containment, CUT, RESTORE or MQTT publish, does not use the legacy `_on_attacker` path, and Protocol v1 and the broker ACL are unchanged.
+- **Evidence (local/simulated):** 60 F1 tests; Recovery 109 passed + 1 xfailed; full IDEA3 suite `4654 passed, 8 skipped, 1 xfailed, 0 failed`; a real scratch release build and canonical verify PASS with the four Recovery files and the F1 code present, no new dependency and no module sweep; L7u preflight guard PASS. Baseline close-channel and L6c capture tests are known host-state flakes, recorded in the receipt and not caused by F1.
+- **Not included:** the detector sink, the detector systemd unit, `AEGIS_ALERT_SOURCE_UID` in the production `core.env` and a governed Core restart (a separate governed deployment stage). The protected first-IP R3 dead end is unchanged and belongs with R5/break-glass.
+- **R5 held back:** the R5 normal-path RESTORE enforcement is preserved locally and is NOT merged; merged without break-glass it would make production RESTORE unavailable. F1 does not touch `local_restore.py`.
+- **Receipt:** `90-Status/logs/2026-10-01_233900_music_idea3-f1-production-alert-ingress.md`.
+
+---
+
+## IDEA3 F1 production deployment package — repository only — 2026-10-02
+
+> [!important] Repository-only (IMPLEMENTED != DEPLOYED). Branch `feat/idea3-f1-production-deployment-package` (PR #288, Draft, unmerged), reconciled onto current main. Nothing was deployed or started: `PRODUCTION_MUTATION_PERFORMED = NO`, Core not restarted, L7u/Recovery/L8p/L8 not run, no ESP32.
+> `CURRENT_MAIN_AT_RECONCILIATION = 858c26faad5b1aa98a94693a68c533c0e6ccd23c`, `PR287_MERGED = YES`, `R5_REPOSITORY_MERGED = YES`, `BREAK_GLASS_IMPLEMENTED = YES`, `OD_R5_BG_01 = APPROVED`, `OD_F1_DEPLOY_01 = APPROVED`
+> `F1_ALERT_SOURCE_IDENTITY = DEDICATED_NON_ROOT`, `F1_DETECTOR_ACCOUNT = aegis-idea3-detector`, `F1_ALERT_TRANSPORT_GROUP = aegis-idea3-alert`, `CAP_DAC_OVERRIDE = FORBIDDEN`, `SO_PEERCRED_UID_AUTH = REQUIRED`, `L7U_F1_INTEGRATION_IMPLEMENTED = YES`, `CORE_ALERT_SOCKET_HOOK_IMPLEMENTED = YES`
+> Still NOT live: `F1_PRODUCTION_DEPLOYED = NO`, `F1_REAL_DETECTOR_ACCEPTANCE = NO`, `L7U_LIVE_FINAL = NOT_PROVEN`, `RECOVERY_LIVE = NOT_RUN`, `L8P_LIVE = NOT_AUTHORIZED`, `L8_LIVE = NOT_RUN`, `CORE_RESTARTED = NO`
+
+- **What:** production sink `aegis_soc/alert_sink.py` (AF_UNIX only, constant `/run/aegis-idea3-alert/alert.sock`, exact `{"v":1,"attacker_ip":"<IPv4>"}`, Core peer checked first, bounded, one attempt, stable codes) and `aegis_soc/production_detector.py` (same three rules/thresholds as the unchanged legacy `detector.py`; stops after three consecutive transport failures); `deploy/aegis-idea3-detector.service.example` (`User=aegis-idea3-detector`, `SupplementaryGroups=aegis-idea3-alert`, no capability, `Restart=no`); `deploy/pr11-phase4/p4-f1-alert-source.py` (render/verify, ordered live-gated `start-detector`, detector-only `stop-detector`); `--alert-source-uid` in `p4-l7-core-env.py`. The release builder gains `production_detector` as a third entrypoint (stdlib only, no new dependency).
+- **Core alert socket hook (Phase B):** the Core `AlertServer` now serves only `/run/aegis-idea3-alert/alert.sock` (Core:`aegis-idea3-alert`, `0620`) inside a pre-provisioned Core-owned `2750` directory of that group (never created or widened by the Core; missing/wrong mode/wrong group fails closed and disables the ingress without stopping the Core). The group grants connect reachability only: authorization stays `SO_PEERCRED uid == AEGIS_ALERT_SOURCE_UID`, checked before any request byte is read, so an alert-group member with another uid is refused. A root or Core-uid source and an unresolvable group keep the ingress disabled. The old `/run/aegis-idea3/alert.sock` is no longer the alert authority; the Recovery runtime, `local-restore.sock`, RESTORE policy, break-glass and containment are untouched.
+- **L7u (final):** the engine installs the frozen `AEGIS_ALERT_SOURCE_UID` line, the `aegis-idea3-alert` group, the Core supplementary-group drop-in and the alert tmpfiles/runtime directory with journaled prestate, inside the same ONE Core restart, verifies the dedicated alert socket, and never starts the detector (`L7U_CORE_RESTART_COUNT = ONE`, `L7U_STARTS_DETECTOR = NO`). Rollback restores every surface from the journal and never starts the detector, sends CUT/RESTORE, touches ESP32 or containment. Live execution remains unproven.
+- **Receipt:** `90-Status/logs/2026-10-02_050500_music_idea3-f1-production-deployment-package.md`.
+
+---
+
+## IDEA3 PR11 Phase 4 L7u release-builder Recovery runtime fix — repository only — 2026-10-01
+
+> [!important] Repository-only fix after a safe preflight stop. The owner's first L7u live attempt (2026-10-01 ~20:11 +07, frozen runner sha256 `f2d8203a…8834`, main `7cabf28a`) stopped in the engine preflight with `L7U_PREFLIGHT=FAIL reason=NEW_RELEASE_LACKS_RECOVERY_RUNTIME`, before PRE capture and before `L7u-ATTEMPT-CONSUMED`. No production mutation, Core NOT restarted (release pointer still `f2a5cd75…`), no Recovery R1-R8, no ESP32, no L8. L7u has NOT run live.
+> `L7U_ROOT_CAUSE = RELEASE_BUILDER_CLOSURE_OMITS_RECOVERY_OBSERVER`, `L7U_BUILDER_FIX = REPOSITORY_ONLY (Draft PR, awaiting human merge)`, `L7U_LIVE = NOT_RUN`, `FROZEN_RUNNER_f2d8203a = DO_NOT_RETRY`
+
+- **Cause:** `p4-l7-build-release.py` shipped only the runtime closure of `supervisor`; `recovery_ui.py` and `recovery_client.py` (the observer entrypoint `python -m aegis_soc.recovery_ui`) are not imported by the Core and were omitted. The scratch build of the failed attempt held 24 modules without those two.
+- **Fix:** builder and verifier use the union closure of `ENTRYPOINTS = ("supervisor", "recovery_ui")`; the L7u preflight check is not weakened.
+- **Still required before any live L7u:** human merge, a NEW execution worktree and NEW frozen runner at the new main, a fresh same-day `stage=L7u` authorization plus K3 record, and explicit owner live authorization. The `f2d8203a…` runner and `l7u-auth-20261001-194525` must not be reused.
+
+---
+
+## IDEA3 PR11 Phase 4 L3/L4 V7 python-path forwarding fix — repository only — 2026-10-01
+
+> [!important] Repository-only fix after a safe preflight stop. The owner's first live attempt (2026-10-01 16:49 +07, frozen runner sha256 `477ac802…bcef1`, main `352b7550`) stopped in the read-only handler preflight with `L34_V7_APPLY=FAIL reason=V7_PROBE_PYTHON_INVALID`. Nothing was changed, the one-shot authorization was NOT consumed (no `L34-V7-REACTIVATION-ATTEMPT-CONSUMED`), no production-mutation marker exists, Core was NOT restarted, no ESP32, no L8, Recovery R1-R8 NOT run. V7 has NOT run live.
+> `V7_ROOT_CAUSE = OWNER_RUNNER_PYTHON_ENV_NOT_FORWARDED`, `HOST_BASELINE_FAILURE = NO`, `V7_PYTHON_FORWARDING_FIX = REPOSITORY_ONLY (simulator-tested, Draft PR, awaiting human merge)`, `V7_LIVE = NOT_RUN`, `FROZEN_RUNNER_352b7550 = DO_NOT_RETRY`
+
+- **Cause:** `reactivation/l34-v7-radio-disabled-broker-churn/apply.sh` reads `PY="${AEGIS_L34_V7_PYTHON:-python3}"` and in live mode accepts only an absolute executable path; the V7 owner runner defined the frozen absolute `PY` but its `handler()` never passed `AEGIS_L34_V7_PYTHON`, so `sudo env` left the handler on `python3`. The V6 runner already forwards `AEGIS_L34_V6_PYTHON="$PY"`.
+- **Fix:** the V7 runner template `handler()` now passes `AEGIS_L34_V7_PYTHON="$PY"`. `apply.sh` is unchanged and stays fail-closed on a PATH-relative or non-executable python.
+- **Still required before any live V7:** human merge of this fix, post-merge verification, a NEW owner-frozen runner at the new main (the `477ac802…` frozen runner must not be retried), a fresh same-day `stage=L4` authorization plus K3 record, and an explicit owner live authorization. S10 pre-V7 evidence (`PRE_V7_PURE_S10 = FAIL_EXPECTED_BROKER_CHURN`, `FRESH_IDEA2_HEALTH = PASS_LIMITED`) was collected earlier today and is unchanged by this fix.
+
+---
+
+## IDEA3 PR11 Phase 4 L3/L4 V7 pre-live hardening (F1/F2/F3) — repository only — 2026-10-01
+
+> [!important] Repository-only follow-up to the merged V7 (PR #272). V7 has NOT run live; no authorization or K3 record was created or consumed; production was NOT mutated; Core NOT restarted; no ESP32; no L8; Recovery R1-R8 NOT run.
+> `V7_PRELIVE_HARDENING = REPOSITORY_ONLY (simulator-tested, Draft PR, awaiting human merge)`, `V7_LIVE = NOT_RUN`, `REAL_HOST_COMPARATOR_EVIDENCE = MISSING`, `S10_FRESH = NOT_YET_COLLECTED`
+
+- **F1 (authorization ordering):** the V7 owner runner now orders pre-gates → handler preflight → PRE capture → consume the one-shot marker → first mutation. A refused preflight or failed PRE capture leaves the authorization usable; after consumption (immediately before `apply.sh`) the attempt is spent even if apply/verify fails and rollback runs; a replay is refused before any work.
+- **F2 (broker failure evidence binding):** the broker bind-failure journal is read only with `-b` and `_SYSTEMD_INVOCATION_ID=<failed broker InvocationID>` from the same `systemctl show` capture the churn gate reads; the gate requires a non-empty 32-hex id and a matching correlation line. Previous-boot or earlier-invocation bind evidence (alone or combined with an unrelated current exit failure) is refused. Every existing churn check is unchanged; no broker start/stop/restart was added.
+- **F3 (regressions):** tests for missing/mismatched rfkill identity evidence (verify and rollback) and rollback fail-closed ownership (missing journal, non-numeric rfkill id, no block without a journal-proven unblock).
+- **Evidence:** simulated host only; RED first; load-bearing negative controls (consume-before-preflight; dropping `-b`; dropping the invocation filter; dropping the gate correlation; dropping the id validity check) each fail the targeted tests and the source was restored byte-identical. Not live evidence.
+- **Still required before any live V7:** human merge of the hardening PR, post-merge verification, fresh formal IDEA2/S10 evidence, an owner-frozen runner, a fresh same-day `stage=L4` authorization plus K3 record, and an explicit owner live authorization.
+
+## IDEA3 PR11 Phase 4 L3/L4 V7 radio-disabled + broker-churn reactivation — repository implementation only — 2026-10-01
+
+> [!important] Repository-only. V7 has NOT run, is NOT authorized, and is NOT proven live. No authorization or K3 record was created. Production was NOT mutated by this task, the Core was NOT restarted, Recovery R1-R8 was NOT run, no ESP32, no L8. Recovery runtime stays **BLOCKED** until the AP is reactivated through a governed path.
+> `L34_V7 = REPOSITORY_ONLY (simulator-tested)`, `LIVE_REACTIVATION = NOT_PROVEN`, `READY_FOR_LIVE_REACTIVATION = NO`, `V1_V6_FILES_CHANGED = NO`, `BROKER_CONTROL_COMMAND_PRESENT = NO`, `CORE_CONTROL_COMMAND_PRESENT = NO`, `RECOVERY_R1_R8 = NOT_PROVEN`, `L8_STARTED = NO`
+
+- **Why V7 exists (exact baseline gap):** after L7u post-merge verification the host was `rfkill` soft-blocked (hard not blocked), NM Wi-Fi radio disabled, `wlp0s20f3` unavailable, `aegis-idea3-ap` inactive, no `10.77.30.1/28`, dnsmasq failed/`start-limit-hit`, and `aegis-idea3-mosquitto` crash-looping every ~5 s (`listener 8883 127.0.0.1` + `listener 8883 10.77.30.1`; the second cannot bind while the AP address is absent), Core healthy. V1-V3 own the rfkill/radio head but their owner runner requires the broker inactive; V4/V5/V6 require the radio already enabled. No handler matched; the original L34 runner is deliberately NOT weakened.
+- **Earlier temporary owner mutation (2026-10-01 ~05:38-05:40 +07) — `PRODUCTION_MUTATION_PERFORMED=YES` for that event:** manual `rfkill unblock`, `nmcli radio wifi on`, `nmcli connection up aegis-idea3-ap` (FAILED, `No suitable device found ... (device enp62s0 ... mismatching interface name)`), then a manual rollback. Read-only diagnosis: the activation **raced NetworkManager** (radio on :39.1468, activation refused :39.1748, `wlp0s20f3` `unavailable -> disconnected` only at :39.1907) and was apparently not `ifname`-bound; the profile is compatible with the device. dnsmasq and broker failures were downstream of the missing AP address. The rollback was **safe-equivalent** (radio disabled, phy0 soft-blocked, AP inactive, no IPv4, residual wpa_supplicant/p2p/TH = the accepted V3 RESIDUAL set); the **exact original pre-state was NOT proven**. Core never restarted (`MainPID 883`, `NRestarts 0`); Recovery, ESP32 and L8 untouched.
+- **What V7 does (stage `l34-v7-radio-disabled-broker-churn`):** fail-closed exact baseline gate (V3 FRESH/RESIDUAL classifier + strict broker-churn contract: `Restart=on-failure`, `RestartUSec=5s`, `activating/auto-restart`, `MainPID=0`, `Result=exit-code`, `ExecMainStatus=1`, the bind-failure journal signature AND no other `Error:` line, the exact two-listener broker config, no 8883 listener, AP address absent, healthy Core); then exact-ID rfkill unblock, autoconnect off, ONE radio enable, **bounded wait for `disconnected` (the load-bearing race control)**, ONE `nmcli connection up aegis-idea3-ap ifname wlp0s20f3`, autoconnect restore, dnsmasq reset-failed+start, a READ-ONLY wait for the broker's own restart, exact 8883 pair, ONE handshake-only TLS probe (`p4-l7-broker-probe.py`), a 4 x 5 s broker-tuple stability sample and a Core-tuple-unchanged proof. It never issues any command against the broker or Core and never edits any configuration.
+- **Rollback:** journal/ownership-based, SAFE_EQUIVALENT (V3 model); unknown/foreign journal entries fail closed; an unrelated active Wi-Fi profile escalates before any radio/rfkill action. **Limit:** because broker control is forbidden, rollback cannot restore the broker's crash loop; it may crash-loop again or keep a stale `10.77.30.1:8883` (the V6 baseline).
+- **Evidence (simulated host only):** new tests `test_pr11_phase4_l34_v7_radio_disabled_broker_churn.py`, `..._v7_owner_run_flow.py`, `..._v7_scope_contract.py`; RED first (73/73 failed before implementation); negative control proved the readiness-wait invariant load-bearing (3 race tests fail with the wait removed, pass when restored). V1-V6 handlers/allow files/runners and the shared library prefix are pinned byte-identical.
+- **Not proven / limits:** no real-host run; synthetic-bundle analysis with the real `p4-compare.sh` accepted the V7 allow files + exact V3 catalogs, but they have not been exercised against a real host capture; S10 (`FINDINGS_BASELINE_UNHEALTHY_BUT_UNCHANGED=0`) must hold for a live PRE->POST/PRE->RB pass: last accepted PASS is L7 #7 (2026-09-30), the 2026-10-01 IDEA2 state is NOT re-proven, so fresh IDEA2 health evidence is required before any live V7 run (policy unchanged; V7 stays blocked if the IDEA2 baseline is unhealthy). Live use needs a merged PR, an owner-frozen runner, a fresh same-day `stage=L4` authorization with the exact V7 scope (183 chars) and K3 record.
+- **Design:** `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-01-idea3-pr11-phase4-l34-v7-radio-disabled-broker-churn-design.md`. Branch `fix/idea3-l34-v7-radio-disabled-broker-churn`; the final receipt is added at task closeout.
+
+## IDEA3 PR11 Phase 4 L7 #7 — LIVE ACCEPTANCE PROVEN — 2026-09-30
+
+> [!important] L7 live acceptance is PROVEN (owner-run #7). Documentation closeout only; no Production mutation during closeout, no ESP32, no L8.
+> `L7_LIVE_ACCEPTANCE = PROVEN`, `L7_7_RUNNER_RC = 0`, `L7_7_AUTHORIZATION = CONSUMED / NEVER REUSE`, `L7_CORE = ACTIVE / RUNNING / ENABLED`, `L7_CORE_STATE = DEGRADED (valid no-device state)`, `L7_ZERO_ACTUATION = PASS`, `L7_BROKER_CONNECTION = ESTABLISHED`, `L7_PRE_POST_COMPARE = PASS`, `L7_S10_PRESERVATION = PASS`, `SECRET_SCAN_HITS = 0`, `ESP32_TOUCHED = NO`, `L8_STARTED = NO`
+
+- **Inputs:** runner used main `c3db7706f658f63ee88cb3024c13775ee1c9bd47`; installed immutable release `f2a5cd758ff3abe0e5cfb933f63af1960318dad0` (no new release was required after PR #266; installed release remains `f2a5…`). Frozen runner SHA256 `9f330f74…be8f3`. Evidence root: `/home/kittipat/Workspace/idea3-p4-evidence/2026-09-30-l7-20260930-174049`.
+- **Result:** PRE capture PASS; apply PASS; verify PASS (material exact, no new listeners, D4 credential readable by the Core account, legacy unchanged, no secrets printed); POST capture PASS; PRE→POST compare PASS with `NEW_OR_WORSENED_DRIFT=0`, `BASELINE_UNHEALTHY_BUT_UNCHANGED=0`, `INCOMPARABLE=0`, `APPROVED_CHANGE=28`, `INFO=4`; secret scan 157 files / 0 hits. Zero relay commands were sent; one established TLS MQTT connection to broker 8883.
+- **Persistent state:** Core is intentionally left enabled + active (`MainPID=98701`, `Result=success`, `NRestarts=0`) in the no-device state; `/opt/aegis-idea3/current` points at `f2a5…`.
+- **History:** this supersedes L7 #6 as the CURRENT L7 acceptance result. L7 #6 remains historical FAILED (`STATUS_CONTAINMENT_INVALID`) / CLEAN ROLLBACK evidence, fixed by PR #266.
+- **Attempt lineage:** L7 #4 (PROCESS_ENV_LEAK), #5 (BROKER_NOT_CONNECTED) and #6 (STATUS_CONTAINMENT_INVALID) each failed safely and rolled back; each authorization was consumed. #7 is the first attempt to pass; it ran after PR #265 and PR #266 merged.
+- **Authorization:** A-L7/K3 #7 is consumed (marker present) and must never be reused.
+- **Pending / blocked:** the JIT plaintext input was not deleted and awaits a separately authorized owner cleanup workflow. L8/ESP32 remains blocked: the L8 dependencies recorded in this note (live L2..L7 PASS, D4 live recovery operational, device present, OV-08/09/12/13, fresh K3, same-day A-L8, IDEA2 §10 preservation, exact firmware/NVS build); L7 #7 proved only that the D4 restore credential is readable by the Core account, so `D4_LIVE_VERIFIED = NO` is unchanged and the owner-required Recovery/LVR sequence and authorization are not shown by repository evidence; Recovery/LVR is not claimed to have passed. `PHASE4_RUNTIME_COMPLETE = NO`, `PR11_COMPLETE = NO` are unchanged by this L7 result.
+- **Limits:** PRE/POST manifests are root-owned; their SHA256 PASS is taken from the runner log, not re-validated by the closeout session. Shared/Core outstanding-items notes were not edited (integration request in the receipt).
+- **Receipt:** `90-Status/logs/2026-09-30_174430_music_idea3-l7-live-acceptance-closeout.md`.
+
+## IDEA3 PR11 Phase 4 L7u "Post-L7 Recovery Core Upgrade" — new governed stage, repository only — 2026-10-01
+
+> [!important] Repository implementation only. L7u has NOT run, is NOT authorized, nothing was deployed, the Core was NOT restarted, Production was NOT mutated, Recovery was NOT run live, no ESP32, no L8. No A-L7u or K3 exists.
+> `L7U_STAGE = IMPLEMENTED_REPOSITORY (fixture + fake-backend tested)`, `L7U_LIVE_AUTHORIZED = NO`, `L7U_LIVE_EXECUTED = NO`, `L7U_LIVE_ACCEPTANCE = NOT_PROVEN`, `RECOVERY_R1_R8 = NOT_PROVEN`, `LVR = NOT_PROVEN`, `L8_STARTED = NO`, `F1 = UNRESOLVED`, `R5_BREAK_GLASS = UNRESOLVED`
+
+- **Order:** `L7 → L7u → Recovery R1-R8 → LVR → L8`. L7u is the separately governed stage the merged Core-mediated Recovery design requires: new immutable release (existing builder/installer/guard), dedicated transport group `aegis-idea3-recovery` (filesystem access only; `SO_PEERCRED` uid 1000 stays the authority), core.env append of exactly the three owned Recovery settings, a systemd drop-in, a tmpfiles-provisioned `/run/aegis-idea3-recovery` (0750 `aegis-idea3:aegis-idea3-recovery`, because the Core's `UMask=0077` would make the application's own `mkdir` untraversable), an atomic `current` switch and ONE governed restart.
+- **Design finding:** the base unit's `ProtectSystem=strict` makes `/run` read-only, so the drop-in must also grant `ReadWritePaths=/run/aegis-idea3-recovery`; otherwise the Recovery channel would silently fail to bind while the Core stays up.
+- **Governance:** own `A-L7u` + fresh `stage=L7u` K3, own one-attempt marker and receipt gate (requires current L7 acceptance, refuses if L7u is already accepted), PRE capture **before** the attempt is consumed, no `recovery_authorization`. The runner is an unpinned template; rollback is journal-driven, refuses unknown state before acting, and PRE→RB must be zero-drift except the old Core's restart-volatile `MainPID`/start timestamp.
+- **Not proven:** real systemd/tmpfiles/groupadd behaviour on the Core, reboot persistence of the tmpfiles rule, the operator's session picking up the new group (new logins only). Design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-01-idea3-pr11-phase4-l7u-post-l7-recovery-core-upgrade.md`.
+
+## IDEA3 PR11 Phase 4 L7 #6 live attempt FAILED (STATUS_CONTAINMENT_INVALID), cleanly rolled back; verifier fix in repository — 2026-09-30
+
+> [!note] Historical — superseded by L7 #7 (above)
+> This section records what was true after L7 #6 and is kept as immutable-history evidence (FAILED / CLEAN ROLLBACK). Its `L7_LIVE_ACCEPTANCE = NOT_PROVEN` and `NEXT_LIVE_ATTEMPT = L7 #7 after merge` lines are **no longer current**: PR #266 merged and the post-PR #266 L7 #7 attempt PASSED (`L7_LIVE_ACCEPTANCE = PROVEN`). Older L7 sections below likewise describe pre-#7 state (`L7 NOT RUN` / `NOT PROVEN` / `TEMPLATE_UNPINNED`) and are historical; this includes the L7 release-builder entries and the L7 #4 (PROCESS_ENV_LEAK) and L7 #5 (BROKER_NOT_CONNECTED) entries at the end of this note, which still read `L7_LIVE_ACCEPTANCE = NOT_PROVEN` and "not merged" (both fixes are since merged: PR #261/#265, then PR #266).
+
+> [!important] Repository-only remediation. No Production mutation, no L7 #7 authorization, no ESP32, no L8. L7 is **NOT proven**.
+> `L7_6 = FAILED / CLEAN ROLLBACK`, `REPOSITORY_REMEDIATION = IMPLEMENTED / TESTED`, `L7_LIVE_ACCEPTANCE = NOT_PROVEN`, `L7_6_AUTHORIZATION = CONSUMED (never reusable)`, `NEXT_LIVE_ATTEMPT = L7 #7 after merge`, `NEW_IMMUTABLE_RELEASE_REQUIRED = NO`, `L6C_RERUN_REQUIRED = NO`, `RUNTIME_PRODUCTION_PAYLOAD_CHANGED = NO`, `L8_STARTED = NO`
+
+- **Live result (main `f2a5cd75`):** apply PASS; verify FAIL `STATUS_CONTAINMENT_INVALID`; rollback PASS, no material residue, PRE→RB compare PASS, S10 preservation PASS. `/opt/aegis-idea3/current` absent; Core not-found/inactive; installed release `f2a5…` remains valid.
+- **Root cause:** the production supervisor intentionally starts `armed=ARMED` (independent of `AEGIS_AUTO_CONTAIN=0`); `verify.sh` and the fake Core fixture required `MONITOR_ONLY`, conflating the operational gate with containment.
+- **Fix:** `stages/L7/verify.sh` accepts `armed` ARMED/MONITOR_ONLY; `auto_contain=false`, uplink not LOCKDOWN, device not ONLINE, empty protocol_commands, no CUT/RESTORE audit evidence and every other gate are unchanged. Runtime `aegis_soc` untouched; `verify.sh` is not in the release payload, so the installed release is reusable.
+- **Tests:** 481 passed (L7 handler/runner/runner-flow, runtime, production runtime). Receipt: `90-Status/logs/2026-09-30_171000_music_idea3-l7-status-containment-contract.md`.
+
+## IDEA3 PR11 Phase 4 L6c/L7 broker runtime stability gate — repository only — 2026-09-29
+
+> [!important] Repository-only. No Production mutation, no service/nmcli/nft/sysctl command, no A-L6c or K3 created, no L6c live execution, no L7, no MQTT, no ESP32.
+> `L6C_LIVE = NOT_PROVEN`, `BROKER_GATE_READ_ONLY = YES`, `RELEASE_CLOSURE_CHANGED = NO`, `RELEASE_TOOLING_CHANGED = NO`
+
+- **Gap:** after the governed V5 reactivation the L6b broker legitimately recovered through its own systemd auto-restart and retains a non-zero historical `NRestarts` (646 observed). The shared gate `l7_broker_runtime_gate` (`p4-l7-run-lib.sh`, used by the L6c and L7 runners) required `NRestarts=0`, so L6c read-only readiness failed only with `PREDECESSOR_RUNTIME_REACTIVATION_REQUIRED=YES:L7_BROKER_NOT_HEALTHY:NRestarts=646`.
+- **Old policy:** NRestarts must equal 0. **New policy:** historical NRestarts is allowed only when current health, listeners and identity are stable across a bounded read-only window. Active/running/enabled/success, numeric non-zero MainPID, numeric NRestarts, non-empty InvocationID and exactly `10.77.30.1:8883` + `127.0.0.1:8883` must hold on every one of 3 samples 2 s apart, and the MainPID/NRestarts/InvocationID tuple must be identical across them. Window constants are assigned at source time and cannot be shortened by environment variables. Any restart, PID/invocation change, NRestarts increment, bad state, or missing/extra listener fails closed.
+- **Unchanged:** BROKER_PRE snapshots and each runner's `s10_unchanged()` broker PRE→POST PID/NRestarts comparison, `p4-compare.sh`, V5/V6 handlers, release builder/guard/install, `aegis_soc/**`, `requirements.txt`. Staged release `3c8dae69…` stays reusable. The gate issues no start/stop/restart/reset-failed command.
+- **Receipt:** `90-Status/logs/2026-09-29_210000_music_idea3-l6c-broker-stability-gate.md`.
 
 ## IDEA3 PR11 Phase 4 L3/L4 V6 TrustedClock stabilization — repository only — 2026-09-29
 
@@ -89,6 +1020,36 @@ Production mutation allowed: NO
 - **Also not fixed:** the host no longer matches V5's PRE gate (broker now active/running with 8883 sockets bound, including a stale bind to the removed 10.77.30.1; dnsmasq inactive), so a V5 rerun would refuse at preflight. A V6 baseline decision and a re-freeze are required.
 - **Flaky test:** `test_real_end_to_end_capture_then_compare_requires_the_allow_file` reads the real host journal/listeners. The engine heartbeat drift is one cause and is removed by this fix, but the test still flaked (9 of 40 runs after the fix) on unrelated live-host churn (ephemeral `enp62s0` UDP listeners, IDEA2 tunnel `activating`↔`active`). The fix does **not** make it deterministic.
 - **Receipt:** `90-Status/logs/2026-09-29_115112_music_idea3-l34-v5-convergence-preservation-fix.md`.
+
+---
+
+## IDEA3 PR11 Phase 4 L8 real-hardware backend and boot verification — repository implementation only — 2026-09-29
+
+> [!important] Repository-only. **No hardware was accessed**: no serial port opened, no esptool/pio run, no firmware flashed, no NVS written, no flash erased, no relay actuated, no broker contacted. `LIVE_L8 = NOT_AUTHORIZED`. Boot verification is now implemented in the repository (signed BOOT STATUS, fake-client tested) but never exercised live.
+
+```text
+Task                          = IDEA3 PR11 L8 real hardware backend (repository-only)
+Branch                        = feat/idea3-pr11-l8-hardware-backend
+HARDWARE_BACKEND              = IMPLEMENTED_REPOSITORY (was HARDWARE_BACKEND_NOT_IMPLEMENTED_IN_REPOSITORY)
+HARDWARE_TESTED_WITH          = FAKE_EXECUTOR_ONLY
+LIVE_L8                       = NOT_AUTHORIZED
+LIVE_L8_PHYSICAL_PROOF        = NOT_PROVEN
+BOOT_VERIFICATION_IMPLEMENTED_REPOSITORY = YES (signed BOOT STATUS; fake client only)
+BOOT_PASS_SEMANTICS           = AUTHENTICATED_FIRMWARE_REPORTED_LOCKDOWN (not electrical relay proof)
+L9_REUSES_L8_BOOT_EVENT       = YES
+LIVE_L8_ACCEPTANCE            = NOT_PROVEN
+D4_LIVE                       = NOT_PROVEN
+```
+
+- **Toolchain binding:** subprocess adapter over the PlatformIO-pinned `tool-esptoolpy` 2.41100.0 (esptool 4.11.x) that `espressif32@7.0.1` resolves; baud from `platformio.ini` `upload_speed`. No pyserial, no second flasher.
+- **Gate:** hardware needs `AEGIS_L8_BACKEND=hardware` **and** `AEGIS_L8_LIVE_AUTHORIZED=YES` (+ `AEGIS_L8_ESPTOOL`); enforced by `apply.sh` and, independently, by `p4-l8-device.py`. Import/construct/parse/validate touch nothing.
+- **Containment:** one injectable executor and one argv allowlist (`flash_id`, `write_flash`, `read_flash` only) bound to the OV-12 serial port and the two table-derived regions. Erase, `write_mem`, eFuse, PlatformIO upload, CUT/RESTORE, MQTT and 1883 are unreachable.
+- **Failure policy unchanged:** first-write marker before the first write; any later failure is contained as evidence (`DEVICE_WRITE` / `NVS_READBACK` / `FIRMWARE_READBACK` / `BOOT_VERIFICATION`) and held `FAIL_SECURE_HOLD_AND_EVIDENCE`; no retry/reflash/restore; `rollback.sh` post-write performs zero device action; evidence is the exact 12-field write-once 0600 bundle (the original eleven plus `firmware_readback_match`, allowed values `PASS` / `FAIL`; OD-L8-09 amendment, owner approved).
+- **Boot verification:** `p4-l8-boot-verify.py` is a subscribe-only signed-BOOT-STATUS check (no publish path; TLS 8883; staged Core broker credential, no new broker user or ACL; real Protocol v1 `InboundVerifier` over ephemeral state, never the Core replay store; armed after identity and before the first write; 180 s deadline; PASS requires an authenticated non-retained `BOOT`/`LOCKDOWN`/`SYNCED` frame carrying the new NVS `seq_hi` and `device_time >= T0-2`; `NORMAL` = FAIL; else NOT_PROVEN, held as `FAIL_SECURE_HOLD_AND_EVIDENCE`). Hardware needs four extra broker inputs or refuses before device access (`BOOT_VERIFICATION_NOT_CONFIGURED`). L9 keeps PERIODIC, HEARTBEAT, the negative matrix and Core liveness, and reuses this BOOT event. Electrical relay proof stays outside the verifier. Details: L8 operational design §8.4.
+- **Reconciled to current main and hardened (2026-10-01; repository only; pushed to PR #247, which is Ready for review and not merged):** `PR247_RECONCILED_TO_CURRENT_MAIN = YES` (current main `fff78feb7f7296a742794a31dffeb35a134a7660` was merged normally into the PR branch, with no rebase and no force-push; the branch is no longer behind main and the head moved by a normal fast-forward from `946bf968`), `FIRMWARE_READBACK_IMPLEMENTED = YES` (application region read back at the exact written offset and length, compared in memory, boolean only), `SINGLE_TERMINAL_RESET_IMPLEMENTED = YES` (reads never reset; one `flash_id --after hard_reset` after both readbacks compared equal; none on a mismatch or tool failure), `OD_L8_09_12_FIELD_AMENDMENT = APPROVED` (owner; new field `firmware_readback_match` PASS/FAIL; no raw firmware or NVS bytes, no secrets in evidence).
+- **Repository verification of that hardening:** hardware 80, boot 69, L8 handler 77, firmware readback 21, L7 + L7u 893, L9 154, full Phase 4 `3437 passed, 2 skipped, 0 failed`. `REAL_HARDWARE_ACCESSED = NO`, `ESP32_TOUCHED = NO`, `REAL_SERIAL_ACCESSED = NO`, `LIVE_L8 = NOT_AUTHORIZED`, `LIVE_L8_PHYSICAL_PROOF = NOT_PROVEN`, `ELECTRICAL_RELAY_PROOF = NO` (boot PASS stays firmware-reported lockdown). No Production deployment is claimed. The separate L8p provisioning-only stage is not part of this work and is not merged.
+- **Tests:** `tests/test_pr11_phase4_l8_boot_verify.py` (69, fake client/executor/clock, no network); `tests/test_pr11_phase4_l8_hardware_backend.py` (80, fake executor, autouse guard against real devices); `test_pr11_phase4_l8_handler.py` 77 (two stale refusal tests reconciled).
+- **Receipt:** `90-Status/logs/2026-09-29_055833_music_idea3-l8-hardware-backend-repository.md`.
 
 ## IDEA3 Web WEB-R2 Production Refresh — live closeout — 2026-09-28
 
@@ -6384,6 +7345,7 @@ Current state                 = COMPLETE / ACCEPTANCE PASS — repository-only; 
 
 L8_HANDLER_REGISTERED         = YES
 L8_REPOSITORY_IMPLEMENTED     = YES
+L8_HARDWARE_BACKEND          = IMPLEMENTED_REPOSITORY (2026-09-29; fake-executor tested; live not exercised — see the L8 hardware backend section at the top)
 L8_OPERATIONAL_DESIGN         = COMPLETE (commit c2422924)
 RED_FIRST_PROVEN              = YES (53 failed / 17 passed, no import or syntax failure)
 
@@ -8077,6 +9039,34 @@ merge and final closeout being recorded there; this authorization did not
 extend to any further Production mutation, service lifecycle action, or
 reboot.
 
+## IDEA3 PR #369 RRu critical remediation — repository-only — 2026-10-07
+
+> [!important] PR #369 remains Draft and unmerged. This remediation fixes the two independent critical findings without executing RRu LIVE, Recovery LIVE, Production mutation, or ESP32 work.
+
+```text
+RRU_001                         = FIXED
+RRU_ATTEMPT_AUTHORITY           = CANONICAL_DURABLE_ROOT_OWNED
+RRU_MARKER                      = /var/lib/aegis-idea3-governance/RRU-GLOBAL-ATTEMPT-CONSUMED
+RRU_AUTH_DIR_ROLE               = AUTHORIZATION_K3_INPUT_ONLY
+RRU_002                         = FIXED
+RECOVERY_RRU_SUCCESSOR_GATE     = ENFORCED
+RECOVERY_RRU_RELEASE_BINDING    = ENFORCED
+RRU_REPOSITORY_IMPLEMENTED      = YES
+RRU_LIVE_EXECUTED               = NO
+RECOVERY_RUNTIME_RELEASE_READY  = NO
+RECOVERY_ATTEMPT_CONSUMED       = NO
+RECOVERY_LIVE_EXECUTED          = NO
+RECOVERY_R2_R8_EXECUTED         = NO
+R1B_RESULT                      = FAIL_IMMUTABLE
+R1BV_RESULT                     = PASS
+PRODUCTION_MUTATION_PERFORMED   = NO
+ESP32_TOUCHED                   = NO
+```
+
+- RRu now validates a fixed canonical directory/trusted ancestor chain, creates the stage-global marker exclusively, fsyncs the parent before creation and the marker plus containing directory afterward, and never removes or rewrites it. Test-only path seams are forbidden by the frozen runner.
+- Recovery keeps `r1bv_recovery_predecessor_gate` and adds `rru_recovery_successor_gate` in both pre-gates and the immediate pre-marker authority re-gate. The successor requires one pinned-main closeout receipt containing all required RRu PASS/runtime-ready fields and the exact frozen release ID; implementation-only or working-tree-only records cannot satisfy it.
+- A future automatic RRu PASS remains distinct from the separately reviewed `RRU_LIVE=CLOSED_PASS` closeout. Recovery waits for that closeout to be merged before a new exact-main Recovery authority/freeze.
+
 ## IDEA3 PR11 Phase 4 L7 release builder — status reconciliation (current state) — 2026-09-27
 
 > [!important] This is a status correction, not a rewrite of the 2026-09-24 receipt below (kept unedited). The builder itself is unchanged repository-only tooling: no `/opt` write, no sudo, no systemd, no Production mutation, no live L7.
@@ -8102,7 +9092,95 @@ PR202_MODIFIED              = NO
 - Builder output was proven against a verbatim copy of the PR #202 release-guard predicate in a fixture root only.
 - Still open for a live L7: the complete `core.env` renderer (PR #202 renders three lines, two of which no Core source reads), and the broker-hostname/TLS-SAN reconciliation (`AEGIS_BROKER_IP` must be an IP while the certificate SAN is `DNS:mqtt.aegis.home.arpa` and hostname verification is enforced) which needs an owner decision.
 
+## IDEA3 Core-mediated evidence-driven Recovery — repository implementation — 2026-09-29
+
+> [!important] Repository-only. IMPLEMENTED != DEPLOYED. No Production mutation, no MQTT connection, no RESTORE/CUT, no live Recovery. Historical sequencing: PR #252 was initially held behind L7 acceptance; L7 #7 is now LIVE ACCEPTANCE PROVEN, so that merge blocker is satisfied, and the branch was reconciled with post-L7 `main` `5df959055075171ea5734238aa83693371d00d9d`. Merging does not deploy it, and it does not alter V6 → L4 → L6c → L7.
+
+```text
+PRODUCTION_RECOVERY_MODEL      = CORE_MEDIATED   (desktop = unprivileged observer; Core = sole authority)
+CORE_INCIDENT_BINDING          = IMPLEMENTED_REPOSITORY  (validated production attacker alert only; idempotent; no containment)
+R3_CORE_ISOLATION              = IMPLEMENTED_REPOSITORY  (no IP parameter; block + independent contains(); audited with incident_id)
+R4_R5_AUTHORITY                = D4 ONLY (aegisctl restore, scrypt credential); production restore-origin restriction unchanged
+R5_DURABLE_ONE_SHOT            = IMPLEMENTED_REPOSITORY  (any RESTORE_REQUESTED audit row bound to the incident consumes the attempt)
+RECOVERY_SOCKET                = IMPLEMENTED_REPOSITORY  (Core-owned AF_UNIX, SO_PEERCRED, STATUS/ISOLATE/PROBE/RESTORE_STATUS/CLOSE)
+SAFE_RECOVERY_UI               = IMPLEMENTED_REPOSITORY  (python -m aegis_soc.recovery_ui; server_admin.py is NOT the production Recovery entrypoint)
+PR252_REPOSITORY_IMPLEMENTED   = YES
+PR252_RECONCILED_POST_L7       = YES   (main 5df959055075171ea5734238aa83693371d00d9d)
+RECOVERY_DEPLOYED              = NO    (running Production Core is the pre-Recovery release)
+RECOVERY_LIVE_ACCEPTANCE       = NOT_PROVEN
+CORE_UPGRADE_STAGE             = REQUIRED (separate owner-approved post-L7 stage; not defined or run here)
+LVR_6_LVR_9                    = OWNER RUNBOOK (not implemented in application code)
+```
+
+- Supersedes the desktop-driven PR238/PR249 wiring for production; those PRs are untouched. Their pure logic (gate order, probe helpers, incident binding) is reused inside the Core.
+- Changes the headless runtime closure (`recovery_core`, `recovery_protocol` join the shipped `aegis_soc` set; `recovery_client`, `recovery_ui` do not) and edits `supervisor.py`, `local_restore.py`, `database.py`, `config.py`. A release built after merge differs from the L7-accepted release `f2a5cd75…` currently installed.
+- Going live still requires a separately governed post-L7 Core release/install/restart, then Recovery authorization and live R1–R8 evidence. LVR is not proven; L8/ESP32 remains blocked. PR #255 and PR #262 are separate stacked follow-ups and are not part of PR #252.
+- The channel is off unless a production Core sets `AEGIS_RECOVERY_OPERATOR_UID`; the L7 `core.env` renderer was not changed.
+- Known limits: no live evidence; R7 web readiness depends on the Core's TLS trust for the readiness URL (uses `AEGIS_CORE_DISPATCH_CA_FILE` when set); the operator uid reaching the socket needs a provisioned directory/group in the deployment stage; the D4 gate does not itself require R1–R3 before a terminal `aegisctl restore` (the Recovery observer reports R5 accordingly and R8 refuses closure without them).
+
 ## 🔗 Related Notes
 * [[core/system-overview]]
 * [[idea2/idea2-status]]
 * [[core/security-architecture]]
+
+## IDEA3 PR11 Phase 4 L7 live attempt #4 — PROCESS_ENV_LEAK repository remediation — 2026-09-30
+
+> [!important] Repository-only status entry on branch `fix/idea3-l7-process-env-contract` (base `fdc2dd3d`, not merged). No Production mutation, no L7 authorization created, frozen owner runner not run, no ESP32/L8 work.
+
+```text
+L7_APPLY                 = PASS   (live attempt #4)
+L7_VERIFY                = FAIL reason=PROCESS_ENV_LEAK
+L7_ROLLBACK              = PASS
+L7_MATERIAL_RESIDUE      = NO
+PRE_RB_COMPARE           = PASS
+PRESERVATION_S10         = PASS
+L7_LIVE_ACCEPTANCE       = NOT_PROVEN
+L7_ENV_CONTRACT_FIX      = IMPLEMENTED_REPOSITORY (not merged)
+```
+
+- L7 #4 failed safely because of a repository environment-contract mismatch, not a Production defect. `deploy/aegis-idea3-core.env.example` carries a blank `AEGIS_TG_TOKEN=`; the renderer kept it and the checker allowed it when blank, but systemd `EnvironmentFile=` projects even a blank `KEY=` into the process environment and `stages/L7/verify.sh` scans `/proc/<MainPID>/environ` by name, so `PROCESS_ENV_LEAK` was deterministic. Rollback succeeded; no forbidden names remained under `/etc/systemd/system` or `/etc/aegis-idea3`; the systemd manager environment held none.
+- Fix: `p4-l7-core-env.py` now treats `AEGIS_TG_TOKEN` as a forbidden key (like the other secret keys): `render` omits it, `check` rejects it even when blank. `verify.sh` is unchanged and stays strict. The shared example is unchanged (non-production `config.py` still defaults the token to empty); `AEGIS_TG_CHAT` behaviour is unchanged. A regression test parses `verify.sh` `FORBIDDEN_ENV` and asserts no such name appears in the rendered file.
+- Authorization #4 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze, and a fresh authorization. Acceptance remains NOT_PROVEN.
+
+## IDEA3 PR11 Phase 4 L7 live attempt #5 — BROKER_NOT_CONNECTED status convergence remediation — 2026-09-30
+
+> [!important] Repository-only status entry on branch `fix/idea3-l7-broker-status-convergence` (base `ca8c0133`, not merged). No Production mutation, no L7 live rerun, no authorization #6 created, no ESP32/L8 work. L7 is NOT proven.
+
+```text
+L7_APPLY                 = PASS   (live attempt #5)
+L7_VERIFY                = FAIL reason=BROKER_NOT_CONNECTED
+L7_ROLLBACK              = PASS
+L7_MATERIAL_RESIDUE      = NO
+PRE_RB_COMPARE           = PASS
+PRESERVATION_S10         = PASS
+L7_LIVE_ACCEPTANCE       = NOT_PROVEN
+AUTH_5                   = CONSUMED (NO RETRY)
+L7_BROKER_STATUS_FIX     = IMPLEMENTED_REPOSITORY (not merged)
+```
+
+- Root-cause evidence (owner-run evidence root `2026-09-30-l7-20260930-043702`): the Core connected to the broker over authenticated TLS 1.3 at 04:37:10 (supervisor audit `MQTT connected`; broker journal `client idea3-core connected`) before verify failed, so this was **not** a broker connectivity failure. The persisted `status.json` had not converged: `AegisSupervisor._on_connection` updated the in-memory `status.broker` but did not persist it, `status.json` was only rewritten on the next health-loop pass (default 5 s), and L7 apply waits 3 s before verify.
+- Fix: `_on_connection` now persists the status atomically (`RuntimeStatus.write`) on every connect and disconnect; an `OSError` is logged and never propagates into the MQTT thread. `verify.sh` and `apply.sh` are unchanged: broker must still read CONNECTED, missing/unreadable status still fails, and the established Core to broker :8883 TCP proof stays required. No sleep and no verifier wait was added.
+- Review follow-up (PR #265): `os.replace` is atomic but does not order concurrent writers, so an older supervisor-loop snapshot could land after the callback's CONNECTED write. `RuntimeStatus.write` now serializes snapshot + replace under a lock, covering `transition()`, `set_armed()` and `_on_connection()`; a deterministic out-of-order regression proves an older in-flight write cannot regress CONNECTED.
+- Authorization #5 is consumed and must not be reused. The next live L7 attempt requires this fix merged, a fresh freeze and readiness, and a fresh authorization. Acceptance remains NOT_PROVEN.
+## IDEA3 CTv successor after immutable CTu APPLY failure — repository-only — 2026-10-08
+
+> [!important] **CTu remains immutable FAIL.** The consumed CTu attempt is not rerun or rewritten: `CTU_RESULT=FAIL_IMMUTABLE`, `CTU_ATTEMPT_CONSUMED=YES`, `CTU_RERUN_ALLOWED=NO`, `CTU_FAILURE_REASON=APPLY`, `CTU_PRODUCTION_RUNTIME_MUTATION_OCCURRED=NO`, `CTU_CORE_RESTARTS=0`, and `CTU_DETECTOR_COMMANDS=0`. The confirmed APPLY detail was a frozen-runner/template provenance-domain mismatch; rollback reported `JOURNAL_MISSING` because the consumed/no-production-mutation state was not represented.
+
+> **Repository implementation:** CTv is a new one-attempt governed successor, never a CTu retry (`CTV_IS_CTU_RETRY=NO`, `CTV_NEW_ONE_ATTEMPT_STAGE=YES`, `CTV_NO_RETRY=YES`). Its provenance records distinguish the actual frozen runner, exact-main runner template, bundle manifest, and control manifest. All deterministic checks are required in a non-consuming rehearsal before the CTv marker. Immediately after any future consume, a root-trusted durable `phase=consumed-no-production-mutation` journal is written before mutation; rollback of that phase is PASS with zero Core restart and zero Detector lifecycle commands. Recovery accepts either a valid historical CTu PASS path or, for this installation, a reviewed CTv CLOSED_PASS path; CTu FAIL is never fabricated as PASS.
+
+> **Execution boundary:** `CTV_LIVE_EXECUTED=NO`, `CTV_ATTEMPT_CONSUMED=NO`, `RECOVERY_ATTEMPT_CONSUMED=NO`, `RECOVERY_LIVE_EXECUTED=NO`, and `PRODUCTION_MUTATION_PERFORMED_DURING_IMPLEMENTATION=NO`. No CTu rerun, CTv LIVE execution, Recovery LIVE execution, Production change, Core restart, Detector command, or governance-marker mutation occurred in this repository task. Human merge and independent exact-head review remain required.
+
+### Current Task
+
+Task: IDEA3 CTv immutable-CTu-failure successor
+Branch: `feat/idea3-ctv-ctu-immutable-failure-successor`
+Owner: `music`
+Current state: REPOSITORY IMPLEMENTED / LOCAL VERIFICATION COMPLETE WITH ENVIRONMENT LIMITATIONS; LIVE NOT EXECUTED
+Base SHA: `4706b5f8d9798ac5248572b04a13a00d77846e1c`
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| CTv-S1 | Separate CTu/CTv provenance domains, complete pre-consume rehearsal, durable consumed-no-mutation journal, full post-consume failure matrix, Recovery successor gate, and refusal-only stage handlers | READY FOR MANUAL GIT INTEGRATION | CTv 62 PASS; CTu 35 PASS; RRu 123 PASS; TrustedClock 64 PASS; Recovery 103 PASS before sandbox UNIX-socket bind `EPERM`; hermetic Recovery CTv successor tests 22 PASS; vault validation PASS with two pre-existing canvas warnings; shell/Python syntax and diff checks PASS; collaborationPolicy/vaultMultiWriter remain blocked by temporary-cwd harness path resolution | uncommitted local repair; committed HEAD `b4ac656055a974869ec790bccc283c5e8c759b1b` | repository implementation PASS; LIVE intentionally unexecuted | independent Security/Governance review; human merge only; fresh CTv authority after review | do not run CTu/CTv/Recovery LIVE from this branch |

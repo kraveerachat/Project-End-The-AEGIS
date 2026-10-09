@@ -20,8 +20,7 @@ import {
 import { decryptVaultV2Meta } from '../lib/vaultChunkCrypto.js'
 import { uploadVaultFileChunked } from '../lib/vaultChunkedUpload.js'
 import {
-  downloadVaultV2, createFileSystemSink, createBufferedSink,
-  supportsStreamingFileSink, MAX_BUFFERED_PLAINTEXT_BYTES,
+  downloadVaultV2, createBufferedSink, prepareVaultV2Download, MAX_BUFFERED_PLAINTEXT_BYTES,
 } from '../lib/vaultChunkedDownload.js'
 import {
   reconcileVaultInventory, addLocalVaultBlob, removeLocalVaultBlob,
@@ -29,7 +28,8 @@ import {
 } from '../lib/vaultInventory.js'
 import { previewKindFor } from '../lib/vaultPreview.js'
 // ⚠️ ความเร็ว/เวลาที่เหลือมาจากไบต์จริงเท่านั้น — โมดูลนี้ไม่มี timer ที่เดินเอง
-import { createRateEstimator, transferRateLine } from '../lib/transferRate.js'
+import { createRateEstimator } from '../lib/transferRate.js'
+import { VaultTransferPanel } from '../components/vault/VaultTransferPanel.jsx'
 // ⚠️ เส้นทาง preview วิดีโอใหญ่: ถอดรหัสตามช่วงไบต์ที่ผู้เล่นขอ ใน Service Worker
 //    ต้นทางเดียวกัน — ไม่มี plaintext ทั้งไฟล์อยู่ในหน่วยความจำ ณ เวลาใดเลย
 import {
@@ -88,7 +88,7 @@ function LockedVaultPreview({ t, onUnlock }) {
     <section
       data-testid="locked-vault-preview"
       aria-labelledby="locked-vault-preview-title"
-      className="relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
+      className="neo-vault-locked relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
     >
       <div aria-hidden="true" className="absolute inset-0 overflow-hidden opacity-70">
         {LOCKED_VAULT_AMBIENT_BLOCKS.map((shape, index) => (
@@ -102,7 +102,7 @@ function LockedVaultPreview({ t, onUnlock }) {
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-[276px] max-w-[520px] flex-col items-center justify-center text-center">
-        <span aria-hidden="true" className="flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
+        <span aria-hidden="true" className="neo-vault-lock-icon flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
           <Lock size={24} strokeWidth={1.6} />
         </span>
         <h2 id="locked-vault-preview-title" className="mt-5 text-[18px] font-semibold tracking-[-0.01em] text-ink">
@@ -297,127 +297,6 @@ function VaultTile({ t, entry, unlocked, index, onPreview, onDetails, onDownload
   )
 }
 
-/* ── แถบสถานะการโอนของ Vault V2 ──────────────────────────────────────
-   ⚠️ กติกาข้อเดียวที่คอมโพเนนต์นี้มีไว้รักษา: **ทุกตัวเลขบนแถบนี้ต้องมาจากงานจริง**
-      เปอร์เซ็นต์คำนวณจากไบต์ที่ผ่านไปแล้ว และ "ส่วนที่ X จาก N" คือดัชนี chunk จริง
-      ไม่มี setInterval ที่ขยับแถบเอง — แถบที่เดินต่อขณะเน็ตหยุดคือการโกหกผู้ใช้ว่างาน
-      ยังคืบหน้า แล้วเขาจะรอต่อไปแทนที่จะกดทำต่อหรือแก้ปัญหาเครือข่าย
-   ⚠️ สถานะ 'unsupported' ไม่ใช่ความล้มเหลวและไม่มีปุ่มลองใหม่ — มันคือความจริงเกี่ยวกับ
-      เบราว์เซอร์ที่ใช้อยู่ ปุ่ม "ลองใหม่" ตรงนั้นจะทำให้ผู้ใช้กดวนไปเรื่อย ๆ โดยไม่มีทางสำเร็จ */
-function VaultTransferPanel({ t, transfer, onResume, onCancel, onDismiss }) {
-  if (!transfer) return null
-
-  const { kind, stage, chunkIndex = 0, chunkCount = 0, transferredBytes = 0, totalBytes = 0, percent = 0 } = transfer
-  const humanIndex = Math.min(chunkCount, chunkIndex + 1)
-  const vars = { index: humanIndex, count: chunkCount }
-
-  const label = stage === 'preparing' ? t('vaultXferPreparing')
-    : stage === 'encrypting' ? t('vaultXferEncrypting', vars)
-      : stage === 'uploading' ? t('vaultXferUploading', vars)
-        : stage === 'committing' ? t('vaultXferCommitting')
-          : stage === 'downloading' ? t('vaultXferDownloading', vars)
-            : stage === 'paused' ? t('vaultXferPaused')
-              : stage === 'unsupported' ? t('vaultXferUnsupported')
-                : t('vaultXferFailed')
-
-  const reasonKey = {
-    network: 'vaultXferReasonNetwork',
-    server: 'vaultXferReasonServer',
-    tooLarge: 'vaultXferReasonTooLarge',
-    noSpace: 'vaultXferReasonNoSpace',
-    integrity: 'vaultXferReasonIntegrity',
-    expired: 'vaultXferReasonExpired',
-    'auth-failed': 'vaultXferReasonAuth',
-  }[transfer.reason]
-
-  // ⚠️ ความเร็วมีความหมายเฉพาะช่วงที่ไบต์กำลังวิ่งจริง ระหว่าง 'committing' เซิร์ฟเวอร์
-  //    กำลังตรวจไบต์ของตัวเองอยู่ ไม่มีอะไรวิ่งบนสาย — การขึ้น "กำลังรอเครือข่าย" ตรงนั้น
-  //    จะเป็นคำเตือนปลอมที่ทำให้ผู้ใช้กดยกเลิก commit ที่กำลังทำงานปกติ
-  const measuring = stage === 'uploading' || stage === 'encrypting' || stage === 'downloading'
-  const rateLine = transferRateLine(t, transfer.rate)
-  const rateBps = transfer.rate?.bytesPerSecond ?? null
-  const etaSeconds = transfer.rate?.etaSeconds ?? null
-
-  const active = stage === 'preparing' || stage === 'encrypting' || stage === 'uploading'
-    || stage === 'committing' || stage === 'downloading'
-  const stopped = stage === 'failed' || stage === 'paused' || stage === 'unsupported'
-  const tone = stage === 'failed' ? 'var(--danger)' : stage === 'paused' ? 'var(--warn)' : 'var(--ink-2)'
-
-  return (
-    <div
-      className="rounded-[var(--r-tile)] border border-line bg-sunken px-4 py-3 mb-4"
-      data-vault-transfer={kind}
-      data-vault-transfer-stage={stage}
-    >
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <p role="status" aria-live="polite" className="text-[12.5px] font-medium" style={{ color: tone }}>
-          {label}
-        </p>
-        <div className="flex-1" />
-        {/* ⚠️ ตัวเลขนี้เป็นหน่วยเดียวกับขนาดไฟล์ที่ผู้ใช้เห็นในการ์ด (plaintext)
-            ไม่ใช่ขนาด ciphertext ที่วิ่งบนสาย — ผู้ใช้ไม่ควรต้องแปลหน่วยเอง */}
-        {stage !== 'unsupported' && (
-          <p
-            className="text-[12px] text-ink-3 font-mono"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-            data-vault-transfer-bytes={String(transferredBytes)}
-            data-vault-transfer-total={String(totalBytes)}
-          >
-            {t('vaultXferProgress', {
-              done: fmtBytes(transferredBytes), total: fmtBytes(totalBytes), percent,
-            })}
-          </p>
-        )}
-      </div>
-
-      {stage !== 'unsupported' && (
-        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--line)' }}>
-          <div
-            className="h-full rounded-full transition-[width] duration-[var(--dur-fast)]"
-            style={{ width: `${Math.max(0, Math.min(100, percent))}%`, background: stage === 'failed' ? 'var(--danger)' : 'var(--accent)' }}
-            role="progressbar"
-            aria-valuenow={Math.round(percent)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          />
-        </div>
-      )}
-
-      {/* ⚠️ พื้นที่นี้ถูกจองความสูงไว้ตลอดช่วงที่กำลังโอน แม้ตอนที่ยังวัดความเร็วไม่ได้ —
-          ไม่งั้นแผงจะกระตุกขึ้นลงทุกครั้งที่ตัวเลขปรากฏหรือหายไป */}
-      {measuring && (
-        <div className="mt-1.5 flex justify-end min-h-[16px]">
-          <p
-            className="text-[12px] text-ink-3 font-mono"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-            data-vault-transfer-rate={rateBps === null ? '' : String(Math.round(rateBps))}
-            data-vault-transfer-eta={etaSeconds === null ? '' : String(Math.round(etaSeconds))}
-            data-vault-transfer-stalled={transfer.rate?.stalled ? 'yes' : 'no'}
-          >
-            {rateLine}
-          </p>
-        </div>
-      )}
-
-      {reasonKey && (
-        <p className="text-[12px] text-ink-3 mt-2">{t(reasonKey)}</p>
-      )}
-
-      <div className="flex gap-2 mt-3">
-        {stage === 'paused' && (
-          <Btn variant="primary" size="sm" onClick={onResume}>{t('vaultXferResume')}</Btn>
-        )}
-        {active && (
-          <Btn variant="outline" size="sm" onClick={onCancel}>{t('vaultXferCancel')}</Btn>
-        )}
-        {stopped && (
-          <Btn variant="outline" size="sm" onClick={onDismiss}>{t('vaultXferDismiss')}</Btn>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export function Vault({
   t, lang = 'en', placeholderMode = false, unlockedStateFactory = createUnlockedVaultState,
   userId = null,
@@ -462,6 +341,9 @@ export function Vault({
   const resumable = useRef(null)
   /* ตัวยกเลิกของงานที่กำลังวิ่งอยู่ — ถูกดึงทันทีที่ผู้ใช้กดล็อกหรือหมดเวลา idle */
   const transferAbort = useRef(null)
+  /* ดาวน์โหลด V2 ทำได้ทีละไฟล์ — ตั้งแบบ sync ในการกด (state ของ React ยังไม่ทันเปลี่ยน)
+     กันตัวเลือกไฟล์ซ้อนและกันไม่ให้การกดครั้งที่สองแทนที่ตัวยกเลิกของงานที่วิ่งอยู่ */
+  const downloadBusyRef = useRef(false)
   /* unlocked state ของการปลดล็อกครั้งนี้ (null = ล็อกอยู่) — สร้างตอนปลดล็อก, purge ในทุกทางออก (Task 5.4) */
   const unlockedState = useRef(null)
   const beginUnlockedState = useCallback((key) => {
@@ -916,34 +798,32 @@ export function Vault({
   const downloadV2 = async (entry) => {
     const blob = entry.blob
     const plainSize = entry.plainSize ?? Math.max(0, blob.size - blob.chunkCount * 16)
-    const streaming = supportsStreamingFileSink()
+    // ล็อกระหว่างตัวเลือกไฟล์เปิดอยู่ต้องหยุดงานนี้ด้วย — ลงทะเบียนก่อน await แรก (เป็น sync)
+    const ctrl = new AbortController()
+    unlockedState.current?.registerAbort(ctrl)
 
-    let sink = null
-    if (streaming) {
-      try {
-        const handle = await globalThis.showSaveFilePicker({ suggestedName: entry.name ?? `${entry.id}.bin` })
-        sink = createFileSystemSink(await handle.createWritable())
-      } catch (err) {
-        // ผู้ใช้กดยกเลิกตัวเลือกไฟล์ = ไม่ใช่ความล้มเหลว เงียบแล้วจบ
-        if (err?.name === 'AbortError') return
-        setActionError(true)
+    // ตัวเลือกไฟล์ (await แรก) → พิสูจน์ซอง → createWritable — ดู prepareVaultV2Download
+    const prepared = await prepareVaultV2Download({
+      kek, blob, suggestedName: entry.name ?? `${entry.id}.bin`, plainSize, signal: ctrl.signal,
+    })
+    if (!prepared.ok) {
+      // ผู้ใช้กดยกเลิกตัวเลือกไฟล์ = ไม่ใช่ความล้มเหลว เงียบแล้วจบ
+      if (prepared.reason === 'cancelled') return
+      if (prepared.reason === 'too-large-for-memory') {
+        // บอกความจริง: เบราว์เซอร์นี้ทำไม่ได้ ไม่ใช่ "ลองใหม่แล้วจะได้"
+        setTransfer({
+          kind: 'download', stage: 'unsupported', name: entry.name ?? null,
+          totalBytes: plainSize, transferredBytes: 0, percent: 0,
+          chunkIndex: 0, chunkCount: blob.chunkCount,
+        })
         return
       }
-    } else if (plainSize > MAX_BUFFERED_PLAINTEXT_BYTES) {
-      // บอกความจริง: เบราว์เซอร์นี้ทำไม่ได้ ไม่ใช่ "ลองใหม่แล้วจะได้"
-      setTransfer({
-        kind: 'download', stage: 'unsupported', name: entry.name ?? null,
-        totalBytes: plainSize, transferredBytes: 0, percent: 0,
-        chunkIndex: 0, chunkCount: blob.chunkCount,
-      })
+      setActionError(true)
       return
-    } else {
-      sink = createBufferedSink()
     }
+    const { sink, dek } = prepared
 
-    const ctrl = new AbortController()
     transferAbort.current = ctrl
-    unlockedState.current?.registerAbort(ctrl)
     transferRate.current = createRateEstimator()
     setTransfer({
       kind: 'download', stage: 'downloading', name: entry.name ?? null,
@@ -952,7 +832,7 @@ export function Vault({
     })
 
     const res = await downloadVaultV2({
-      kek, blob, sink, signal: ctrl.signal,
+      dek, blob, sink, signal: ctrl.signal,
       // ⚠️ ดาวน์โหลดนับเป็น bytesWritten (ไบต์ที่ "เขียนออกไปแล้ว") ส่วนอัปโหลดนับ
       //    transferredBytes — แปลให้เป็นคำเดียวกันตรงนี้ ไม่งั้นตัวนับไบต์จะค้างที่ศูนย์
       //    ตลอดการดาวน์โหลด ทั้งที่เปอร์เซ็นต์เดิน (= แถบโกหกผู้ใช้สองตัวเลขที่ขัดกันเอง)
@@ -995,12 +875,19 @@ export function Vault({
 
   /** ปุ่ม Download ของการ์ด — เลือกเส้นทางจาก formatVersion เท่านั้น */
   const download = async (entry) => {
-    if (!kek || !unlocked || addBusy) return // ล็อกอยู่ = ไม่มีคำสั่งนี้ให้กด
+    if (!kek || !unlocked || addBusy || downloadBusyRef.current) return // ล็อกอยู่/กำลังโอน = ไม่มีคำสั่งนี้ให้กด
     setActionError(false)
     if (entry.blob?.formatVersion === 2) {
       // ⚠️ ห้าม await อะไรก่อนถึงบรรทัดนี้ — downloadV2 ต้องเปิดตัวเลือกไฟล์ให้ทัน
-      //    ภายใน user gesture เดียวกับการกดปุ่ม
-      return downloadV2(entry)
+      //    ภายใน user gesture เดียวกับการกดปุ่ม (ทั้งสองบรรทัดด้านล่างเป็น sync)
+      downloadBusyRef.current = true
+      setAddBusy(true) // สถานะ busy เดิมของจอ: ปุ่มของไทล์ถูกปิดระหว่างโอน เหมือน V1
+      try {
+        return await downloadV2(entry)
+      } finally {
+        downloadBusyRef.current = false
+        setAddBusy(false)
+      }
     }
     setAddBusy(true)
     await downloadV1(entry)
@@ -1221,10 +1108,10 @@ export function Vault({
 
   /* persistent, calm callout — identical in both modes (legacy + tree UI); this warning never goes away */
   const vaultCallout = (
-    <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
+    <div className="neo-callout neo-vault-callout flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
       <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
       <div className="min-w-0">
-        <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
+        <p className="neo-callout-lead text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
           {t('vaultWarning')}
         </p>
         <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
@@ -1310,7 +1197,7 @@ export function Vault({
   return (
     <div className="vault-pane-content">
       {vaultCallout}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
+      <div className="neo-toolbar neo-vault-status flex items-center gap-3 mb-5 flex-wrap">
         <Chip tone={unlocked ? 'ok' : 'neutral'}>
           {unlocked ? <LockOpen size={11} strokeWidth={2} /> : <Lock size={11} strokeWidth={2} />}
           {unlocked ? t('vaultUnlocked') : (configured ? t('vaultLocked') : t('vaultSetupNeeded'))}

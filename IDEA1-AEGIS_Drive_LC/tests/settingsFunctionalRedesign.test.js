@@ -98,6 +98,7 @@ function render({
   tab, role = 'Admin', lang = 'en', placeholderMode = false,
   settings = SAVED_SETTINGS, storage = STORAGE, activity = ACTIVITY,
   backupView = null,
+  navigationPosition = 'left',
   zones = [{ id: 'z1', name: 'Edge LAN', cidr: '10.20.0.0/24' }],
   errors = {},
 } = {}) {
@@ -113,10 +114,21 @@ function render({
   return renderToStaticMarkup(React.createElement(Settings, {
     t: makeT(lang), lang, setLang() {}, theme: 'light', setTheme() {},
     density: 'comfortable', setDensity() {}, interfaceStyle: 'classic',
+    navigationPosition, setNavigationPosition() {},
     onInterfaceStyleChange() {}, role, user: USER, go() {}, onProfileSaved() {},
     initialTab: tab, placeholderMode,
   }))
 }
+
+test('Appearance shows three schematic navigation placements and removes Display density', () => {
+  const html = render({ tab: 'appearance', navigationPosition: 'top' })
+  assert.match(html, /Navigation position/)
+  assert.match(html, /role="radiogroup"[^>]*aria-label="Navigation position"/)
+  assert.match(html, /role="radio"[^>]*aria-checked="true"[^>]*value="top"/)
+  assert.match(html, /value="left"/)
+  assert.match(html, /value="bottom"/)
+  assert.doesNotMatch(html, /Display density/)
+})
 
 // ── The three categories are visible ─────────────────────────────────────────
 

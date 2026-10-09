@@ -1,0 +1,5 @@
+# IDEA1 D-1 Stage 1 — exact-source Drive image override only (PR-A #283 + PR-B #285 + PR #297 privilege fix at 9f5a01148ce0).
+# Append after the current live Production compose chain. Do not edit active files.
+services:
+  drive:
+    image: aegis-prod-drive:preview-d1-s1-9f5a01148ce0

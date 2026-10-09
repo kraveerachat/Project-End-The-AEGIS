@@ -69,3 +69,11 @@ test('preserves current-main camera selection wiring without freezing hidden hoo
   assert.match(live, /Event stream/)
   assert.match(live, /No cameras assigned/)
 })
+
+test('keeps local-node association as invisible orchestration without changing the accepted UI', () => {
+  const app = source('src/App.jsx')
+
+  assert.match(app, /import \{ maintainLocalNodeAssociation \} from '\.\/lib\/localNode\.js'/)
+  assert.match(app, /maintainLocalNodeAssociation\(\{ session \}\)/)
+  assert.doesNotMatch(app, /<LocalNode|local-node-status|association-banner/i)
+})

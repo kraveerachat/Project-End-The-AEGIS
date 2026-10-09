@@ -36,6 +36,11 @@ const TOP_KEYS = new Set(['schemaVersion', 'treeId', 'generation', 'revisionId',
 const NODE_KEYS = new Set(['nodeId', 'kind', 'parentNodeId', 'name', 'createdAtClient', 'modifiedAtClient', 'lifecycle', 'blobRef', 'mediaType', 'plainSize'])
 const LIFECYCLE_KEYS = new Set(['state', 'trashedAtClient', 'trashedFromParentNodeId'])
 const BLOBREF_KEYS = new Set(['formatVersion', 'id'])
+// schema v2 (Unified Preview): two optional node keys + the preview entry shape. Chosen by the decoded
+// `schemaVersion` — a v1 document never accepts them, so v1 decoding is exactly as strict as before.
+// The encoder is key-set agnostic (sorted keys), so v1 bytes are unchanged by construction.
+const NODE_KEYS_V2 = new Set([...NODE_KEYS, 'contentFormat', 'previews'])
+const PREVIEW_KEYS = new Set(['kind', 'profile', 'blobRef', 'contentId', 'sourceBlobRef', 'mime', 'width', 'height', 'durationMs', 'plainSize', 'createdAtClient'])
 
 // ── encoder ──────────────────────────────────────────────────────────────────
 
@@ -99,6 +104,18 @@ export function canonicalEncode(manifest, limits = VAULT_TREE_CLIENT_LIMITS) {
   return bytes
 }
 
+/**
+ * any canonical value (plain objects, arrays, Map → sorted pairs, safe integers, strings, booleans, null) → UTF-8 bytes.
+ * Same encoder as the manifest; the caller supplies its own closed key schema on decode (D-1 preview index uses this).
+ * @param {unknown} value
+ * @param {{ maxJsonDepth: number, maxDecodedBytes: number }} limits
+ */
+export function canonicalEncodeValue(value, limits) {
+  const bytes = te.encode(encodeValue(value, 1, limits))
+  if (bytes.length > limits.maxDecodedBytes) throw new CanonicalError('LIMIT_DECODED_BYTES')
+  return bytes
+}
+
 // ── strict parser ─────────────────────────────────────────────────────────────
 // ไวยากรณ์ JSON (RFC 8259) แต่ "canonical" = มีได้แค่รูปเดียว: ไม่ยอมรับ whitespace ที่ใดเลย
 // (encoder ไม่เคยผลิตมัน; ไบต์ที่ต่างจากรูป canonical แม้ช่องว่างเดียวคือข้อมูลที่ไม่ใช่ของเรา)
@@ -131,6 +148,7 @@ class Parser {
       this.ws()
       if (this.s[this.i] !== '"') this.fail()
       const key = this.string()
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') this.fail('UNKNOWN_KEY', `unsafe key ${JSON.stringify(key)}`)
       if (key in out) this.fail('DUPLICATE_KEY', `duplicate key ${JSON.stringify(key)}`)
       this.ws()
       if (this.s[this.i] !== ':') this.fail()
@@ -217,22 +235,60 @@ function checkKeys(obj, allowed, where) {
   for (const k of Object.keys(obj)) if (!allowed.has(k)) throw new CanonicalError('UNKNOWN_KEY', `${where}.${k}`)
 }
 
+const isPlainObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** a closed-key sub-object (blobRef-like) → plain copy */
+function refCopy(v, where) {
+  if (!isPlainObj(v)) throw new CanonicalError('BAD_TYPE', where)
+  checkKeys(v, BLOBREF_KEYS, where)
+  return { ...v }
+}
+
+/** v2 `previews` → plain array of plain entries (key sets only; value rules live in validateManifest) */
+function previewsCopy(list) {
+  if (!Array.isArray(list)) throw new CanonicalError('BAD_TYPE', 'previews')
+  return list.map((p) => {
+    if (!isPlainObj(p)) throw new CanonicalError('BAD_TYPE', 'preview entry')
+    checkKeys(p, PREVIEW_KEYS, 'node.previews[]')
+    return {
+      ...p,
+      ...(p.blobRef !== undefined ? { blobRef: refCopy(p.blobRef, 'node.previews[].blobRef') } : {}),
+      ...(p.sourceBlobRef !== undefined ? { sourceBlobRef: refCopy(p.sourceBlobRef, 'node.previews[].sourceBlobRef') } : {}),
+    }
+  })
+}
+
 /**
- * canonical bytes → manifest object (nodes เป็น Map) — เข้มงวด ไม่มีการ "เดา"
- * ลำดับการตรวจ: ความยาว → ไวยากรณ์/ความลึก/key ซ้ำ/ตัวเลข → ไบต์ต่อท้าย → สคีมาของ key
+ * canonical bytes → one top-level value (objects have a null prototype) — strict, no guessing.
+ * Order of checks: type → length → UTF-8 → syntax/depth/duplicate keys/numbers → trailing bytes.
+ * Key schemas are the caller's job (canonicalDecode for the manifest; the D-1 index codec for root/shard).
+ * @param {Uint8Array} bytes
+ * @param {{ maxJsonDepth: number, maxDecodedBytes: number }} limits
+ * @param {{ topObjectMessage?: string }} [o] require a top-level object (with this BAD_SYNTAX message) when set
  */
-export function canonicalDecode(bytes, limits = VAULT_TREE_CLIENT_LIMITS) {
+export function canonicalParseStrict(bytes, limits, { topObjectMessage = null } = {}) {
   if (!(bytes instanceof Uint8Array)) throw new CanonicalError('BAD_TYPE', 'bytes must be a Uint8Array')
   if (bytes.length > limits.maxDecodedBytes) throw new CanonicalError('LIMIT_DECODED_BYTES')
   let text
   try { text = td.decode(bytes) } catch { throw new CanonicalError('BAD_SYNTAX', 'invalid UTF-8') }
   const p = new Parser(text, limits)
   p.ws()
-  if (p.s[p.i] !== '{') p.fail('BAD_SYNTAX', 'manifest must be an object')
-  const top = p.object(1)
+  if (topObjectMessage !== null && p.s[p.i] !== '{') p.fail('BAD_SYNTAX', topObjectMessage)
+  const top = p.value(1)
   p.ws()
   if (p.i !== p.s.length) p.fail('TRAILING')
+  return top
+}
+
+/**
+ * canonical bytes → manifest object (nodes เป็น Map) — เข้มงวด ไม่มีการ "เดา"
+ * ลำดับการตรวจ: ความยาว → ไวยากรณ์/ความลึก/key ซ้ำ/ตัวเลข → ไบต์ต่อท้าย → สคีมาของ key
+ */
+export function canonicalDecode(bytes, limits = VAULT_TREE_CLIENT_LIMITS) {
+  const top = canonicalParseStrict(bytes, limits, { topObjectMessage: 'manifest must be an object' })
   checkKeys(top, TOP_KEYS, 'manifest')
+  const isV2 = top.schemaVersion === 2
+  const nodeKeys = isV2 ? NODE_KEYS_V2 : NODE_KEYS
   const out = { ...top }
   if ('nodes' in top) {
     if (!Array.isArray(top.nodes)) throw new CanonicalError('BAD_TYPE', 'nodes must be an array of pairs')
@@ -241,7 +297,7 @@ export function canonicalDecode(bytes, limits = VAULT_TREE_CLIENT_LIMITS) {
       if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || !pair[1] || typeof pair[1] !== 'object' || Array.isArray(pair[1])) throw new CanonicalError('BAD_TYPE', 'node pair')
       if (map.has(pair[0])) throw new CanonicalError('DUPLICATE_KEY', 'duplicate nodeId')
       const node = pair[1]
-      checkKeys(node, NODE_KEYS, 'node')
+      checkKeys(node, nodeKeys, 'node')
       if (node.lifecycle !== undefined) {
         if (!node.lifecycle || typeof node.lifecycle !== 'object' || Array.isArray(node.lifecycle)) throw new CanonicalError('BAD_TYPE', 'lifecycle')
         checkKeys(node.lifecycle, LIFECYCLE_KEYS, 'node.lifecycle')
@@ -250,7 +306,8 @@ export function canonicalDecode(bytes, limits = VAULT_TREE_CLIENT_LIMITS) {
         if (!node.blobRef || typeof node.blobRef !== 'object' || Array.isArray(node.blobRef)) throw new CanonicalError('BAD_TYPE', 'blobRef')
         checkKeys(node.blobRef, BLOBREF_KEYS, 'node.blobRef')
       }
-      map.set(pair[0], { ...node, ...(node.lifecycle ? { lifecycle: { ...node.lifecycle } } : {}), ...(node.blobRef ? { blobRef: { ...node.blobRef } } : {}) })
+      const previews = isV2 && node.previews !== undefined ? { previews: previewsCopy(node.previews) } : {}
+      map.set(pair[0], { ...node, ...(node.lifecycle ? { lifecycle: { ...node.lifecycle } } : {}), ...(node.blobRef ? { blobRef: { ...node.blobRef } } : {}), ...previews })
     }
     out.nodes = map
   }

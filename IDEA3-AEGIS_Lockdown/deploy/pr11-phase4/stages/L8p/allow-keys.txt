@@ -1,0 +1,6 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage L8p allowed host state drift.
+#
+# L8p provisions the ESP32 only. It changes the device, never the Core host, so this file carries ZERO active keys by contract:
+# an empty allow-list makes p4-compare.sh fail on any Core host drift whatsoever between the PRE and POST/RB captures
+# (HOST_PRE_TO_RB_ZERO_DRIFT=YES).
+#

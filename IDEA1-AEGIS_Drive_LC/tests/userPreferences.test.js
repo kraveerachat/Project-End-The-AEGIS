@@ -53,7 +53,7 @@ after(async () => {
   await fs.rm(storageRoot, { recursive: true, force: true })
 })
 
-test('new accounts receive light, Thai, comfortable, Classic preferences from the server', async () => {
+test('new accounts receive light, Thai, comfortable, Classic, left navigation preferences from the server', async () => {
   const client = new Client(baseUrl)
   const login = await performLogin(client, DEMO_ADMIN.username, DEMO_ADMIN.password)
 
@@ -62,6 +62,7 @@ test('new accounts receive light, Thai, comfortable, Classic preferences from th
     language: 'th',
     density: 'comfortable',
     interfaceStyle: 'classic',
+    navigationPosition: 'left',
   })
 })
 
@@ -71,7 +72,7 @@ test('appearance preferences persist for the authenticated user and ignore a sup
 
   const saved = await admin.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo', userId: '2' },
+    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo', navigationPosition: 'top', userId: '2' },
   })
   assert.equal(saved.status, 200)
   assert.deepEqual(saved.data.preferences, {
@@ -79,6 +80,7 @@ test('appearance preferences persist for the authenticated user and ignore a sup
     language: 'en',
     density: 'compact',
     interfaceStyle: 'neo',
+    navigationPosition: 'top',
   })
 
   const me = await admin.req('/api/me')
@@ -100,6 +102,7 @@ test('appearance preferences persist for the authenticated user and ignore a sup
     language: 'th',
     density: 'comfortable',
     interfaceStyle: 'classic',
+    navigationPosition: 'left',
   })
 })
 
@@ -109,13 +112,13 @@ test('invalid preference values are rejected without changing the current values
 
   const baseline = await client.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo' },
+    body: { theme: 'dark', language: 'en', density: 'compact', interfaceStyle: 'neo', navigationPosition: 'bottom' },
   })
   assert.equal(baseline.status, 200)
 
   const rejected = await client.req('/api/preferences', {
     method: 'PATCH',
-    body: { theme: 'light', language: 'th', density: 'comfortable', interfaceStyle: 'cyberpunk' },
+    body: { theme: 'light', language: 'th', density: 'comfortable', interfaceStyle: 'cyberpunk', navigationPosition: 'left' },
   })
   assert.equal(rejected.status, 400)
 
@@ -125,5 +128,40 @@ test('invalid preference values are rejected without changing the current values
     language: 'en',
     density: 'compact',
     interfaceStyle: 'neo',
+    navigationPosition: 'bottom',
   })
+})
+
+test('invalid navigation position is rejected without changing appearance preferences', async () => {
+  const client = new Client(baseUrl)
+  await performLogin(client, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const baseline = await client.req('/api/preferences', {
+    method: 'PATCH',
+    body: { theme: 'dark', language: 'en', density: 'comfortable', interfaceStyle: 'neo', navigationPosition: 'bottom' },
+  })
+  assert.equal(baseline.status, 200)
+
+  const rejected = await client.req('/api/preferences', {
+    method: 'PATCH',
+    body: { theme: 'light', language: 'th', density: 'compact', interfaceStyle: 'classic', navigationPosition: 'hidden' },
+  })
+  assert.equal(rejected.status, 400)
+  const me = await client.req('/api/me')
+  assert.deepEqual(me.data.user.preferences, baseline.data.preferences)
+})
+
+test('older preference clients that omit navigation position preserve the saved placement', async () => {
+  const client = new Client(baseUrl)
+  await performLogin(client, DEMO_ADMIN.username, DEMO_ADMIN.password)
+  const placed = await client.req('/api/preferences', {
+    method: 'PATCH',
+    body: { theme: 'light', language: 'en', density: 'comfortable', interfaceStyle: 'neo', navigationPosition: 'top' },
+  })
+  assert.equal(placed.status, 200)
+  const olderClient = await client.req('/api/preferences', {
+    method: 'PATCH',
+    body: { theme: 'dark', language: 'en', density: 'comfortable', interfaceStyle: 'neo' },
+  })
+  assert.equal(olderClient.status, 200)
+  assert.equal(olderClient.data.preferences.navigationPosition, 'top')
 })

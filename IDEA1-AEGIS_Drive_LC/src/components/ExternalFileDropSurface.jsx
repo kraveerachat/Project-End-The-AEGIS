@@ -55,7 +55,7 @@ export function ExternalFileDropSurface({ enabled = true, hint, onDrop, children
     >
       <p className="sr-only">{hint}</p>
       {show && (
-        <div className="absolute inset-0 z-20 rounded-[var(--r-card)] border-2 border-dashed border-accent bg-[var(--accent-soft)] flex items-center justify-center pointer-events-none">
+        <div data-neo-drop-overlay="" className="absolute inset-0 z-20 rounded-[var(--r-card)] border-2 border-dashed border-accent bg-[var(--accent-soft)] flex items-center justify-center pointer-events-none">
           <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-[13px] font-semibold text-accent shadow-[var(--elev-1)]"><Upload size={16} aria-hidden />{hint}</span>
         </div>
       )}

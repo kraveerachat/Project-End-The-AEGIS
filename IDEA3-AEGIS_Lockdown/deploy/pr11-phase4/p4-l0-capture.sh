@@ -50,7 +50,7 @@ OPTIONAL_TOOLS="chronyc twingate hostnamectl"
 SERVICE_UNITS="NetworkManager.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
 chronyd.service nftables.service mosquitto.service aegis-idea3-mosquitto.service dnsmasq.service hostapd.service wpa_supplicant.service
 twingate.service aegis-idea3-core.service aegis-idea3.service aegis-idea3-nftables-load.service aegis-idea3-dnsmasq.service
-aegis-idea3-containment.socket aegis-idea3-containment.service"
+aegis-idea3-containment.socket aegis-idea3-containment.service aegis-idea3-detector.service"
 UNIT_PROPS="LoadState ActiveState SubState UnitFileState MainPID NRestarts Result ExecMainStartTimestamp"
 IDEA2_ENGINE_UNIT=aegis-detection-engine.service
 IDEA2_TUNNEL_UNIT=aegis-detection-tunnel.service
@@ -368,20 +368,38 @@ if run_ro 1 timedatectl timedatectl show -p NTP -p NTPSynchronized -p CanNTP -p 
 else
   p4_rec "$TIME" time.NTPSynchronized UNAVAILABLE
 fi
-if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers; then
-  while IFS='=' read -r k v; do
-    [[ "$k" =~ ^(ServerName|SystemNTPServers)$ ]] && p4_rec "$TIME" "time.timesyncd.$k" "$v"
-  done <<< "$P4_OUT"
-else
-  p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+# `timedatectl show-timesync` is NOT read-only on a host where systemd-timesyncd is stopped: it asks timesyncd over its bus/varlink endpoint, which
+# ACTIVATES the daemon, and chronyd.service carries Conflicts=systemd-timesyncd.service, so the query silently stops a running chronyd (the consumed
+# 2026-10-03 PRE-L8p NTP reactivation lost its NTP runtime to its own POST capture this way). The timesyncd-specific properties are therefore queried ONLY
+# while systemd-timesyncd is ALREADY active/running (the query then activates nothing). Otherwise the stable sentinel below is recorded and no timesync
+# command is issued. The configured server set stays comparable through the timesyncd.conf / timesyncd.conf.d file records below.
+TIMESYNCD_INACTIVE_SENTINEL=TIMESYNCD_INACTIVE_NOT_QUERIED
+timesyncd_running_now=0
+if run_ro 0 - systemctl show -p ActiveState -p SubState systemd-timesyncd.service; then
+  ts_active=$(printf '%s\n' "$P4_OUT" | sed -n 's/^ActiveState=//p' | head -n 1)
+  ts_sub=$(printf '%s\n' "$P4_OUT" | sed -n 's/^SubState=//p' | head -n 1)
+  [ "$ts_active" = active ] && [ "$ts_sub" = running ] && timesyncd_running_now=1
 fi
-# Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
-if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
-  while IFS='=' read -r k v; do
-    [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
-  done <<< "$P4_OUT"
+if [ "$timesyncd_running_now" = 1 ]; then
+  if run_ro 0 timesync timedatectl show-timesync -p ServerName -p SystemNTPServers; then
+    while IFS='=' read -r k v; do
+      [[ "$k" =~ ^(ServerName|SystemNTPServers)$ ]] && p4_rec "$TIME" "time.timesyncd.$k" "$v"
+    done <<< "$P4_OUT"
+  else
+    p4_rec "$TIME" time.timesyncd.ServerName UNAVAILABLE
+  fi
+  # Configured fallback set: canonical evidence for the constrained informational treatment of time.timesyncd.ServerName.
+  if run_ro 0 timesync-fallback timedatectl show-timesync -p FallbackNTPServers; then
+    while IFS='=' read -r k v; do
+      [ "$k" = FallbackNTPServers ] && p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$v"
+    done <<< "$P4_OUT"
+  else
+    p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+  fi
 else
-  p4_rec "$TIME" time.timesyncd.FallbackNTPServers UNAVAILABLE
+  p4_rec "$TIME" time.timesyncd.ServerName "$TIMESYNCD_INACTIVE_SENTINEL"
+  p4_rec "$TIME" time.timesyncd.SystemNTPServers "$TIMESYNCD_INACTIVE_SENTINEL"
+  p4_rec "$TIME" time.timesyncd.FallbackNTPServers "$TIMESYNCD_INACTIVE_SENTINEL"
 fi
 # Kernel-based TrustedClock verdict (state only; maxerror is volatile and is not recorded). Live: the shared read-only
 # probe; test fixtures: the fixture value. Never adjusts the clock.
@@ -657,7 +675,9 @@ else
   p4_rec "$HOST" host.twingate.status UNAVAILABLE
 fi
 for p in /etc/aegis-idea3 /etc/aegis-idea3/pki /etc/aegis-idea3/mqtt /opt/aegis-idea3 /opt/aegis-idea3/current \
-  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3; do
+  /opt/aegis-idea3/releases /var/lib/aegis-idea3 /run/aegis-idea3 /var/log/aegis-idea3 \
+  /etc/systemd/system/aegis-idea3-core.service.d /etc/tmpfiles.d/aegis-idea3-recovery.conf /run/aegis-idea3-recovery \
+  /run/aegis-idea3-recovery/recovery.sock /etc/tmpfiles.d/aegis-idea3-alert.conf /run/aegis-idea3-alert /run/aegis-idea3-alert/alert.sock; do
   if [ -e "$(p4_fs "$p")" ]; then p4_rec "$HOST" "host.path.$p" present; else p4_rec "$HOST" "host.path.$p" absent; fi
 done
 # L6c (immutable release install): a deterministic, non-secret fingerprint of the release catalog under
@@ -704,8 +724,143 @@ if [ -L "$(p4_fs /opt/aegis-idea3/current)" ]; then
 else
   p4_rec "$HOST" host.symlink./opt/aegis-idea3/current.target absent
 fi
+# L7u (post-L7 Recovery Core upgrade): every surface the stage owns is recorded with deterministic, NON-SECRET keys so no L7u mutation is
+# invisible to PRE->POST / PRE->RB evidence. Never recorded: /etc/gshadow, password hashes, core.env content (metadata only, see above),
+# credentials, private keys or any environment value. The group key is derived from /etc/group (world-readable, no secrets).
+recovery_group_name=aegis-idea3-recovery
+if [ -r "$(p4_fs /etc/group)" ]; then
+  group_state=$(awk -F: -v g="$recovery_group_name" '$1 == g { n++; v = "present gid=" $3 " members=" $4 }
+    END { if (n == 0) print "absent"; else if (n == 1) print v; else print "duplicate" }' "$(p4_fs /etc/group)")
+else
+  # A real host always has a readable /etc/group, so a missing one there is a genuine capture gap (PARTIAL); a bare TEST fixture root
+  # simply has no group database, so the dedicated group is absent there (comparable, and the capture stays COMPLETE).
+  group_state=UNREADABLE
+  if [ -z "$P4_FS_ROOT" ]; then partial=1; else group_state=absent; fi
+fi
+p4_rec "$HOST" "host.aegis_idea3.recovery.group.$recovery_group_name" "$group_state"
+recovery_dir=$(p4_fs /run/aegis-idea3-recovery)
+if [ -L "$recovery_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir symlink
+elif [ -d "$recovery_dir" ]; then
+  meta=$(p4_meta "$recovery_dir")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir "${meta%% size=*}"
+elif [ -e "$recovery_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir not-a-directory
+else
+  p4_rec "$HOST" host.aegis_idea3.recovery.runtime_dir absent
+fi
+recovery_sock="$recovery_dir/recovery.sock"
+if [ -S "$recovery_sock" ]; then
+  meta=$(p4_meta "$recovery_sock")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket "type=socket ${meta%% size=*}"
+elif [ -e "$recovery_sock" ] || [ -L "$recovery_sock" ]; then
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket type=other
+else
+  p4_rec "$HOST" host.aegis_idea3.recovery.socket absent
+fi
+# OD-F1-DEPLOY-01 (F1 alert surface, owned by L7u): same non-secret metadata-only treatment as the Recovery surface above.
+alert_group_name=aegis-idea3-alert
+if [ -r "$(p4_fs /etc/group)" ]; then
+  alert_group_state=$(awk -F: -v g="$alert_group_name" '$1 == g { n++; v = "present gid=" $3 " members=" $4 }
+    END { if (n == 0) print "absent"; else if (n == 1) print v; else print "duplicate" }' "$(p4_fs /etc/group)")
+else
+  alert_group_state=UNREADABLE
+  if [ -z "$P4_FS_ROOT" ]; then partial=1; else alert_group_state=absent; fi
+fi
+p4_rec "$HOST" "host.aegis_idea3.alert.group.$alert_group_name" "$alert_group_state"
+alert_dir=$(p4_fs /run/aegis-idea3-alert)
+if [ -L "$alert_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir symlink
+elif [ -d "$alert_dir" ]; then
+  meta=$(p4_meta "$alert_dir")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir "${meta%% size=*}"
+elif [ -e "$alert_dir" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir not-a-directory
+else
+  p4_rec "$HOST" host.aegis_idea3.alert.runtime_dir absent
+fi
+alert_sock="$alert_dir/alert.sock"
+if [ -S "$alert_sock" ]; then
+  meta=$(p4_meta "$alert_sock")
+  [ "$meta" = UNREADABLE ] && partial=1
+  p4_rec "$HOST" host.aegis_idea3.alert.socket "type=socket ${meta%% size=*}"
+elif [ -e "$alert_sock" ] || [ -L "$alert_sock" ]; then
+  p4_rec "$HOST" host.aegis_idea3.alert.socket type=other
+else
+  p4_rec "$HOST" host.aegis_idea3.alert.socket absent
+fi
+if run_ro 0 - systemctl show -p SupplementaryGroups -p DropInPaths -p FragmentPath -p ReadWritePaths -p MainPID aegis-idea3-core.service; then
+  core_pid=0
+  for prop in SupplementaryGroups DropInPaths FragmentPath ReadWritePaths; do
+    v=$(printf '%s\n' "$P4_OUT" | sed -n "s/^${prop}=//p" | head -n 1)
+    case "$prop" in
+      SupplementaryGroups) key=supplementary_groups ;; DropInPaths) key=dropin_paths ;;
+      FragmentPath) key=fragment_path ;; ReadWritePaths) key=read_write_paths ;;
+    esac
+    p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" "${v:-none}"
+  done
+  core_pid=$(printf '%s\n' "$P4_OUT" | sed -n 's/^MainPID=//p' | head -n 1)
+  if [[ "$core_pid" =~ ^[1-9][0-9]*$ ]]; then
+    if [ -r "$(p4_fs "/proc/$core_pid/status")" ]; then
+      pgroups=$(sed -n 's/^Groups:[[:space:]]*//p' "$(p4_fs "/proc/$core_pid/status")" | head -n 1)
+      p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups "${pgroups:-none}"
+    else
+      # live: an unreadable /proc/<MainPID>/status is a genuine gap (PARTIAL); a bare TEST fixture root has no /proc.
+      if [ -z "$P4_FS_ROOT" ]; then
+        p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups UNREADABLE
+        partial=1
+      else
+        p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups none
+      fi
+    fi
+  else
+    p4_rec "$HOST" host.aegis_idea3.recovery.core.process_groups none
+  fi
+else
+  for key in supplementary_groups dropin_paths fragment_path read_write_paths process_groups; do
+    p4_rec "$HOST" "host.aegis_idea3.recovery.core.$key" UNAVAILABLE
+  done
+fi
+# F1u: the RUNNING process's release identity (the cwd systemd resolved from WorkingDirectory when it started), so a Core or detector runtime change can never be invisible to the comparator and
+# `current` is never mistaken for the running release. Non-secret. A live unreadable cwd is a genuine gap (PARTIAL); a bare TEST fixture root has no /proc.
+runtime_cwd_record() { # KEY UNIT
+  local key=$1 unit=$2 pid cwd
+  if run_ro 0 - systemctl show -p MainPID "$unit"; then
+    pid=$(printf '%s\n' "$P4_OUT" | sed -n 's/^MainPID=//p' | head -n 1)
+  else
+    p4_rec "$HOST" "$key" UNAVAILABLE
+    return 0
+  fi
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    if [ -n "$P4_FS_ROOT" ]; then
+      p4_rec "$HOST" "$key" none
+    elif cwd=$(p4_ro readlink -- "/proc/$pid/cwd" 2>/dev/null) && [ -n "$cwd" ]; then
+      p4_rec "$HOST" "$key" "$cwd"
+    else
+      p4_rec "$HOST" "$key" UNREADABLE
+      partial=1
+    fi
+  else
+    p4_rec "$HOST" "$key" none
+  fi
+}
+runtime_cwd_record host.aegis_idea3.recovery.core.runtime_cwd aegis-idea3-core.service
+runtime_cwd_record host.aegis_idea3.alert.detector.runtime_cwd aegis-idea3-detector.service
+while IFS= read -r f; do
+  [ -n "$f" ] && rec_file "$HOST" host.unit_file "$f"
+done < <(tree_files /etc/systemd/system/aegis-idea3-core.service.d)
+if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-recovery.conf)"
+fi
+if [ -f "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)" ]; then
+  rec_file "$HOST" host.unit_file "$(p4_fs /etc/tmpfiles.d/aegis-idea3-alert.conf)"
+fi
 # L6b (OD-L6B-01) installs the separate broker unit; it is captured exactly like the Core unit (never a wildcard).
-for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service; do
+# F1u: the F1 detector unit is captured the same way (its bytes/mode must never drift; only its process identity may change through the Core restart).
+for unit_file in aegis-idea3-core.service aegis-idea3-mosquitto.service aegis-idea3-detector.service; do
   if [ -f "$(p4_fs "/etc/systemd/system/$unit_file")" ]; then
     rec_file "$HOST" host.unit_file "$(p4_fs "/etc/systemd/system/$unit_file")"
   fi

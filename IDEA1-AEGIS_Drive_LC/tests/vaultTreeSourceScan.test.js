@@ -71,3 +71,48 @@ test('SS-3 client vault modules contain no browser-storage or Cache API access',
     })
   }
 })
+
+test('SS-PI-1 D-1 preview-index server modules import nothing from src/, register no PUT/PATCH/DELETE (only the write-gated POST /head), and issue no DELETE/TRUNCATE SQL', () => {
+  const route = fs.readFileSync(path.join(ROOT, 'server/routes/vaultPreviewIndex.js'), 'utf8')
+  const store = fs.readFileSync(path.join(ROOT, 'server/db/vaultPreviewIndexStore.js'), 'utf8')
+  for (const [name, src] of [['vaultPreviewIndex.js', route], ['vaultPreviewIndexStore.js', store]]) {
+    for (const spec of importsOf(src)) assert.doesNotMatch(spec, /(^|\/)src\//, `${name} imports ${spec}`)
+  }
+  assert.doesNotMatch(route, /\.(put|patch|delete)\s*\(/i, 'no PUT/PATCH/DELETE preview-index route')
+  // PR-C: the single POST registered directly here is the write-gated index CAS
+  assert.deepEqual(route.match(/\.post\s*\(\s*'[^']*'/gi), ["vaultPreviewIndexRouter.post('/head'"].map((s) => s.slice(s.indexOf('.'))))
+  assert.match(route, /\.post\('\/head', requirePreviewIndexWrite, /)
+  const code = (s) => s.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*)/.test(l)).join('\n')
+  assert.doesNotMatch(code(store), /\b(DELETE\s+FROM|TRUNCATE|DROP\s+TABLE)\b/i, 'the preview-index store never deletes')
+  assert.doesNotMatch(code(store), /VAULT_MANIFEST_V2_UPGRADE|manifestV2Upgrade/)
+})
+
+test('SS-PI-2 D-1 client modules never touch browser storage, the Cache API, navigator.storage or the console', () => {
+  const D1 = [
+    'vaultPreviewIndexConstants.js', 'vaultPreviewIndexRouting.js', 'vaultPreviewIndexCodec.js', 'vaultPreviewIndexObject.js',
+    'vaultPreviewIndexReader.js', 'vaultDerivativeRead.js', 'vaultPreviewIndexTiles.js', 'vaultPreviewIndexTileLane.js',
+    'vaultPreviewIndexMerge.js', 'vaultPreviewIndexOrphans.js',
+    // PR-D
+    'vaultPreviewIndexWriter.js', 'vaultDerivativeGenerate.js', 'vaultDerivativeBackfill.js',
+  ]
+  const forbidden = /\b(localStorage|sessionStorage|indexedDB|caches|openDatabase)\b|navigator\.storage|\bconsole\./
+  for (const name of D1) {
+    const src = fs.readFileSync(path.join(ROOT, 'src/lib', name), 'utf8')
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, '')).join('\n')
+    assert.doesNotMatch(code, forbidden, name)
+  }
+})
+
+test('SS-PI-3 MAIN_MANIFEST_LINKAGE=NONE: PR-D writer/generation/backfill code cannot reach any main-manifest write path', () => {
+  for (const name of ['vaultPreviewIndexWriter.js', 'vaultDerivativeGenerate.js', 'vaultDerivativeBackfill.js']) {
+    const src = fs.readFileSync(path.join(ROOT, 'src/lib', name), 'utf8')
+    for (const spec of importsOf(src)) assert.doesNotMatch(spec, /vaultTreeSync|vaultTreeOps|vaultTreeUpload|vaultTreeManifestCrypto|useVaultTree/, `${name} imports ${spec}`)
+    assert.doesNotMatch(src, /\b(casHead|publishRevision|putRevisionCiphertext|commitGenesis|casKeyEnvelope|confirmPurge)\b|\.commit\(|manifestSchemaVersion|VAULT_MANIFEST_V2_UPGRADE|setNodePreviews/, name)
+    assert.doesNotMatch(src, /method:\s*'DELETE'|purgeBlobIds|purgeIntent|PURGE_PENDING|cancelVaultUploadSession/, `${name} never deletes or purges`)
+  }
+  // the screen's derivative hook only hands the already-committed result to the queue (no commit, no awaited work)
+  const screen = fs.readFileSync(path.join(ROOT, 'src/screens/VaultTreeScreen.jsx'), 'utf8')
+  const hook = screen.slice(screen.indexOf("announce('vaultTreeUploadComplete', { name })"), screen.indexOf('return res', screen.indexOf("announce('vaultTreeUploadComplete', { name })")))
+  assert.match(hook, /uploadDerivativesRef\.current\?\.afterUpload\(/)
+  assert.doesNotMatch(hook.replace(/\/\/.*$/gm, ''), /await|commit|session\./)
+})

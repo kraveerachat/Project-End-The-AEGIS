@@ -2,8 +2,13 @@
 # (เสิร์ฟ API + dist จาก origin เดียวกัน) multi-stage: stage แรกสร้าง static bundle,
 # stage สองรัน node แบบเบา — เหมือนแพทเทิร์นของ HUB-AEGIS_Entry/Dockerfile
 
+# A digest-form NODE_BASE_IMAGE is mandatory for the H1 characterization and
+# candidate build. The default preserves the existing development build only;
+# it is not immutable artifact authority.
+ARG NODE_BASE_IMAGE=node:20-alpine
+
 # ── build stage ───────────────────────────────────────────────────────
-FROM node:20-alpine AS build
+FROM ${NODE_BASE_IMAGE} AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -11,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # ── runtime stage ─────────────────────────────────────────────────────
-FROM node:20-alpine AS runtime
+FROM ${NODE_BASE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./

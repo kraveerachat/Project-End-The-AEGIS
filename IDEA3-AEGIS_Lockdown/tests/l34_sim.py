@@ -112,6 +112,21 @@ DEFAULT_STATE = {
     "legacy_1883_mutate": False,       # once the AP has been up, the legacy :1883 listener row changes (bind address differs)
     "new_1883_on_ap": False,           # once the AP has been up, a NEW plaintext 10.77.30.1:1883 listener appears
     "ap_ever_up": False,               # set by `nmcli connection up` (sticky; drives the *_mutate triggers above)
+    # ── V7 (RADIO_DISABLED + BROKER_CHURN) only: all keys default to the V1–V6 behaviour ─────────────────────────────────────
+    "nm_ready_lag_polls": 0,          # after the radio is enabled, the target stays `unavailable` for this many `device status` polls (the live race)
+    "stray_8883": [],                 # extra `ss` 8883 rows present at all times (an unexpected listener)
+    "broker_restart_every_shows": 0,  # crashloop mode, after recovery: every K-th `systemctl show` of the broker counts one more restart (0 = stable)
+    "broker_recovered_shows": 0,      # internal counter for the key above
+    "broker_journal_extra": [],       # extra journal lines appended to the broker crash-loop tail (a second, unrelated failure signature)
+    "broker_journal_stale_bind": "",  # "" | "previous_boot" | "earlier_invocation": the bind-failure lines belong to stale evidence, not to the current failed invocation
+    # ── V8 (POST_V7 PERSISTENT AP RECOVERY) only: `nmcli connection modify aegis-idea3-ap connection.autoconnect yes|no`; all keys default to V1–V7 behaviour ──
+    "profile_modify_works": True,     # `connection modify` exits 0 and changes the persisted profile; False = exit 1 with NO change
+    "profile_modify_writes": "omit",  # how NetworkManager serializes autoconnect=yes in the keyfile: "omit" (default value is not written) | "true"
+    "profile_modify_corrupts": False, # the keyfile rewrite ALSO changes another non-secret line (NetworkManager re-serialization drift)
+    "profile_modify_reorders": False, # the keyfile rewrite re-serializes like libnm: keys re-ordered inside sections, comments/blank lines dropped
+    "profile_modify_adds_uuid": False,  # the keyfile rewrite adds the daemon-assigned `uuid=` line to [connection]
+    "profile_modify_adds_timestamp": False,  # the keyfile rewrite adds the NetworkManager-maintained `timestamp=<nonzero epoch>` line to [connection] (live S-11, 2026-10-02)
+    "profile_modify_extra": "",       # "section|key=value": the rewrite ALSO adds this non-secret key
 }
 
 WRAPPER = "#!/usr/bin/env bash\nexec {python} {sim} {name} \"$@\"\n"
@@ -163,6 +178,8 @@ def _device_state(s: dict) -> str:
     if _wifi_radio(s) == "disabled":
         return "unavailable"
     if not s["nm_ready_after_unblock"]:
+        return "unavailable"
+    if s["nm_ready_lag_polls"] > 0:
         return "unavailable"
     if s["ap_active"]:
         return "connected"
@@ -239,13 +256,18 @@ def _broker_props(s: dict) -> dict[str, str]:
     never started/stopped/restarted by any stub command, purely a function of ap_active (systemd's own
     auto-restart, driven by the bind address becoming available)."""
     if _broker_crashloop_recovered(s):
+        extra = s["broker_recovered_shows"] // s["broker_restart_every_shows"] if s["broker_restart_every_shows"] > 0 else 0
         recovered = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running", "UnitFileState": "enabled",
-                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1),
+                     "Result": "success", "MainPID": str(s["broker_pid"]), "NRestarts": str(s["broker_nrestarts_pre"] + 1 + extra),
                      "ExecMainStartTimestamp": "Sun 2026-09-28 17:24:40 +07"}
+        recovered.update({"Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "0"})
+        recovered["InvocationID"] = _invocation_id("aegis-idea3-mosquitto.service", s["broker_pid"], s["broker_nrestarts_pre"] + 1 + extra)
         recovered.update(s["broker_recovered_override"])
         return recovered
     base = {"LoadState": "loaded", "ActiveState": "activating", "SubState": "auto-restart", "UnitFileState": "enabled",
-            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": ""}
+            "Result": "exit-code", "MainPID": "0", "NRestarts": str(s["broker_nrestarts_pre"]), "ExecMainStartTimestamp": "",
+            "Restart": "on-failure", "RestartUSec": "5s", "ExecMainStatus": "1",
+            "InvocationID": _invocation_id("aegis-idea3-mosquitto.service", 0, s["broker_nrestarts_pre"])}
     base.update(s["broker_crashloop_override"])
     return base
 
@@ -290,6 +312,71 @@ def _broker_mutation_due(s: dict) -> bool:
     return False
 
 
+def _rewrite_profile_autoconnect(s: dict, value: str) -> None:
+    """V8: model NetworkManager rewriting the persisted keyfile in place (same mode/owner, new mtime). `no` writes `autoconnect=false`; `yes`
+    removes the line (NetworkManager does not serialize a default value) or writes `autoconnect=true`. Fixture root comes from AEGIS_P4_FS_ROOT."""
+    root = os.environ.get("AEGIS_P4_FS_ROOT")
+    if not root:
+        return
+    f = Path(root) / "etc/NetworkManager/system-connections/aegis-idea3-ap.nmconnection"
+    if not f.is_file():
+        return
+    lines = [l for l in f.read_text().splitlines() if not l.strip().startswith("autoconnect=")]
+    new = {"no": "autoconnect=false", "yes": "autoconnect=true" if s["profile_modify_writes"] == "true" else ""}[value]
+    if new:
+        at = next((i for i, l in enumerate(lines) if l.strip() == "[connection]"), -1) + 1
+        lines.insert(at, new)
+    if s["profile_modify_corrupts"]:
+        lines = [l.replace("channel=6", "channel=11") for l in lines]
+    if s["profile_modify_adds_uuid"] or s["profile_modify_adds_timestamp"] or s["profile_modify_reorders"] or s["profile_modify_extra"]:
+        lines = _reserialize_like_libnm(lines, s)
+    f.write_text("\n".join(lines) + "\n")
+
+
+_CONNECTION_ORDER = ["id", "uuid", "type", "autoconnect", "interface-name", "timestamp"]
+
+
+def _reserialize_like_libnm(lines: list[str], s: dict) -> list[str]:
+    """V8: emulate NetworkManager's keyfile writer on the hand-rendered AP profile. Sections keep their order; inside [connection] keys follow libnm's order
+    (id, uuid, type, autoconnect, interface-name); inside every other section keys are alphabetical; comments and blank lines are dropped. Optionally the
+    daemon-assigned uuid is added and an extra non-secret key is appended to a section. Reordering is only applied when profile_modify_reorders is set."""
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+    for l in lines:
+        st = l.strip()
+        if not st or st.startswith(("#", ";")):
+            continue
+        if st.startswith("[") and st.endswith("]"):
+            sections.append((st[1:-1], []))
+        elif sections and "=" in st:
+            k, v = st.split("=", 1)
+            sections[-1][1].append((k.strip(), v.strip()))
+    if s["profile_modify_adds_uuid"]:
+        for name, kv in sections:
+            if name == "connection":
+                kv.append(("uuid", "b158569b-6281-4b88-b3bc-639a1b1c40c7"))
+    if s["profile_modify_adds_timestamp"]:
+        for name, kv in sections:
+            if name == "connection":
+                kv.append(("timestamp", "1790896283"))
+    if s["profile_modify_extra"]:
+        sec, kv_text = s["profile_modify_extra"].split("|", 1)
+        k, v = kv_text.split("=", 1)
+        for name, kv in sections:
+            if name == sec:
+                kv.append((k, v))
+    out: list[str] = []
+    for name, kv in sections:
+        if s["profile_modify_reorders"]:
+            if name == "connection":
+                kv = sorted(kv, key=lambda p: (_CONNECTION_ORDER.index(p[0]) if p[0] in _CONNECTION_ORDER else len(_CONNECTION_ORDER), p[0]))
+            else:
+                kv = sorted(kv, key=lambda p: p[0])
+        out.append(f"[{name}]")
+        out += [f"{k}={v}" for k, v in kv]
+        out.append("")
+    return out[:-1] if out and out[-1] == "" else out
+
+
 def main(argv: list[str]) -> int:
     global _SIM_DIR
     name, args = argv[1], argv[2:]
@@ -325,6 +412,9 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "nmcli":
+        if args[:3] == ["-t", "-f", "DEVICE,STATE"] or args == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+            if s["nm_ready_lag_polls"] > 0 and _wifi_radio(s) == "enabled":
+                s["nm_ready_lag_polls"] -= 1
         if args[:5] == ["-t", "-f", "DEVICE,STATE", "device", "status"]:
             out = [f"wlp0s20f3:{_device_state(s)}", f"enp62s0:{s['wired_ifname_state']}", "lo:unmanaged"]
             out += [f"{n}:{st}" for n, _ty, st in _p2p_rows(s)]
@@ -369,6 +459,12 @@ def main(argv: list[str]) -> int:
                 out.append("802-11-wireless:wlp0s20f3")
             if s["other_wifi_active"]:
                 out.append("802-11-wireless:wlp0s20f3")
+        elif args[:3] == ["connection", "modify", "aegis-idea3-ap"] and len(args) == 5 and args[3] == "connection.autoconnect" and args[4] in ("yes", "no"):
+            if s["profile_modify_works"]:
+                s["ap_profile_autoconnect"] = args[4]
+                _rewrite_profile_autoconnect(s, args[4])
+            else:
+                rc = 1
         elif args[:2] == ["connection", "up"]:
             conn = args[2] if len(args) > 2 else ""
             ok = (len(args) == 5 and args[3] == "ifname" and args[4] == "wlp0s20f3" and conn == "aegis-idea3-ap"
@@ -469,6 +565,8 @@ def main(argv: list[str]) -> int:
         if args and args[0] == "show":
             props = [args[i + 1] for i, a in enumerate(args) if a == "-p"]
             unit = args[-1]
+            if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" and _broker_crashloop_recovered(s):
+                s["broker_recovered_shows"] += 1
             data = _unit_props(s, unit)
             if "--value" in args:
                 out = [data.get(props[0], "")]
@@ -510,6 +608,7 @@ def main(argv: list[str]) -> int:
             tcp[0] = "LISTEN 0 100 127.0.0.1:1883 0.0.0.0:*"  # legacy listener rebound to another address
         if s["ap_ever_up"] and s["new_1883_on_ap"]:
             tcp.append("LISTEN 0 100 10.77.30.1:1883 0.0.0.0:*")
+        tcp += list(s["stray_8883"])
         if s["dnsmasq"] == "active":
             tcp.append("LISTEN 0 32 10.77.30.1:53 0.0.0.0:*")
             udp += ["UNCONN 0 0 10.77.30.1:53 0.0.0.0:*", "UNCONN 0 0 0.0.0.0%wlp0s20f3:67 0.0.0.0:*"]
@@ -538,21 +637,37 @@ def main(argv: list[str]) -> int:
         else:
             rc = 99
     elif name == "journalctl":
-        # bounded, read-only tail: `journalctl -u UNIT -n N --no-pager` (V5 broker crash-loop cause evidence only)
+        # bounded, read-only tail: `journalctl -u UNIT [-b] [_SYSTEMD_INVOCATION_ID=ID] -n N --no-pager` (V5/V7 broker crash-loop cause evidence only).
+        # Every journal entry carries (boot, invocation); `-b` keeps only the current boot, the field match keeps only that invocation.
         if args[:1] == ["-u"] and "--no-pager" in args:
             unit = args[1]
+            entries: list[tuple[str, str, str]] = []   # (boot, invocation id, line)
             if unit == "aegis-idea3-mosquitto.service" and s["broker_mode"] == "crashloop_until_ap" \
                     and not _broker_crashloop_recovered(s):
-                if s["broker_crashloop_cause"] == "ap_bind_missing":
-                    out = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
-                           "mosquitto[7579]: Error: Cannot assign requested address",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                cur = _broker_props(s)["InvocationID"]
+                stale = s["broker_journal_stale_bind"]
+                stale_boot, stale_inv = ("previous", cur) if stale == "previous_boot" else ("current", _invocation_id(unit, 0, -1))
+                bind = ["mosquitto[7579]: Opening ipv4 listen socket on port 8883.",
+                        "mosquitto[7579]: Error: Cannot assign requested address",
+                        "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
+                if s["broker_crashloop_cause"] == "ap_bind_missing" and not stale:
+                    entries += [("current", cur, l) for l in bind]
+                    entries += [("current", cur, l) for l in s["broker_journal_extra"]]
                 else:
-                    out = ["mosquitto[7579]: Error: Unable to load server certificate "
-                           "\"/etc/aegis-idea3/pki/mqtt-server.crt\".",
-                           "mosquitto[7579]: mosquitto version 2.1.2 terminating"]
-            else:
-                out = ["-- No entries --"]
+                    if s["broker_crashloop_cause"] != "ap_bind_missing":
+                        entries += [("current", cur, "mosquitto[7579]: Error: Unable to load server certificate "
+                                                     "\"/etc/aegis-idea3/pki/mqtt-server.crt\"."),
+                                    ("current", cur, "mosquitto[7579]: mosquitto version 2.1.2 terminating")]
+                    else:
+                        entries += [("current", cur, "systemd[1]: aegis-idea3-mosquitto.service: Main process exited, code=exited, status=1/FAILURE")]
+                    if stale:
+                        entries += [(stale_boot, stale_inv, l) for l in bind]
+            if "-b" in args:
+                entries = [e for e in entries if e[0] == "current"]
+            for a in args:
+                if a.startswith("_SYSTEMD_INVOCATION_ID="):
+                    entries = [e for e in entries if e[1] == a.split("=", 1)[1]]
+            out = [e[2] for e in entries] or ["-- No entries --"]
         else:
             rc = 99
     else:

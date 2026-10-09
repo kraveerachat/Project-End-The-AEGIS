@@ -1,0 +1,637 @@
+import { useMemo, useState } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer, Cell,
+} from 'recharts'
+import {
+  Database, Files as FilesIcon, Link2, ShieldCheck, ArrowUpRight, ArrowDownRight,
+  LogIn, FileText, Clock,
+} from 'lucide-react'
+import { Card, CardTitle, Chip, Dot, Reveal, ErrorState, DependencyUnavailableState, SkeletonLoader } from '../components/ui.jsx'
+import { ServerTelemetry } from '../components/ClassicServerTelemetry.jsx'
+import { HoverPreview } from '../components/HoverPreview.jsx'
+import { useApi, useCountUp, useNow, useReducedMotion } from '../lib/hooks.js'
+import { fmtRelative, fmtCountdown, fmtStamp, fmtBytes } from '../lib/format.js'
+import { isPlatformWired } from '../lib/fetchState.js'
+import { normalizeDashboardData, shouldShowDashboardFetchError } from '../lib/dashboardState.js'
+import { useIsClassic } from '../lib/interfaceStyleContext.js'
+import {
+  capacityPreview, lakePreview, loginPreview, recentFilePreview, securityPreview, sharePreview,
+  shareScopeChip, storageCategoryPreview,
+} from '../lib/previewContent.js'
+
+/* ทุกตัวเลขบนจอนี้มาจาก /api/dashboard · /api/storage · /healthz และจัดการครบสี่สถานะ
+   (loading = skeleton · error = ข้อความ + Retry · empty = บอกตรง ๆ · success = ข้อมูลจริง)
+
+   ⚠️ กราฟกิจกรรมเคยเป็น transfer7d: เจ็ดแถวที่ตั้งค่าไว้เองใน store.js (Tue up:42
+   down:118 …) พร้อมธง projected สองแถวท้ายที่วาดเป็นลายขวางว่า "คาดการณ์" — ไม่มีการ
+   คาดการณ์ใดเกิดขึ้นและไม่มีตัวเลขใดถูกวัด กราฟที่เด่นที่สุดบนจอแรกจึงนิ่งเท่ากันทุกวัน
+   ไม่ว่าระบบจะถูกใช้งานจริงแค่ไหน ตอนนี้นับเหตุการณ์จาก audit_log จริง
+
+   ⚠️ หน่วยเป็น "จำนวนครั้ง" ไม่ใช่ GB โดยเจตนา: audit_log ไม่เก็บขนาดไบต์ต่อเหตุการณ์
+   (ตั้งใจเก็บน้อยที่สุดเพื่อความเป็นส่วนตัว) การเดาปริมาณจากขนาดไฟล์ปัจจุบันจะผิดทันที
+   ที่ไฟล์ถูกอัปโหลดทับหรือถูกลบ — จอจึงบอกสิ่งที่นับได้จริง ไม่ใช่สิ่งที่ดูน่าประทับใจกว่า */
+
+/* ── Stat card — hero number counts, ค่าจริงจากเซิร์ฟเวอร์ ─────────── */
+function StatCard({ icon: Icon, label, value, valueLabel, suffix, decimals = 0, delta, deltaUp, alarm = false, allClearLabel, statusTone = 'ok', delay = 0, footer, preview = null }) {
+  const v = useCountUp(value, 700, decimals)
+  const display = decimals > 0 ? v.toFixed(decimals) : Math.round(v).toLocaleString('en-US')
+  return (
+    <HoverPreview
+      as={Card}
+      preview={preview}
+      data-tone={alarm ? 'danger' : statusTone}
+      className={`dashboard-stat-card relative overflow-hidden p-5 rise-in ${alarm ? 'alarm-attention' : ''}`}
+      style={{
+        animationDelay: `${delay}ms`,
+        ...(alarm ? { background: 'var(--danger-soft)', borderColor: 'var(--danger)' } : {}),
+      }}
+    >
+      <div className="flex items-start justify-between">
+        <div className="metric-icon stat-icon flex size-9 items-center justify-center rounded-[10px] bg-accent-soft text-accent-ink">
+          <Icon size={17} strokeWidth={1.6} />
+        </div>
+        {delta != null ? (
+          <Chip tone={deltaUp ? 'ok' : 'danger'}>
+            {deltaUp ? <ArrowUpRight size={12} strokeWidth={2} /> : <ArrowDownRight size={12} strokeWidth={2} />}
+            {delta}
+          </Chip>
+        ) : allClearLabel ? (
+          <Chip tone={alarm ? 'danger' : statusTone}>{alarm ? `▲ ${value}` : allClearLabel}</Chip>
+        ) : null}
+      </div>
+      <p className="stat-label mt-3 text-[13px] font-medium text-ink-2">{label}</p>
+      {/* lang="en" — DESIGN.md · Cascade traps. This is a tabular-nums stat */}
+      <p
+        lang="en"
+        className="stat-value mt-1.5 font-mono text-[28px] font-semibold tracking-[-0.025em] leading-none text-ink"
+        style={{ fontVariantNumeric: 'tabular-nums', color: alarm ? 'var(--danger)' : value === 0 && allClearLabel && statusTone === 'ok' ? 'var(--stat-zero-ok, var(--ok))' : undefined }}
+      >
+        {valueLabel ?? display}
+        {suffix && <span className="stat-suffix ml-1.5 text-[15px] font-semibold text-ink-3">{suffix}</span>}
+      </p>
+      {footer && (
+        <div className="stat-footer mt-3 border-t border-line pt-3">
+          {footer}
+        </div>
+      )}
+    </HoverPreview>
+  )
+}
+
+function InlineEmptyState({ children, className = '', icon: Icon = null }) {
+  return (
+    <p role="status" className={`dashboard-inline-empty py-5 text-[13px] text-ink-3 leading-relaxed ${className}`}>
+      {Icon && <Icon size={18} strokeWidth={2} className="dashboard-inline-empty-icon shrink-0" aria-hidden />}
+      {children}
+    </p>
+  )
+}
+
+/* ── Data Lake Health — สถานะจาก /healthz เท่านั้น ไม่มี client override ── */
+const TIERS = [
+  { id: 'application', nameKey: 'tierApp', tech: 'Express event loop' },
+  { id: 'metadata', nameKey: 'tierMeta', tech: 'PostgreSQL' },
+  { id: 'storage', nameKey: 'tierStorage', tech: 'Linux FS / HDD' },
+]
+
+function LakeHealth({ t, health }) {
+  // แต่ละแถวอ่านผล probe ของตัวเองเท่านั้น — missing/unchecked = ยังไม่มีข้อมูล,
+  // checked+failed = ล่มจริง ห้ามใช้ health.ok ก้อนเดียวสร้างสีเขียวให้ทั้งสามชั้น
+  const tierStates = Object.fromEntries(TIERS.map((tier) => {
+    const layer = health?.layers?.[tier.id]
+    const state = !layer
+      ? (health?.ok === true && health?.db === 'postgres' ? 'unavailable' : 'notConnected')
+      : layer.checked !== true
+        ? 'notConnected'
+      : layer.ok === true ? 'healthy' : 'down'
+    return [tier.id, state]
+  }))
+  const brokenBelow = (idx) => TIERS.some((tier, i) => i > idx && tierStates[tier.id] !== 'healthy')
+
+  return (
+    <Card className="lake-health-card p-5 rise-in" style={{ animationDelay: '160ms' }}>
+      <CardTitle sub={t('lakeSubtitle')}>{t('lakeHealth')}</CardTitle>
+
+      <div className="flex flex-col">
+        {TIERS.map((tier, idx) => {
+          const state = tierStates[tier.id]
+          const layer = health?.layers?.[tier.id]
+          const tech = tier.id === 'metadata' && health?.db === 'memory' ? 'in-memory (not connected)' : tier.tech
+          const dimmed = state === 'healthy' && brokenBelow(idx)
+          const tone = state === 'healthy' ? 'ok' : state === 'degraded' ? 'warn' : state === 'down' ? 'danger' : 'neutral'
+          const lat = layer?.measured === true && Number.isFinite(layer.latencyMs)
+            ? layer.latencyMs
+            : null
+          const stateLabel = state === 'healthy' ? t('tierHealthy') : state === 'degraded' ? t('tierDegraded') : state === 'down' ? t('tierDown') : state === 'unavailable' ? t('latencyUnavailable') : t('notConnected')
+          return (
+            <div key={tier.id}>
+              {idx > 0 && (
+                <div className="lake-connector flex h-3 justify-center" aria-hidden>
+                  <div
+                    className="w-px h-full"
+                    style={
+                      brokenBelow(idx - 1) || tierStates[TIERS[idx - 1].id] !== 'healthy'
+                        ? { borderLeft: '1px dashed var(--ink-3)' }
+                        : { background: 'var(--line)' }
+                    }
+                  />
+                </div>
+              )}
+              <HoverPreview
+                preview={lakePreview(t, { name: t(tier.nameKey), tech, state, stateLabel, tone, latencyMs: lat })}
+                tabIndex={0}
+                data-state={state}
+                className="lake-health-row ix-row flex h-14 items-center gap-3 rounded-[var(--r-tile)] border px-4 transition-[transform,background-color,border-color,filter] duration-[var(--dur-base)]"
+                style={{
+                  transform: dimmed ? 'translateY(2px)' : undefined,
+                  filter: dimmed ? 'saturate(0)' : 'none',
+                  opacity: dimmed ? 0.62 : 1,
+                  background: state === 'degraded' ? 'var(--warn-soft)' : state === 'down' ? 'var(--danger-soft)' : 'var(--lake-row-bg, var(--card))',
+                  borderColor: state === 'healthy' ? 'var(--lake-row-border, var(--line))' : 'transparent',
+                  transitionTimingFunction: 'var(--ease)',
+                }}
+              >
+                <Dot tone={tone} pulse={state === 'healthy'} />
+                <span className="lake-tier-name text-[12.5px] font-semibold tracking-[0.04em] text-ink whitespace-nowrap">{t(tier.nameKey)}</span>
+                <span className="lake-tier-tech text-[12.5px] text-ink-3 whitespace-nowrap max-xl:hidden">{tech}</span>
+                <div className="flex-1 min-w-4" />
+                <span className="lake-latency text-[12px] font-medium w-16 text-right" data-state={state} style={{ fontVariantNumeric: 'tabular-nums', color: state === 'healthy' ? 'var(--lake-latency-ok, var(--ink-2))' : tone === 'warn' ? 'var(--warn)' : tone === 'danger' ? 'var(--danger)' : 'var(--ink-3)' }}>
+                  {lat != null ? `${lat.toFixed(1)} ms` : t('latencyUnavailable')}
+                </span>
+                  <Chip tone={tone}>{stateLabel}</Chip>
+              </HoverPreview>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+/* ── Login history — personal security status (สเปกของจอ Dashboard) ── */
+function LoginHistoryCard({ t, events, now, unavailable = false }) {
+  return (
+    <Card className="p-5 rise-in flex flex-col min-h-0" style={{ animationDelay: '200ms' }}>
+      <CardTitle sub={t('dashLoginHistorySub')}>{t('dashLoginHistory')}</CardTitle>
+      {unavailable ? (
+        <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+      ) : events.length === 0 ? (
+        <InlineEmptyState>{t('emptyNoLoginHistory')}</InlineEmptyState>
+      ) : (
+        <div className="flex flex-col gap-1 overflow-y-auto -mr-2 pr-2 max-h-[300px]">
+          {events.map((e, i) => {
+            const at = new Date(e.at).getTime()
+            const bad = e.result !== 'OK'
+            return (
+              <HoverPreview
+                key={i}
+                preview={loginPreview(t, e, now)}
+                tabIndex={0}
+                data-result={bad ? 'denied' : 'ok'}
+                className="login-row ix-row flex items-start gap-3 rounded-[10px] px-3 py-2.5"
+                style={{ '--ix-i': i }}
+              >
+                <div className="login-row-icon size-7 rounded-full bg-sunken flex items-center justify-center shrink-0 mt-0.5">
+                  <LogIn size={13} strokeWidth={1.5} className={bad ? 'text-danger' : 'text-ink-2'} />
+                </div>
+                <div className="login-row-body min-w-0 flex-1">
+                  <p className="login-row-head text-[13px] text-ink-2 leading-snug flex items-center gap-2">
+                    <span className="login-row-time font-mono text-[12px]">{fmtStamp(at)}</span>
+                    <Chip tone={bad ? 'danger' : 'ok'}>{bad ? t('resDenied') : t('resOk')}</Chip>
+                  </p>
+                  <p className="login-row-ip font-mono text-[11.5px] text-ink-3 mt-0.5">{e.source_ip ?? e.sourceIp ?? '—'}</p>
+                </div>
+              </HoverPreview>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ── Active share links (สเปกของจอ Dashboard) ────────────────────────── */
+function ActiveLinksCard({ t, shares, now, unavailable = false }) {
+  const classic = useIsClassic()
+  return (
+    <Card className="p-5 flex flex-col min-h-0" style={{ animationDelay: '250ms' }}>
+      <CardTitle>{t('activeLinks')}</CardTitle>
+      {unavailable ? (
+        <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+      ) : shares.length === 0 ? (
+        <InlineEmptyState icon={classic ? Link2 : null}>{t('emptyNoShares')}</InlineEmptyState>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {shares.map((s, i) => {
+            const msLeft = s.expiresAt - now
+            const scope = shareScopeChip(s.scope)
+            return (
+              <HoverPreview
+                key={s.id}
+                preview={sharePreview(t, s, now)}
+                tabIndex={0}
+                data-expiring={msLeft > 0 && msLeft < 3_600_000 ? 'true' : undefined}
+                className="dashboard-list-row dashboard-share-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                style={{ '--ix-i': i }}
+              >
+                <Link2 size={14} strokeWidth={1.5} className="ix-row-icon text-ink-3 shrink-0" />
+                <span className="block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{s.fileName}</span>
+                <span className="dashboard-share-scope" data-tone={scope.tone} title={t(scope.key)}>
+                  <span className="sr-only">{t(scope.key)}</span>
+                </span>
+                <span className="dashboard-share-expiry text-[11.5px] text-ink-3 font-mono shrink-0 flex items-center gap-1.5">
+                  <Clock size={11} strokeWidth={1.8} />
+                  {fmtCountdown(msLeft, t('expired'))}
+                </span>
+              </HoverPreview>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ── Storage breakdown — ไบต์จริงจาก /api/storage (hatch = ว่าง) ──────── */
+const SEG_COLORS = {
+  docs: 'var(--seg-docs, var(--accent))', archives: 'var(--seg-archives, var(--ink-3))', media: 'var(--seg-media, var(--violet))',
+  vaultSeg: 'var(--seg-vault, var(--ink))', versions: 'var(--seg-versions, var(--warn))', other: 'var(--seg-other, var(--accent-ink))',
+}
+
+function StorageBreakdown({ t, usage, capacityBytes }) {
+  const [hovered, setHovered] = useState(null)
+  const segs = Object.keys(SEG_COLORS)
+    .map((key) => ({ key, bytes: usage?.[key] ?? 0, color: SEG_COLORS[key] }))
+    .filter((s) => s.bytes > 0)
+  const accounted = segs.reduce((n, s) => n + s.bytes, 0)
+  // ฐานของสัดส่วน = พื้นที่ที่ "แอปนี้" ใช้ ไม่ใช่ความจุทั้ง volume — ไม่งั้นทุกแท่งจะ
+  // เล็กจนมองไม่เห็นบนดิสก์ใหญ่ และตัวเลข % จะตอบคำถามที่ไม่มีใครถาม
+  const total = accounted || 1
+
+  return (
+    <Card className="p-5 rise-in" style={{ animationDelay: '240ms' }}>
+      <CardTitle sub={t('storageBreakdownSub')}>{t('storageBreakdown')}</CardTitle>
+      {segs.length === 0 ? (
+        <>
+          <div className="h-7 mt-1 rounded-full bg-sunken border border-line overflow-hidden" aria-label="0%" />
+          <InlineEmptyState>{t('emptyNoFiles')}</InlineEmptyState>
+          {capacityBytes && (
+            <p className="text-[11.5px] text-ink-3 leading-relaxed">
+              {t('storageBreakdownFree')} <span className="font-mono">{capacityBytes.freeBytes === 0 ? '0 GB' : fmtBytes(capacityBytes.freeBytes ?? 0)}</span>
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Segment and legend are linked both ways: hovering either one marks
+              the pair. Tiny segments stay reachable through their legend row,
+              which is focusable and carries the same preview. */}
+          <div className="storage-tube flex items-end gap-0.5 h-8 mt-1" data-linked={hovered ?? undefined} aria-hidden>
+            {segs.map((seg, i) => (
+              <HoverPreview
+                key={seg.key}
+                preview={storageCategoryPreview(t, { key: seg.key, bytes: seg.bytes, accounted })}
+                onActiveChange={(on) => setHovered(on ? seg.key : null)}
+                data-active={hovered === seg.key ? 'true' : undefined}
+                className={`storage-seg h-7 ${i === 0 ? 'rounded-l-full' : ''} ${i === segs.length - 1 ? 'rounded-r-full' : ''}`}
+                style={{
+                  width: `${(seg.bytes / total) * 100}%`,
+                  backgroundColor: seg.color,
+                  '--ix-i': i,
+                }}
+              />
+            ))}
+          </div>
+          <div className="storage-legend mt-4 flex flex-col" data-linked={hovered ?? undefined}>
+            {segs.map((seg) => (
+              <HoverPreview
+                key={seg.key}
+                preview={storageCategoryPreview(t, { key: seg.key, bytes: seg.bytes, accounted })}
+                onActiveChange={(on) => setHovered(on ? seg.key : null)}
+                tabIndex={0}
+                data-active={hovered === seg.key ? 'true' : undefined}
+                className="storage-legend-row ix-row flex items-center gap-2.5 py-1.5 px-2 -mx-2 rounded-[8px] transition-colors duration-[var(--dur-fast)] cursor-default"
+              >
+                <span className="storage-legend-dot size-3 rounded-[4px] shrink-0" style={{ backgroundColor: seg.color }} aria-hidden />
+                <span className="storage-legend-name text-[13px] font-medium text-ink-2">{t(seg.key)}</span>
+                <span className="storage-legend-size ml-auto text-[13px] text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtBytes(seg.bytes)}</span>
+                <span className="storage-legend-pct w-12 text-right text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {((seg.bytes / total) * 100).toFixed(1)}%
+                </span>
+              </HoverPreview>
+            ))}
+          </div>
+          {capacityBytes && (
+            <p className="storage-free text-[11.5px] text-ink-3 mt-3 leading-relaxed">
+              {t('storageBreakdownFree')} <span className="font-mono">{fmtBytes(capacityBytes.freeBytes)}</span>
+            </p>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
+/* ── Activity — จำนวนครั้งของการอัปโหลด/ดาวน์โหลดต่อวัน จาก audit_log จริง ──── */
+// สีของสองชุดข้อมูลมาจาก token ของธีม (Classic กำหนด --chart-up/--chart-down เอง) — fallback = ค่าเดิม
+const UPLOAD_COLOR = 'var(--chart-up, var(--ink))'
+const DOWNLOAD_COLOR = 'var(--chart-down, var(--accent))'
+
+/* Classic: แท่ง "ทรงกระบอก" — สีชุดข้อมูล + ชั้นเงาแนวนอน (ขอบซ้ายสว่าง → ขอบขวาเข้ม)
+   ค่า 0 ไม่วาดอะไรเลย (ไม่ใช่แท่งสูง 0px ที่ยังมีเงา); สีทั้งหมดมาจาก token ใน theme-classic.css */
+function CylinderBar({ x, y, width, height, fill, dim = false, active = false }) {
+  if (!height || height <= 0 || !width) return null
+  const r = Math.min(5, width / 2, height)
+  const d = `M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`
+  return (
+    <g className="activity-cylinder" data-dim={dim ? 'true' : undefined} data-active={active ? 'true' : undefined}>
+      <path d={d} fill={fill} />
+      <path d={d} fill="url(#activity-cylinder-gloss)" />
+    </g>
+  )
+}
+function ChartTooltip({ active, payload, label, t }) {
+  if (!active || !payload?.length) return null
+  const date = payload[0]?.payload?.date
+  return (
+    <div className="chart-tooltip bg-card border border-line rounded-[var(--r-tile)] px-3.5 py-2.5" style={{ boxShadow: 'var(--elev-2)' }}>
+      <p className="chart-tooltip-title text-[12px] font-semibold text-ink mb-1">
+        {label}
+        {date && <span lang="en" className="chart-tooltip-date">{date}</span>}
+      </p>
+      {payload.map((p) => (
+        <p key={p.dataKey} className="text-[12.5px] text-ink-2 flex items-center gap-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
+          <span className="size-2 rounded-full" style={{ background: p.dataKey === 'uploads' ? UPLOAD_COLOR : DOWNLOAD_COLOR }} />
+          {p.dataKey === 'uploads' ? t('uploads') : t('downloads')} · {p.value}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function ActivityChart({ t, lang, data }) {
+  const reduced = useReducedMotion()
+  const classic = useIsClassic()
+  // Hover state changes only when the pointer crosses into another day or
+  // legend item, never per raw pointermove.
+  const [activeIndex, setActiveIndex] = useState(null)
+  const [activeSeries, setActiveSeries] = useState(null)
+  // ป้ายแกน X เป็นชื่อวันตามภาษาที่เลือก — เซิร์ฟเวอร์คืนวันที่ ISO ไม่ใช่ชื่อวันภาษาอังกฤษ
+  // (ชื่อวันเป็นเรื่องของการแสดงผล ไม่ใช่ข้อมูล)
+  const displayData = data.length > 0 ? data : Array.from({ length: 7 }, (_, index) => {
+    const day = new Date()
+    day.setUTCHours(0, 0, 0, 0)
+    day.setUTCDate(day.getUTCDate() - (6 - index))
+    return { date: day.toISOString().slice(0, 10), uploads: 0, downloads: 0 }
+  })
+  const rows = displayData.map((d) => ({
+    ...d,
+    label: new Date(`${d.date}T00:00:00Z`).toLocaleDateString(
+      lang === 'th' ? 'th-TH' : lang === 'zh' ? 'zh-CN' : 'en-US',
+      { weekday: 'short', timeZone: 'UTC' },
+    ),
+  }))
+  const empty = rows.every((r) => r.uploads === 0 && r.downloads === 0)
+
+  return (
+    <Card className="p-5 rise-in" style={{ animationDelay: '280ms' }}>
+      <CardTitle
+        sub={t('activitySub')}
+        right={
+          <div className="activity-legend flex items-center gap-3 text-[12px] font-medium text-ink-3" data-series={activeSeries ?? undefined}>
+            {[['uploads', UPLOAD_COLOR], ['downloads', DOWNLOAD_COLOR]].map(([key, color]) => (
+              <span
+                key={key}
+                className="activity-legend-item flex items-center gap-1.5"
+                data-active={activeSeries === key ? 'true' : undefined}
+                onPointerEnter={() => setActiveSeries(key)}
+                onPointerLeave={() => setActiveSeries(null)}
+              >
+                <span className="activity-legend-dot size-2.5 rounded-[3px]" style={{ background: color }} />{t(key)}
+              </span>
+            ))}
+          </div>
+        }
+      >
+        {t('activityTitle')}
+      </CardTitle>
+      {/* ⚠️ ยังไม่มีกิจกรรมเลย ≠ กราฟเปล่าที่ดูเหมือนพัง — บอกตรง ๆ ว่าไม่มีเหตุการณ์
+          ในเจ็ดวันนี้ (ของเดิมไม่มีสถานะนี้เพราะข้อมูลปลอมทำให้มีแท่งอยู่เสมอ) */}
+      <div className="activity-screen">
+        <div className="activity-plot h-56" data-hovering={activeIndex != null ? 'true' : undefined}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={rows}
+              barGap={classic ? 4 : 3}
+              margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+              onMouseMove={(state) => {
+                const raw = state?.activeTooltipIndex
+                const next = raw != null && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null
+                setActiveIndex((prev) => (prev === next ? prev : next))
+              }}
+              onMouseLeave={() => setActiveIndex(null)}
+            >
+              {classic && (
+                <defs>
+                  <linearGradient id="activity-cylinder-gloss" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" style={{ stopColor: 'var(--cyl-hi)', stopOpacity: 'var(--cyl-hi-a)' }} />
+                    <stop offset="0.42" style={{ stopColor: 'var(--cyl-hi)', stopOpacity: 0 }} />
+                    <stop offset="1" style={{ stopColor: 'var(--cyl-lo)', stopOpacity: 'var(--cyl-lo-a)' }} />
+                  </linearGradient>
+                </defs>
+              )}
+              <CartesianGrid vertical={false} stroke={classic ? 'var(--track)' : 'var(--line)'} strokeWidth={1} strokeDasharray={classic ? '4 4' : undefined} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} dy={6} tick={classic ? { fill: 'var(--ink-2)', fontSize: 12 } : undefined} />
+              {/* allowDecimals=false — จำนวนครั้งเป็นจำนวนเต็มเสมอ */}
+              <YAxis axisLine={false} tickLine={false} width={38} allowDecimals={false} domain={[0, 'auto']} tick={classic ? { fill: 'var(--ink-2)', fontSize: 11, fontFamily: 'var(--font-mono)' } : undefined} />
+              <RTooltip content={<ChartTooltip t={t} />} cursor={{ fill: 'var(--card-sunken)' }} />
+              {[['uploads', UPLOAD_COLOR], ['downloads', DOWNLOAD_COLOR]].map(([key, color]) => (
+                <Bar
+                  key={key}
+                  dataKey={key}
+                  radius={[8, 8, 0, 0]}
+                  maxBarSize={18}
+                  barSize={classic ? 16 : undefined}
+                  shape={(props) => (
+                    <CylinderBar
+                      {...props}
+                      dim={(activeSeries != null && activeSeries !== key) || (activeIndex != null && props.index !== activeIndex)}
+                      active={activeIndex != null && props.index === activeIndex}
+                    />
+                  )}
+                  fill={color}
+                  isAnimationActive={!reduced}
+                  animationDuration={600}
+                  animationEasing="ease-out"
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <table className="sr-only">
+        <caption>{t('activitySub')}</caption>
+        <thead><tr><th scope="col">{t('activityDay')}</th><th scope="col">{t('uploads')}</th><th scope="col">{t('downloads')}</th></tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.date}>
+            <th scope="row"><time dateTime={row.date}>{row.date}</time></th>
+            <td>{row.uploads}</td>
+            <td>{row.downloads}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+      {empty && <InlineEmptyState className="pt-3 pb-0 text-center">{t('activityEmpty')}</InlineEmptyState>}
+    </Card>
+  )
+}
+
+/* ── The dashboard grid — สี่สถานะครบที่ระดับจอ ───────────────────────── */
+export function ClassicDashboard({ t, lang, health, go, telemetry = null, telemetryLoading = false }) {
+  const now = useNow(1000)
+  const dash = useApi('/api/dashboard', { refreshMs: 30_000 })
+  const storage = useApi('/api/storage', { refreshMs: 60_000 })
+
+  if (dash.loading || health.loading) return <SkeletonLoader type="dashboard" />
+
+  const usingPlaceholder = !isPlatformWired(health.data)
+  const d = normalizeDashboardData(usingPlaceholder ? null : dash.data)
+  const m = d.metrics
+  // ⚠️ null = statfs อ่านค่าไม่ได้ ไม่ใช่ "ศูนย์" — การ์ดต้องบอกว่าไม่รู้ ไม่ใช่วาด 0%
+  const hasCapacity = !usingPlaceholder && m.storageTotalBytes != null && m.storageBytes != null
+  const usedPct = hasCapacity && m.storageTotalBytes > 0
+    ? Math.min(100, Math.round((m.storageBytes / m.storageTotalBytes) * 100))
+    : 0
+  const showDashboardError = shouldShowDashboardFetchError(dash.error, health.data)
+  const showStorageError = shouldShowDashboardFetchError(storage.error, health.data)
+  const placeholderLabel = usingPlaceholder ? t('notConnected') : null
+
+  return (
+    <div className="dashboard-page flex flex-col gap-5">
+      {showDashboardError && (
+        <Card><ErrorState t={t} kind={dash.error} onRetry={dash.retry} /></Card>
+      )}
+      {/* Top 4 KPI Cards — ตัวเลขจริงจากเซิร์ฟเวอร์ทั้งหมด */}
+      <Reveal delay={0}>
+        <div className="dashboard-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            icon={Database}
+            label={t('statStorage')}
+            value={hasCapacity ? m.storageBytes : 0}
+            valueLabel={hasCapacity ? fmtBytes(m.storageBytes) : '—'}
+            suffix={hasCapacity ? `/ ${m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(m.storageTotalBytes)}` : t('notAvailable')}
+            allClearLabel={placeholderLabel}
+            statusTone="neutral"
+            preview={hasCapacity ? capacityPreview(t, { usedBytes: m.storageBytes, totalBytes: m.storageTotalBytes }) : null}
+            footer={hasCapacity ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="stat-rail w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                  <div className="stat-rail-fill h-full bg-accent rounded-full" role="progressbar" aria-label={t('capacityUsedPct')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPct} style={{ width: `${usedPct}%` }} />
+                </div>
+                <div className="stat-rail-legend flex justify-between text-[11px] text-slate-400 dark:text-slate-500 font-semibold font-mono">
+                  <span>{usedPct}% {t('capacityUsed')}</span>
+                  <span>{m.storageTotalBytes === 0 ? '0 GB' : fmtBytes(Math.max(0, m.storageTotalBytes - m.storageBytes))} {t('free')}</span>
+                </div>
+              </div>
+            ) : (
+              // อ่านความจุไม่ได้ — บอกตรง ๆ แทนที่จะวาดแถบจากค่าที่เดา
+              <p className="text-[11.5px] text-ink-3 leading-relaxed">{t('capacityUnreadable')}</p>
+            )}
+          />
+          <StatCard icon={FilesIcon} label={t('statFiles')} value={m.files} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={40} />
+          <StatCard icon={Link2} label={t('activeLinks')} value={m.activeShares} valueLabel={usingPlaceholder ? '—' : undefined} allClearLabel={placeholderLabel ?? t('resOk')} statusTone={usingPlaceholder ? 'neutral' : 'ok'} delay={80} />
+          <StatCard
+            icon={ShieldCheck}
+            label={t('statSecurity')}
+            value={d.securityAlerts}
+            valueLabel={usingPlaceholder ? '—' : undefined}
+            alarm={d.securityAlerts > 0}
+            allClearLabel={placeholderLabel ?? t('allClear')}
+            statusTone={usingPlaceholder ? 'neutral' : 'ok'}
+            preview={securityPreview(t, { count: d.securityAlerts, unavailable: usingPlaceholder })}
+            delay={120}
+          />
+        </div>
+      </Reveal>
+
+      {/* Mid row: LakeHealth (จาก /healthz) + login history / active links */}
+      <Reveal delay={100}>
+        <div className="dashboard-row dashboard-mid-row flex flex-col lg:flex-row gap-6">
+          <div className="dashboard-mid-main flex-1 lg:w-2/3">
+            <LakeHealth t={t} health={health.data} />
+          </div>
+          <div className="dashboard-mid-side w-full lg:w-1/3 flex flex-col gap-6">
+            <LoginHistoryCard t={t} events={d.loginHistory ?? []} now={now} unavailable={usingPlaceholder} />
+            <ActiveLinksCard t={t} shares={d.shares ?? []} now={now} unavailable={usingPlaceholder} />
+          </div>
+        </div>
+      </Reveal>
+
+      {/* Fed by App's /api/telemetry poll (10s). Disk and Drive service uptime
+          are measured by Drive itself; CPU/memory/network/host uptime come from
+          the host telemetry agent over a Unix socket. null — and any metric the
+          agent could not supply — renders an explicit unavailable tile, never a
+          zero. See server/telemetry/index.js for the contract. */}
+      <Reveal delay={160}>
+        <ServerTelemetry t={t} data={telemetry} loading={telemetryLoading} />
+      </Reveal>
+
+      {/* Bottom row: breakdown (จาก /api/storage) + transfer chart */}
+      <Reveal delay={200}>
+        <div className="dashboard-row dashboard-bottom-row flex flex-col lg:flex-row gap-6">
+          <div className="dashboard-half flex-1 lg:w-1/2">
+            {usingPlaceholder ? (
+              <Card className="p-5"><CardTitle>{t('storageBreakdown')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
+            ) : storage.loading ? (
+              <Card className="p-5 h-64 animate-pulse"><div className="w-1/3 h-5 skeleton" /><div className="w-full h-8 skeleton mt-6 rounded-full" /></Card>
+            ) : showStorageError ? (
+              <Card><ErrorState t={t} kind={storage.error} onRetry={storage.retry} /></Card>
+            ) : (
+              <StorageBreakdown
+                t={t}
+                usage={usingPlaceholder ? {} : storage.data?.usage ?? {}}
+                capacityBytes={usingPlaceholder
+                  ? { totalBytes: 0, usedBytes: 0, freeBytes: 0 }
+                  : storage.data?.capacityBytes ?? { totalBytes: 0, usedBytes: 0, freeBytes: 0 }}
+              />
+            )}
+          </div>
+          <div className="dashboard-half flex-1 lg:w-1/2">
+            {usingPlaceholder ? (
+              <Card className="p-5"><CardTitle>{t('activityTitle')}</CardTitle><DependencyUnavailableState t={t} title={t('dashboardUnavailable')} /></Card>
+            ) : (
+              <ActivityChart t={t} lang={lang} data={d.activity7d ?? []} />
+            )}
+          </div>
+        </div>
+      </Reveal>
+
+      {/* recent files — จาก /api/dashboard */}
+      <Reveal delay={260}>
+        <Card className="p-5">
+          <CardTitle>{t('recentFiles')}</CardTitle>
+          {usingPlaceholder ? (
+            <DependencyUnavailableState t={t} title={t('dashboardUnavailable')} compact />
+          ) : (d.recentFiles ?? []).length === 0 ? (
+            <InlineEmptyState>{t('emptyNoRecentFiles')}</InlineEmptyState>
+          ) : (
+            <div className="flex flex-col">
+              {d.recentFiles.map((f, i) => (
+                <HoverPreview
+                  key={f.id}
+                  preview={recentFilePreview(t, f, now)}
+                  tabIndex={0}
+                  className="dashboard-list-row recent-file-row ix-row flex items-center gap-3 py-2 border-b border-line last:border-b-0"
+                  style={{ '--ix-i': i }}
+                >
+                  <span className="recent-file-icon ix-row-icon inline-flex shrink-0"><FileText size={14} strokeWidth={1.5} className="text-ink-3 shrink-0" /></span>
+                  <span className="recent-file-name block text-[13.5px] font-medium text-ink truncate flex-1 min-w-0">{f.name}</span>
+                  <span className="recent-file-time text-[11.5px] text-ink-3 font-mono shrink-0">{fmtRelative(t, f.modified, now)}</span>
+                </HoverPreview>
+              ))}
+            </div>
+          )}
+        </Card>
+      </Reveal>
+    </div>
+  )
+}

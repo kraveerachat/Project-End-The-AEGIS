@@ -13,6 +13,7 @@ from the environment only.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, fields
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
@@ -93,6 +94,8 @@ class EngineConfig:
 
     # --- Identity ---------------------------------------------------------
     node_id: str = "edge-node-01"
+    # Event-time logical alias and bounded legacy heartbeat identity. Strict
+    # physical availability is derived from authenticated Agent registration.
     camera_id: str = "CAM-05"
     camera_label: str = "Reception"
     camera_device_name: Optional[str] = None
@@ -121,6 +124,8 @@ class EngineConfig:
     # keeps the trained YOLO model, but requires SFace identity verification;
     # a one-class object detector is never sufficient to authorize a person.
     recognizer_backend: str = "placeholder"  # placeholder | yolo-sface-admin
+    gpu_required: bool = False
+    inference_device: str = "cpu"  # cpu | cuda:<zero-based device index>
     admin_model_path: Optional[str] = None
     admin_class_name: str = "Admin-Face-Scan"
     admin_display_name: str = "Admin"
@@ -152,6 +157,10 @@ class EngineConfig:
     monitor_api_base: Optional[str] = None
     detection_engine_api_key: Optional[str] = None
     monitor_http_timeout_s: float = 5.0
+    monitor_ingest_mode: str = "legacy_shared_key"
+    identity_agent_pipe_name: str = r"\\.\pipe\AEGIS.IdentityAgent.v1"
+    identity_agent_timeout_s: float = 5.0
+    identity_agent_response_timeout_s: float = 30.0
 
     # --- NAS sync (NASSyncWorker) ----------------------------------------
     # Development must start without production NAS infrastructure. Enabling
@@ -183,9 +192,8 @@ class EngineConfig:
     stream_enabled: bool = True
     stream_jpeg_quality: int = 70   # 1-100; 70 is a sane quality/bandwidth point
     stream_max_fps: float = 12.0    # cap independent of capture fps
-    # Advertised to Monitor in each heartbeat so the proxy knows where to pull
-    # from. Blank -> derived from api_host/api_port (localhost is rewritten to
-    # 127.0.0.1 since 0.0.0.0 is not dialable).
+    # Advertised only by bounded legacy heartbeat mode. In strict mode the
+    # dedicated Agent owns the reviewed physical stream endpoint.
     stream_public_url: Optional[str] = None
     # A cold YOLO+SFace worker can take materially longer than a normal frame
     # interval to load models and publish its first annotated JPEG. Keep this
@@ -239,6 +247,10 @@ class EngineConfig:
             recognizer_backend=_env_str(
                 "AEGIS_RECOGNIZER_BACKEND", cls.recognizer_backend
             ).strip().lower(),
+            gpu_required=_env_bool("AEGIS_GPU_REQUIRED", cls.gpu_required),
+            inference_device=_env_str(
+                "AEGIS_INFERENCE_DEVICE", cls.inference_device
+            ).strip().lower(),
             admin_model_path=_env_opt("AEGIS_ADMIN_MODEL_PATH"),
             admin_class_name=_env_str(
                 "AEGIS_ADMIN_CLASS_NAME", cls.admin_class_name
@@ -281,6 +293,19 @@ class EngineConfig:
             detection_engine_api_key=_env_opt("AEGIS_DETECTION_ENGINE_API_KEY"),
             monitor_http_timeout_s=_env_float(
                 "AEGIS_MONITOR_HTTP_TIMEOUT_S", cls.monitor_http_timeout_s
+            ),
+            monitor_ingest_mode=_env_str(
+                "AEGIS_MONITOR_INGEST_MODE", cls.monitor_ingest_mode
+            ).strip().lower(),
+            identity_agent_pipe_name=_env_str(
+                "AEGIS_IDENTITY_AGENT_PIPE_NAME", cls.identity_agent_pipe_name
+            ).strip(),
+            identity_agent_timeout_s=_env_float(
+                "AEGIS_IDENTITY_AGENT_TIMEOUT_S", cls.identity_agent_timeout_s
+            ),
+            identity_agent_response_timeout_s=_env_float(
+                "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S",
+                cls.identity_agent_response_timeout_s,
             ),
             nas_enabled=_env_bool("AEGIS_NAS_ENABLED", cls.nas_enabled),
             nas_method=_env_str("AEGIS_NAS_METHOD", cls.nas_method),
@@ -339,6 +364,18 @@ class EngineConfig:
                 "AEGIS_RECOGNIZER_BACKEND must be placeholder or "
                 "yolo-sface-admin; yolo-admin alone cannot prove identity"
             )
+        if self.inference_device != "cpu" and not re.fullmatch(
+            r"cuda:(?:0|[1-9][0-9]*)", self.inference_device
+        ):
+            raise ValueError("AEGIS_INFERENCE_DEVICE must be cpu or cuda:<index>")
+        if self.gpu_required:
+            if not self.inference_device.startswith("cuda:"):
+                raise ValueError("AEGIS_INFERENCE_DEVICE must be CUDA when GPU is required")
+            if self.recognizer_backend != "yolo-sface-admin":
+                raise ValueError(
+                    "AEGIS_RECOGNIZER_BACKEND must be yolo-sface-admin "
+                    "when GPU is required"
+                )
         if self.recognizer_backend == "yolo-sface-admin":
             if not self.admin_model_path:
                 raise ValueError(
@@ -401,6 +438,18 @@ class EngineConfig:
             raise ValueError(
                 "AEGIS_CAPTURE_ON_DEMAND requires AEGIS_DETECTION_ENGINE_API_KEY; "
                 "an unauthenticated viewer must never activate the camera"
+            )
+        if self.monitor_ingest_mode not in {"legacy_shared_key", "identity_agent"}:
+            raise ValueError(
+                "AEGIS_MONITOR_INGEST_MODE must be legacy_shared_key or identity_agent"
+            )
+        if not self.identity_agent_pipe_name.startswith("\\\\.\\pipe\\"):
+            raise ValueError("AEGIS_IDENTITY_AGENT_PIPE_NAME must be a local Windows pipe")
+        if not 0.1 <= self.identity_agent_timeout_s <= 5.0:
+            raise ValueError("AEGIS_IDENTITY_AGENT_TIMEOUT_S must be between 0.1 and 5")
+        if not 0.1 <= self.identity_agent_response_timeout_s <= 30.0:
+            raise ValueError(
+                "AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S must be between 0.1 and 30"
             )
         if self.stream_first_frame_timeout_s <= 0:
             raise ValueError("AEGIS_STREAM_FIRST_FRAME_TIMEOUT_S must be > 0")

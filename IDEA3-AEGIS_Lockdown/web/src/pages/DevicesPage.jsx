@@ -18,6 +18,7 @@ const columns = [
   { key: 'heartbeat', label: 'Heartbeat', render: (value) => <StatusBadge status={value} compact /> },
   { key: 'ack', label: 'ACK', render: (value) => <StatusBadge status={value} compact /> },
   { key: 'requestedRelayState', label: 'Relay ที่ร้องขอ', render: (value) => <span className="mono">{value ?? 'UNKNOWN'}</span> },
+  { key: 'observedUplinkState', label: 'Uplink ที่สังเกต', render: (value) => <span className="mono">{value ?? 'UNKNOWN'}</span> },
   { key: 'relay', label: 'Relay evidence', render: (value) => <StatusBadge status={value} compact /> },
   { key: 'firmwareVersion', label: 'Firmware', render: (value) => <span className="mono">{value ? `v${value}` : '—'}</span> },
 ]
@@ -66,6 +67,8 @@ export function DevicesPage({ snapshot }) {
         <Panel title="Relay evidence separation" description="คำขอไม่เท่ากับหลักฐานทางกายภาพ">
           <div className="evidence-comparison">
             <article><p>REQUESTED STATE</p><strong>คำขอ: {device.requestedRelayState ?? 'UNKNOWN'}</strong><small>สิ่งที่ระบบร้องขอ ไม่มีหลักฐานว่าเกิดขึ้น</small></article>
+            <div className="comparison-divider" aria-hidden="true">≠</div>
+            <article><p>OBSERVED UPLINK</p><strong>อุปกรณ์รายงาน: {device.observedUplinkState ?? 'UNKNOWN'}</strong><StatusBadge status={device.observedUplinkState === 'LOCKDOWN' ? 'DEGRADED' : device.observedUplinkState === 'NORMAL' ? 'HEALTHY' : 'UNKNOWN'} compact /></article>
             <div className="comparison-divider" aria-hidden="true">≠</div>
             <article><p>PHYSICAL EVIDENCE</p><strong>หลักฐานทางกายภาพ: {physical ?? 'UNKNOWN'}</strong><StatusBadge status={physicalKnown ? 'CONNECTED' : 'NOT_VERIFIED'} compact label={physicalKnown ? 'มี sensor' : undefined} /></article>
           </div>

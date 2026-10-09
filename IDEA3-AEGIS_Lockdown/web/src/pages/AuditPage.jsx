@@ -18,11 +18,18 @@ const columns = [
   { key: 'resourceId', label: 'Resource', render: (value) => <span className="mono">{value ?? '—'}</span> },
 ]
 
+const coreAuditColumns = [
+  { key: 'eventType', label: 'Core event', render: (value) => <span className="source-tag">{value}</span> },
+  { key: 'count', label: 'Count', render: (value) => <span className="mono">{formatCount(value)}</span> },
+  { key: 'freshness', label: 'Freshness', render: (value) => <span className="severity severity--info">{value}</span> },
+]
+
+// The audit store is an append-oriented SQLite ledger (Live) or an unchained in-memory ledger (Demo). Neither
+// verifies a tamper-evidence hash chain today, so the page must never claim one was verified.
 export function AuditPage({ snapshot, onExport = () => {} }) {
   const audit = snapshot.audit ?? []
   const policy = snapshot.settings?.policy ?? {}
   const provenance = snapshot.provenance ?? {}
-  // Tamper evidence is only what the server reports; the page never asserts a verified chain by itself.
   const integrity = snapshot.auditIntegrity
   const integrityStatus = integrity ? strictEvidenceStatus(integrity) : 'UNKNOWN'
   const integrityVerified = integrityStatus === 'HEALTHY'
@@ -30,6 +37,13 @@ export function AuditPage({ snapshot, onExport = () => {} }) {
   const durable = persistence.includes('SQLITE')
   const limit = Number.isFinite(policy.exportLimit) ? formatCount(policy.exportLimit) : '—'
   const retention = Number.isFinite(policy.auditRetentionDays) ? formatCount(policy.auditRetentionDays) : '—'
+  const coreAudit = snapshot.integration?.idea3?.audit
+  const coreAuditRows = Object.entries(coreAudit?.counts ?? {}).map(([eventType, count]) => ({
+    id: `core-${eventType}`,
+    eventType,
+    count,
+    freshness: coreAudit?.freshness ?? 'UNKNOWN',
+  }))
   return (
     <div className="page-stack">
       <section className="metric-grid metric-grid--four" aria-label="สรุป Audit">
@@ -48,6 +62,10 @@ export function AuditPage({ snapshot, onExport = () => {} }) {
       </section>
       <Panel title="Security audit ledger" description="แยกจาก operational event และไม่มี token, secret หรือ raw exception" action={<button type="button" className="button button--secondary" onClick={onExport}><Download size={15} aria-hidden="true" />ขอส่งออกแบบจำกัด</button>}>
         <DataTable columns={columns} rows={audit} emptyLabel="ยังไม่มี Audit record" ariaLabel="ตาราง Audit" />
+      </Panel>
+      <Panel title="IDEA3 Core audit aggregates" description="จำนวนเหตุการณ์ที่อ่านได้จาก Core SQLite แบบ allowlisted; ไม่ใช่ Web audit timeline">
+        <p className="audit-note"><span>Latest Core evidence (global)</span><span className="mono">{formatDateTime(coreAudit?.latestAt)}</span></p>
+        <DataTable columns={coreAuditColumns} rows={coreAuditRows} emptyLabel="ยังไม่มี Core audit aggregate" ariaLabel="ตาราง Core audit aggregate" />
       </Panel>
       <section className="audit-note"><ShieldCheck size={17} aria-hidden="true" /><span>โครงสร้างถาวรต้องผ่านการทบทวน retention, index, privacy, backup/restore และ rollback ก่อนใช้งานจริง</span></section>
     </div>

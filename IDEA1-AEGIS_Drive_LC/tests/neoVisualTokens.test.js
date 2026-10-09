@@ -7,7 +7,7 @@ const css = fs.readFileSync(path.resolve(import.meta.dirname, '../src/index.css'
 const settingsSource = fs.readFileSync(path.resolve(import.meta.dirname, '../src/screens/Settings.jsx'), 'utf8')
 
 test('Neo mobile segmented options meet the 44 by 44 CSS touch-target floor', () => {
-  const start = css.lastIndexOf('@media (max-width: 767px)')
+  const start = css.indexOf('@media (max-width: 767px)', css.indexOf('.interface-style-grid'))
   const end = css.indexOf('@media (prefers-reduced-motion: reduce)', start)
   const mobile = css.slice(start, end)
   assert.match(mobile, /\.ui-segmented-option[\s\S]*min-height:\s*44px/)
@@ -20,4 +20,9 @@ test('Neo defines intentional warning contrast and reduced-motion behavior', () 
   assert.match(settingsSource, /is-active bg-ink text-card/)
   assert.match(css, /\.settings-section-button\.is-active[\s\S]*var\(--neo-selection\)/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.interface-style-preview[\s\S]*transform:\s*none !important/)
+})
+
+test('Neo Dashboard mobile utility controls keep a 44px touch target', () => {
+  assert.match(css, /\.neo-topbar-identity > button,[\s\S]*\.theme-toggle \{[\s\S]*width:\s*44px;[\s\S]*height:\s*44px;/)
+  assert.match(css, /\.neo-topbar-search input \{[\s\S]*min-height:\s*44px;/)
 })

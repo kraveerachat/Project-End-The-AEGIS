@@ -50,6 +50,8 @@
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed running
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
 #                                      nm.general#WIFI disabled enabled
+#   DNSMASQ_SAFE_STOPPED_POST          svc.aegis-idea3-dnsmasq.service.ActiveState inactive active   (governed dnsmasq repair successor; PRE->POST only)
+#                                      svc.aegis-idea3-dnsmasq.service.SubState dead running
 #   L34_RUNTIME_REACTIVATION_ROLLBACK  svc.aegis-idea3-dnsmasq.service.ActiveState failed inactive
 #                                      svc.aegis-idea3-dnsmasq.service.SubState failed dead
 #                                      svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success
@@ -113,7 +115,7 @@ if [ -n "${ALLOW_KEYS_FILE:-}" ]; then
     [[ "$k" =~ $ALLOW_KEY_PAT ]] || stop "malformed allow key"
     [[ "$k" =~ $PROTECTED ]] && stop "protected key cannot be approved: $k"
     if [[ "$k" =~ ^host\. ]]; then
-      if ! [[ "$k" =~ ^host\.(aegis_idea3\.file\.|path\.|symlink\.|unit_file\.) ]]; then
+      if ! [[ "$k" =~ ^host\.(aegis_idea3\.(file|recovery|alert)\.|path\.|symlink\.|unit_file\.) ]]; then
         stop "protected key cannot be approved: $k"
       fi
     fi
@@ -206,6 +208,12 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
     "svc.aegis-idea3-dnsmasq.service.SubState failed dead"
     "svc.aegis-idea3-dnsmasq.service.Result start-limit-hit success"
   )
+  # governed dnsmasq repair successor (SAFE_STOPPED baseline): the ONLY value-level window is the stopped -> running pair; Result stays success. A task-specific
+  # catalog, so the L34 / V3 catalogs above and below are not widened.
+  DYN_CATALOG_DNSMASQ_SAFE_STOPPED_POST=(
+    "svc.aegis-idea3-dnsmasq.service.ActiveState inactive active"
+    "svc.aegis-idea3-dnsmasq.service.SubState dead running"
+  )
   _svc_dnsmasq_post=(
     "svc.aegis-idea3-dnsmasq.service.ActiveState failed active"
     "svc.aegis-idea3-dnsmasq.service.SubState failed running"
@@ -248,7 +256,7 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL')
+      'operation L34_RUNTIME_REACTIVATION'|'operation L34_RUNTIME_REACTIVATION_ROLLBACK'|'operation L34_V3_POST_FRESH'|'operation L34_V3_POST_RESIDUAL'|'operation L34_V3_ROLLBACK_FRESH'|'operation L34_V3_ROLLBACK_RESIDUAL'|'operation DNSMASQ_SAFE_STOPPED_POST')
         n_op=$((n_op + 1)); DYN_OP="${line#operation }" ;;
       *)
         [ -n "$DYN_OP" ] || stop "dynamic transition rule before the operation declaration"
@@ -267,9 +275,9 @@ if [ -n "${ALLOW_DYNAMIC_TRANSITIONS_FILE:-}" ]; then
   ! grep -q $'\r' "$ALLOW_DYNAMIC_TRANSITIONS_FILE" || stop "ALLOW_DYNAMIC_TRANSITIONS_FILE must not contain CR"
 fi
 
-# ALLOW_L6C_RELEASE_FILE (stage L6c only): names the ONE exact new release id this run is authorized to add to
-# host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, `stage L6c` once and `release_id <id>`
-# once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
+# ALLOW_L6C_RELEASE_FILE (stage L6c, stage L7u for the post-L7 Recovery Core upgrade, stage F1i for the post-L7 repaired-release install, stage F1u for the post-F1 Core upgrade, stage R1Du for the post-R1A Core upgrade that carries the R1D authority, or stage RRu for the Recovery-preparation release that adds aegis_soc/cli.py): names the ONE exact new release id this run is
+# authorized to add to host.aegis_idea3.release_catalog. Strict contract: exactly two active lines, exactly one stage line (`stage L6c`, `stage L7u`, `stage F1i` OR
+# `stage F1u`; the label only names the stage, the RELATIONAL behavior is identical) and `release_id <id>` once, single-space separated, no CR, no other token. It never approves a mutation or removal of any id already present
 # in BEFORE — that check is unconditional (see the release-catalog rule below) and cannot be satisfied by this file.
 L6C_RELEASE_ID=""
 if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
@@ -278,15 +286,15 @@ if [ -n "${ALLOW_L6C_RELEASE_FILE:-}" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
     case "$line" in
-      'stage L6c') n_stage=$((n_stage + 1)) ;;
+      'stage L6c' | 'stage L7u' | 'stage F1i' | 'stage F1u' | 'stage R1Du' | 'stage RRu') n_stage=$((n_stage + 1)) ;;
       release_id\ *)
         rid=${line#release_id }
         [[ "$rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || stop "malformed release_id in ALLOW_L6C_RELEASE_FILE"
         L6C_RELEASE_ID="$rid"; n_rid=$((n_rid + 1)) ;;
-      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only 'stage L6c' and 'release_id <id>' are approvable" ;;
+      *) stop "malformed ALLOW_L6C_RELEASE_FILE line: only one 'stage L6c'|'stage L7u'|'stage F1i'|'stage F1u'|'stage R1Du'|'stage RRu' line and 'release_id <id>' are approvable" ;;
     esac
   done < "$ALLOW_L6C_RELEASE_FILE"
-  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c) once and exactly one release_id once"
+  [ "$n_stage" = 1 ] && [ "$n_rid" = 1 ] || stop "ALLOW_L6C_RELEASE_FILE must declare exactly one stage (L6c, L7u, F1i, F1u, R1Du or RRu) once and exactly one release_id once"
   ! grep -q $'\r' "$ALLOW_L6C_RELEASE_FILE" || stop "ALLOW_L6C_RELEASE_FILE must not contain CR"
 fi
 

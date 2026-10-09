@@ -9,14 +9,17 @@ param(
     [string]$TunnelTaskName = 'AEGIS Detection Tunnel',
     [string]$KeyMigrationTaskName = 'AEGIS Detection Key Migration',
     [string]$LegacyEngineTaskName = 'AEGIS Detection Engine',
-    [string]$MonitorTargetHost = '172.18.0.2',
+    [Parameter(Mandatory = $true)]
+    [string]$MonitorTargetHost,
     [ValidateRange(1, 65535)]
     [int]$MonitorTargetPort = 8002,
     [ValidateRange(1, 65535)]
     [int]$LocalForwardPort = 18002,
-    [string]$RemoteBindAddress = '172.18.0.1',
+    [Parameter(Mandatory = $true)]
+    [string]$RemoteBindAddress,
+    [Parameter(Mandatory = $true)]
     [ValidateRange(1, 65535)]
-    [int]$RemotePort = 18077,
+    [int]$RemotePort,
     [ValidateRange(1, 65535)]
     [int]$EnginePort = 8077,
     [switch]$SkipDependencyInstall,
@@ -217,6 +220,14 @@ $parsedRemoteAddress = $null
 if (-not [Net.IPAddress]::TryParse($RemoteBindAddress, [ref]$parsedRemoteAddress)) {
     throw 'RemoteBindAddress must be a literal IP address.'
 }
+if ($parsedRemoteAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) {
+    throw 'RemoteBindAddress must be an IPv4 server interface.'
+}
+if ([Net.IPAddress]::IsLoopback($parsedRemoteAddress) -or
+    $parsedRemoteAddress.Equals([Net.IPAddress]::Any) -or
+    $parsedRemoteAddress.Equals([Net.IPAddress]::IPv6Any)) {
+    throw 'RemoteBindAddress must identify one explicit server interface.'
+}
 
 $resolvedConfiguration = Resolve-OptionalFile -Path $ConfigurationFile -Label 'Configuration file'
 $resolvedIdentitySource = if ([string]::IsNullOrWhiteSpace($IdentityFile)) {
@@ -324,7 +335,7 @@ if (-not $SkipDependencyInstall) {
 
 Push-Location -LiteralPath $runtimeApp
 try {
-    & $runtimePython -c "from aegis_engine.config import EngineConfig; EngineConfig.from_env().validate(); from aegis_engine.engine import DetectionEngine; print('AEGIS Windows preflight passed')"
+    & $runtimePython -c "import pywintypes, win32con, win32event, win32file, win32pipe; from aegis_engine.config import EngineConfig; EngineConfig.from_env().validate(); from aegis_engine.engine import DetectionEngine; print('AEGIS Windows preflight passed')"
     if ($LASTEXITCODE -ne 0) {
         throw 'Detection Engine preflight failed.'
     }

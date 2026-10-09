@@ -30,7 +30,9 @@
 #   SELF_ATTESTATION != INDEPENDENT_IDEA1_OWNER_CONFIRMATION; it does not prove
 #   IDEA1 is inactive. S10 PRE/POST evidence remains the empirical protection.
 #   + L1/L7: d6_notice=pub, L2: integration_review=kla,
-#     L8: recovery_authorization=<link>
+#     L8: recovery_authorization=<link>, L8p: physical_recovery_attestation=<link>
+#   L7u (post-L7 Recovery Core upgrade) carries NONE of these extras: recovery_authorization is an L8-specific gate, and L7u success never
+#   authorizes L8. An L7u record that carries d6_notice, integration_review or recovery_authorization is AUTHORIZATION_MALFORMED.
 #
 # Exit 0 = STAGE_GATE=PASS_SIMULATION or PASS_READ_ONLY; 1 = STAGE_GATE=FAIL.
 set -uo pipefail
@@ -109,7 +111,7 @@ EXTRA=$(p4_stage_auth_extra "$STAGE")
 if [ -z "$AUTH" ]; then
   fail AUTHORIZATION_MISSING
 elif ! parse_record "$AUTH" AEGIS_P4_AUTHORIZATION_V1 \
-  "stage date authorizer scope reference d6_notice integration_review recovery_authorization" \
+  "stage date authorizer scope reference d6_notice integration_review recovery_authorization physical_recovery_attestation $EXTRA" \
   "stage date authorizer scope reference $EXTRA"; then
   fail AUTHORIZATION_MALFORMED
 elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
@@ -117,14 +119,47 @@ elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[authorizer]}" != music ] \
   || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]] \
   || { [ -n "${R[d6_notice]+set}" ] && [ "${R[d6_notice]}" != pub ]; } \
   || { [ -n "${R[integration_review]+set}" ] && [ "${R[integration_review]}" != kla ]; } \
-  || { [ -n "${R[recovery_authorization]+set}" ] && ! [[ "${R[recovery_authorization]}" =~ $REF_RE ]]; }; then
+  || { [ -n "${R[recovery_authorization]+set}" ] && ! [[ "${R[recovery_authorization]}" =~ $REF_RE ]]; } \
+  || { [ -n "${R[physical_recovery_attestation]+set}" ] && { ! [[ "${R[physical_recovery_attestation]}" =~ $REF_RE ]] || [[ "${R[physical_recovery_attestation]^^}" =~ $PLACEHOLDER_RE ]]; }; }; then
   fail AUTHORIZATION_MALFORMED
+elif [ "$STAGE" = CTu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }; then
+  fail AUTHORIZATION_CTU_BINDING_MALFORMED
+elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
+  fail AUTHORIZATION_CTV_BINDING_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
+elif { [ "$STAGE" = CTu ] || [ "$STAGE" = CTv ] || [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+  # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
+  # F1r (current-release activation), F1i (post-L7 repaired-release install) and F1u (post-F1 Core upgrade) are bound by the same rule as F1: no extra field at all.
+  # F1 carries NO extra field at all: not the L7/L2 notices, not recovery_authorization, not physical_recovery_attestation (L8p alone).
+  # recovery_authorization is an L8-specific gate; L7u never carries it (nor the L7/L2 notices). Checked after the stage match so that an
+  # authorization minted for another stage is reported as a stage mismatch first.
+  fail AUTHORIZATION_MALFORMED
+elif [ "$STAGE" != L8p ] && [ -n "${R[physical_recovery_attestation]+set}" ]; then
+  # physical_recovery_attestation belongs to L8p alone.
+  fail AUTHORIZATION_MALFORMED
 elif [ "${R[date]}" != "$TODAY" ]; then
   fail AUTHORIZATION_STALE
 else
   AUTH_OK=1
+  if [ "$STAGE" = CTu ]; then
+    AUTH_CTU_MAIN="${R[expected_main]:-}"
+    AUTH_CTU_RUNNER="${R[runner_sha256]:-}"
+    AUTH_CTU_UNIT="${R[unit_sha256]:-}"
+    AUTH_CTU_USER="${R[operator_user]:-}"
+    AUTH_CTU_UID="${R[operator_uid]:-}"
+    AUTH_CTU_DEVICE="${R[device_id]:-}"
+  elif [ "$STAGE" = CTv ]; then
+    AUTH_CTV_MAIN="${R[expected_main]:-}"
+    AUTH_CTV_RUNNER="${R[frozen_runner_sha256]:-}"
+    AUTH_CTV_TEMPLATE="${R[runner_template_sha256]:-}"
+    AUTH_CTV_BUNDLE="${R[bundle_manifest_sha256]:-}"
+    AUTH_CTV_CONTROL="${R[control_manifest_sha256]:-}"
+    AUTH_CTV_UNIT="${R[unit_sha256]:-}"
+    AUTH_CTV_USER="${R[operator_user]:-}"
+    AUTH_CTV_UID="${R[operator_uid]:-}"
+    AUTH_CTV_DEVICE="${R[device_id]:-}"
+  fi
 fi
 
 # ── K3 confirmation (S-01), every Production mutation stage ──────────────────
@@ -152,12 +187,38 @@ if p4_stage_mutates "$STAGE"; then
       K3_ALLOWED="stage date confirmed_by confirmation_mode idea1_window_overlap reference"
       K3_WHO=music K3_OVERLAP=NONE_KNOWN
     fi
+    if [ "$STAGE" = CTu ]; then
+      K3_ALLOWED="$K3_ALLOWED expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id"
+    elif [ "$STAGE" = CTv ]; then
+      K3_ALLOWED="$K3_ALLOWED expected_main frozen_runner_sha256 runner_template_sha256 bundle_manifest_sha256 control_manifest_sha256 unit_sha256 operator_user operator_uid device_id"
+    fi
     if [ -z "$K3_KIND" ] || ! parse_record "$K3" "$K3_MAGIC" "$K3_ALLOWED" "$K3_ALLOWED"; then
       fail K3_MALFORMED
     elif ! [[ "${R[date]}" =~ $DATE_RE ]] || [ "${R[confirmed_by]}" != "$K3_WHO" ] \
       || { [ "$K3_KIND" = V2 ] && [ "${R[confirmation_mode]}" != IDEA3_OWNER_SELF_ATTESTATION ]; } \
       || ! [[ "${R[reference]}" =~ $REF_RE ]] || [[ "${R[reference]^^}" =~ $PLACEHOLDER_RE ]]; then
       fail K3_MALFORMED
+    elif [ "$STAGE" = CTu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; }; then
+      fail K3_CTU_BINDING_MALFORMED
+    elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
+      fail K3_CTV_BINDING_MALFORMED
+    elif [ "$STAGE" = CTu ] && { \
+      [ "${R[expected_main]}" != "${AUTH_CTU_MAIN:-}" ] || \
+      [ "${R[runner_sha256]}" != "${AUTH_CTU_RUNNER:-}" ] || \
+      [ "${R[unit_sha256]}" != "${AUTH_CTU_UNIT:-}" ] || \
+      [ "${R[operator_user]}" != "${AUTH_CTU_USER:-}" ] || \
+      [ "${R[operator_uid]}" != "${AUTH_CTU_UID:-}" ] || \
+      [ "${R[device_id]}" != "${AUTH_CTU_DEVICE:-}" ]; }; then
+      fail K3_CTU_BINDING_MISMATCH
+    elif [ "$STAGE" = CTv ] && { \
+      [ "${R[expected_main]}" != "${AUTH_CTV_MAIN:-}" ] || \
+      [ "${R[frozen_runner_sha256]}" != "${AUTH_CTV_RUNNER:-}" ] || \
+      [ "${R[runner_template_sha256]}" != "${AUTH_CTV_TEMPLATE:-}" ] || \
+      [ "${R[bundle_manifest_sha256]}" != "${AUTH_CTV_BUNDLE:-}" ] || \
+      [ "${R[control_manifest_sha256]}" != "${AUTH_CTV_CONTROL:-}" ] || \
+      [ "${R[unit_sha256]}" != "${AUTH_CTV_UNIT:-}" ] || \
+      [ "${R[operator_user]}" != "${AUTH_CTV_USER:-}" ] || [ "${R[operator_uid]}" != "${AUTH_CTV_UID:-}" ] || [ "${R[device_id]}" != "${AUTH_CTV_DEVICE:-}" ]; }; then
+      fail K3_CTV_BINDING_MISMATCH
     elif [ "${R[stage]}" != "$STAGE" ]; then
       fail K3_STAGE_MISMATCH
     elif [ "${R[date]}" != "$TODAY" ]; then

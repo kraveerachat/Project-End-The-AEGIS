@@ -48,13 +48,15 @@ except Exception as exc:  # pragma: no cover
         "(pip install -r requirements.txt)"
     ) from exc
 
-from .stream_hub import StreamHub
+from .stream_hub import StaleProducerGenerationError, StreamHub
 
 log = get_logger("LocalEventAPI")
 
 # Same shared secret as the engine->Monitor direction. One key for the whole
 # engine<->Monitor boundary; the browser never sees it (Monitor proxies).
 _KEY_HEADER = "x-detection-engine-key"
+_PRODUCER_GENERATION_HEADER = b"x-aegis-producer-generation"
+_MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807
 _MJPEG_BOUNDARY = "aegisframe"
 
 
@@ -231,7 +233,8 @@ class LocalEventAPI:
             )
             return {
                 "status": (
-                    "ok" if connected
+                    "degraded" if snap["accelerator_failure"]
+                    else "ok" if connected
                     else "idle" if cfg.capture_on_demand and not demanded
                     else "degraded"
                 ),
@@ -239,6 +242,14 @@ class LocalEventAPI:
                 "camera_demanded": demanded,
                 "stream_viewers": self._stream.viewers if self._stream else 0,
                 "recognizer_backend": cfg.recognizer_backend,
+                "gpu_required": snap["gpu_required"],
+                "requested_inference_device": snap["requested_inference_device"],
+                "yolo_actual_device": snap["yolo_actual_device"],
+                "successful_gpu_inference_samples": snap["successful_gpu_inference_samples"],
+                "accelerator_active": snap["accelerator_active"],
+                "accelerator_failure": snap["accelerator_failure"],
+                "yunet_backend": snap["yunet_backend"],
+                "sface_backend": snap["sface_backend"],
                 "uptime_s": snap["uptime_s"],
                 "capture_fps": snap["capture_fps"],
                 "detect_fps": snap["detect_fps"],
@@ -276,34 +287,107 @@ class LocalEventAPI:
                                 media_type="application/json")
             return None
 
+        def _producer_generation(req: "Request") -> int | None | Response:
+            values = [
+                value
+                for name, value in req.scope.get("headers", ())
+                if name.lower() == _PRODUCER_GENERATION_HEADER
+            ]
+            if not values:
+                # Always-on development engines preserve the bounded legacy
+                # Monitor path. A capture-on-demand deployment must carry
+                # explicit server-owned producer authority and fails closed.
+                if not cfg.capture_on_demand:
+                    return None
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid producer generation"}',
+                    media_type="application/json",
+                )
+            if len(values) != 1:
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid producer generation"}',
+                    media_type="application/json",
+                )
+            raw = values[0]
+            if (
+                not raw
+                or len(raw) > 19
+                or not raw.isascii()
+                or not 49 <= raw[0] <= 57
+                or any(not 48 <= char <= 57 for char in raw[1:])
+            ):
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid producer generation"}',
+                    media_type="application/json",
+                )
+            value = int(raw)
+            if value > _MAX_POSTGRES_BIGINT:
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid producer generation"}',
+                    media_type="application/json",
+                )
+            return value
+
         @app.get("/stream.mjpg")
         async def stream_mjpg(request: "Request"):
             denied = _authorized(request)
             if denied is not None:
                 return denied
+            producer_generation = _producer_generation(request)
+            if isinstance(producer_generation, Response):
+                return producer_generation
             if stream_hub is None:
                 return Response(status_code=503, content='{"error":"stream not enabled"}',
                                 media_type="application/json")
+            if producer_generation is not None:
+                try:
+                    stream_hub.prepare_producer_generation(producer_generation)
+                except StaleProducerGenerationError:
+                    return Response(
+                        status_code=409,
+                        content='{"error":"stale producer generation"}',
+                        media_type="application/json",
+                    )
 
             async def frames():
                 loop = asyncio.get_running_loop()
                 last = -1
                 idle = 0
                 has_sent_frame = False
-                stream_hub.add_viewer()
+                try:
+                    lease = stream_hub.add_viewer(
+                        producer_generation=producer_generation
+                    )
+                except StaleProducerGenerationError:
+                    # A newer producer can supersede this request after route
+                    # preflight but before Starlette begins iterating the body.
+                    # End the already-created response without demand or an
+                    # unhandled body-iterator exception.
+                    log.info(
+                        "closing stream (producer superseded before lease acquisition)"
+                    )
+                    return
                 try:
                     # Prime immediately with whatever is current so the <img>
                     # paints on connect instead of staying blank for one period.
                     cur = stream_hub.latest()
-                    if cur is not None:
+                    if cur is not None and stream_hub.viewer_is_active(*lease):
                         last = cur[0]
                         has_sent_frame = True
                         yield _part(cur[1])
                     while True:
+                        if not stream_hub.viewer_is_active(*lease):
+                            break
                         # Block off-loop so the event loop stays responsive.
                         got = await loop.run_in_executor(
                             None, stream_hub.wait_for, last, 1.0
                         )
+                        if not stream_hub.viewer_is_active(*lease):
+                            break
                         if got is None:
                             # Capture stalled or engine stopping. Bounded wait so
                             # a dead stream is closed rather than hanging open.
@@ -323,7 +407,7 @@ class LocalEventAPI:
                         has_sent_frame = True
                         yield _part(jpeg)
                 finally:
-                    stream_hub.remove_viewer()
+                    stream_hub.remove_viewer(*lease)
 
             return _DisconnectAwareStreamingResponse(
                 frames(),

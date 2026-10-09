@@ -1,0 +1,6 @@
+# AEGIS IDEA3 PR11 Phase 4 — governed dnsmasq UNIT boot-order REPAIR (governed successor), SAFE_STOPPED baseline PRE->POST: the dnsmasq inactive/dead -> active/running
+# window, as the exact members of the task-specific comparator catalog DNSMASQ_SAFE_STOPPED_POST (p4-compare.sh). Result is success on both sides, so it needs no
+# transition. The SAFE_STOPPED PRE->RB path needs NO dynamic window at all: rollback returns to inactive/dead/success/MainPID 0, i.e. identical to PRE.
+operation DNSMASQ_SAFE_STOPPED_POST
+svc.aegis-idea3-dnsmasq.service.ActiveState inactive active
+svc.aegis-idea3-dnsmasq.service.SubState dead running

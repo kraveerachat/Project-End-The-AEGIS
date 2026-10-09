@@ -1,0 +1,5 @@
+# D-1 Phase J B/D/E replica — stands in for /opt/aegis/runtime/preview-p1/drive-image-8634360f74ed.yml
+# (Production bytes are not in Git; only the image reference matters). Image built locally from exact 8634360f.
+services:
+  drive:
+    image: aegis-prod-drive:p1-8634360f74ed

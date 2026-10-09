@@ -35,7 +35,9 @@ AUTHORITATIVE_V6_SCOPE = (
 )
 V6_MARKER = "# ── V6 (STALE-BROKER / AP-DOWN) reactivation"
 # sha256 of the shared gate library as merged in PR #250/#251 (main a888457e): V6 may only append after V6_MARKER.
-LIB_PRE_V6_SHA256 = "1adb7a803dc3652070ce7ac88b6f28e5dbd97cf68e825381caacd282dcb8716c"
+# AMENDED (PR #305, owner-approved re-pin): the only change to the shared lib is l34_dnsmasq_unit_gate + new l34_render_dnsmasq_unit, so the byte-identity
+# authority is the canonical template rendered with the fixed L34 values. The pre-amendment pin was 1adb7a803dc3652070ce7ac88b6f28e5dbd97cf68e825381caacd282dcb8716c.
+LIB_PRE_V6_SHA256 = "fd31f01ca1f0ba979ef0752ed2c260fa0428080b04a367f99b77a9e27c8fd845"
 
 # sha256 of every V1–V5 handler / allow file / owner runner at main a888457e. A deliberate future V1–V5 change must update this pin.
 V1_V5_PINS = {
@@ -184,7 +186,7 @@ def test_shared_gate_library_was_only_appended_to() -> None:
     assert text.count(V6_MARKER) == 1
     prefix = text.split(V6_MARKER, 1)[0]
     assert hashlib.sha256((prefix.rstrip("\n") + "\n").encode()).hexdigest() == LIB_PRE_V6_SHA256
-    v6 = text.split(V6_MARKER, 1)[1]
+    v6 = text.split(V6_MARKER, 1)[1].split("# ── V7 (RADIO-DISABLED + BROKER-CHURN) reactivation", 1)[0]  # V7 (a later, separate section) appends after V6
     assert not re.search(r"^l34_(?!v6_)\w+\(\)", v6, re.M), "V6 adds only l34_v6_* functions"
     for script in (DEPLOY / "reactivation" / d for d in ("l34", "l34-v4-post-l6b", "l34-v5-post-l6b-degraded")):
         assert "l34_v6_" not in "".join(p.read_text() for p in script.glob("*.sh"))

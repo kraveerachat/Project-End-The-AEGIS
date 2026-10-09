@@ -344,3 +344,79 @@ test('RP-10 Recover with a new name: editable suggestion, commits only on confir
     await h.unmount()
   }
 })
+
+/* ── D-1 PR-C Task D.2: reserved preview-index blobs are never offered; unnamed/undecryptable fail closed ── */
+const ROOT_MARKER = 'application/vnd.aegis.vault-preview-index-root.v1'
+const SHARD_MARKER = 'application/vnd.aegis.vault-preview-index-shard.v1'
+const RESERVED = [
+  serverBlobV2({ id: 'r'.padEnd(22, 'R'), name: '', type: ROOT_MARKER, plainSize: 4096 }),
+  serverBlobV2({ id: 's'.padEnd(22, 'S'), name: '', type: SHARD_MARKER, plainSize: 16384 }),
+  serverBlobV2({ id: 'd'.padEnd(22, 'D'), name: '', type: 'image/webp', plainSize: 900 }),
+]
+const UNNAMED = serverBlobV2({ id: 'u'.padEnd(22, 'U'), name: '', type: 'text/plain', plainSize: 5 })
+const UNDECRYPTABLE = { ...serverBlobV2({ id: 'x'.padEnd(22, 'X'), name: 'ignored', type: 'text/plain' }), metaB64: 'bm90LWpzb24=' }
+
+test('RP-11 reserved preview-index blobs (root, shard, derivative) are never listed; user files still are; nothing deleted', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [...RESERVED, ORPHANS[0]] })
+  const h = await mountUnlocked()
+  try {
+    await expandOrphans()
+    const rows = orphanRows()
+    assert.equal(rows.length, 1, 'only the user file is offered')
+    assert.ok(rows[0].textContent.includes('a.txt'))
+    assert.ok(!q('[data-testid="vault-tree-orphans-toggle"]').textContent.includes('4'), 'the summary count excludes reserved blobs')
+    await click(dom, buttonText(t('vaultTreeOrphanRecoverAll')))
+    await tick(8)
+    assert.equal(headPosts(), 1, 'recover-all attached only the user file')
+    assert.deepEqual(deletes(), [])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-12 an unnamed blob is recovered only with an explicit, non-empty user-entered name (no default from metadata)', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [UNNAMED] })
+  const h = await mountUnlocked()
+  try {
+    await expandOrphans()
+    assert.equal(orphanRows().length, 1, 'the unnamed user file stays listed')
+    const headsBefore = headPosts()
+    await click(dom, q('[data-testid="vault-tree-orphan-recover"]'))
+    await click(dom, qa('[data-testid="vault-dialog-move-row"]')[0].querySelector('button'))
+    await click(dom, q('[data-testid="vault-dialog-submit"]'))
+    await tick(3)
+    const input = q('[role="dialog"] input')
+    assert.ok(input, 'a name dialog opens instead of committing')
+    assert.equal(input.value, '', 'no invented default name')
+    assert.equal(q('[data-testid="vault-dialog-submit"]').disabled, true, 'an empty name cannot be confirmed')
+    assert.equal(headPosts(), headsBefore, 'nothing committed yet')
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    await act(async () => { setter.call(input, 'recovered-notes.txt'); input.dispatchEvent(new dom.window.Event('input', { bubbles: true })) })
+    await click(dom, q('[data-testid="vault-dialog-submit"]'))
+    await tick(6)
+    assert.equal(headPosts() - headsBefore, 1)
+    assert.ok(qa('[data-testid="vault-file-tile"]').some((el) => el.textContent.includes('recovered-notes.txt')))
+    assert.deepEqual(deletes(), [])
+  } finally {
+    await h.unmount()
+  }
+})
+
+test('RP-13 recover-all never auto-names unnamed or undecryptable blobs: they stay listed (NAME_REQUIRED), no CAS for them', async () => {
+  fakeTree = await createFakeTreeServer({ kek, blobs: [UNNAMED, UNDECRYPTABLE, ORPHANS[1]] })
+  const h = await mountUnlocked()
+  try {
+    await expandOrphans()
+    assert.equal(orphanRows().length, 3)
+    await click(dom, buttonText(t('vaultTreeOrphanRecoverAll')))
+    await tick(10)
+    assert.equal(headPosts(), 1, 'only the named file was attached')
+    const rows = orphanRows()
+    assert.equal(rows.length, 2)
+    for (const r of rows) assert.ok(r.textContent.includes('NAME_REQUIRED'), r.textContent)
+    assert.ok(!qa('[data-testid="vault-file-tile"]').some((el) => /orphan-/.test(el.textContent)), 'no "orphan-…" default name was invented')
+    assert.deepEqual(deletes(), [])
+  } finally {
+    await h.unmount()
+  }
+})

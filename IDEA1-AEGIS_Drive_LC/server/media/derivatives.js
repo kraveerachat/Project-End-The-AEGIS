@@ -16,7 +16,20 @@ import { cancelled, isCancelled } from './errors.js'
 import { probeMedia } from './probe.js'
 import { generatePoster } from './poster.js'
 import { generateMotion } from './motion.js'
-import { previewExtForName, isPreviewableExtension } from '../config/previewMedia.js'
+import { previewExtForName, isPreviewableExtension, FORMAT_TABLE } from '../config/previewMedia.js'
+
+/**
+ * Unified Preview P1 — the FormatId reported in media-info (additive, response shaping only):
+ * the cached probe's byte family when present (animated PNG/WebP refined), else the extension's entry.
+ * No I/O: uses only the probe already loaded for this info() call.
+ */
+function formatOf(ext, probe) {
+  const fam = typeof probe?.family === 'string' && probe.family ? probe.family : null
+  if (fam === 'png' && probe.animated === true) return 'apng'
+  if (fam === 'webp' && probe.animated === true) return 'webp-animated'
+  if (fam) return fam
+  return Object.hasOwn(FORMAT_TABLE, ext) ? FORMAT_TABLE[ext].formatId : null
+}
 
 export const MEDIA_STATE = Object.freeze({ PENDING: 'PENDING', READY: 'READY', UNSUPPORTED: 'UNSUPPORTED', GENERATION_FAILED: 'GENERATION_FAILED', RETRYABLE: 'RETRYABLE' })
 export const MAX_TRANSIENT_RETRIES = 3
@@ -235,7 +248,7 @@ export function createDerivativeService({
     const sha = gate.sha
     const [state, probe] = await Promise.all([loadState(sha), cache.readProbe(sha)])
     if (probe && probe.unsupported) {
-      return { id: String(row.id), sourceVersion: sha, profile, family: probe.family ?? null, animated: null, status: 'UNSUPPORTED', reason: probe.reason, poster: { state: 'UNSUPPORTED', reason: probe.reason, url: null }, motion: { state: 'UNSUPPORTED', reason: probe.reason, url: null } }
+      return { id: String(row.id), sourceVersion: sha, profile, family: probe.family ?? null, format: formatOf(gate.ext, probe), animated: null, status: 'UNSUPPORTED', reason: probe.reason, poster: { state: 'UNSUPPORTED', reason: probe.reason, url: null }, motion: { state: 'UNSUPPORTED', reason: probe.reason, url: null } }
     }
     const poster = await ensureType(row, gate, 'poster', priority, { probe, state })
     const motion = await ensureType(row, gate, 'motion', priority, { probe, state })
@@ -259,7 +272,7 @@ export function createDerivativeService({
     else status = motion.state === MEDIA_STATE.READY || motion.state === MEDIA_STATE.UNSUPPORTED ? 'READY' : 'PARTIAL'
     const out = {
       id: String(row.id), sourceVersion: sha, profile,
-      family: probe?.family ?? null, animated: probe ? (probe.animated ?? null) : null,
+      family: probe?.family ?? null, format: formatOf(gate.ext, probe), animated: probe ? (probe.animated ?? null) : null,
       width: probe?.width ?? null, height: probe?.height ?? null, durationSeconds: probe?.durationSeconds ?? null,
       poster: posterView, motion: motionView, status,
     }

@@ -31,8 +31,8 @@ import { backupMaintenance } from './backup/index.js'
 import { bootMedia } from './media/runtime.js'
 // Private Vault encrypted hierarchy (PR #157): flag ทั้งหกอ่านครั้งเดียว (fail-closed, เป็นโซ่) และเมื่อ
 // VAULT_TREE_SCHEMA_AVAILABLE=true ต้องพบตาราง tree ทั้งเจ็ดก่อนเปิดพอร์ต ไม่งั้นบูตล้มโดยระบุชื่อตาราง
-import { VAULT_TREE_CONFIG, verifyTreeSchema } from './config/vaultTreeLimits.js'
-import { probeTreeSchema } from './db/vaultTreeSchemaProbe.js'
+import { VAULT_TREE_CONFIG, verifyTreeSchema, verifyPreviewIndexSchema } from './config/vaultTreeLimits.js'
+import { probeTreeSchema, probePreviewIndexSchema } from './db/vaultTreeSchemaProbe.js'
 import { initVaultManifestStorage } from './storage/vaultManifestStore.js'
 
 const PORT = process.env.PORT || 8001 // ตรงกับผังบริการ: AEGIS Drive = พอร์ตภายใน 8001
@@ -74,6 +74,10 @@ Promise.all([
     })
     console.log(`[aegis-drive] media derivatives: ${media.service.reason ? `disabled (${media.service.reason})` : 'enabled'} — boot ${media.trace.join(' → ')}`)
     const treeSchema = await verifyTreeSchema(VAULT_TREE_CONFIG, probeTreeSchema)
+    // D-1: VAULT_PREVIEW_INDEX_SCHEMA_AVAILABLE=true without migration 012 → boot fails naming what is missing
+    const previewIndexSchema = await verifyPreviewIndexSchema(VAULT_TREE_CONFIG, probePreviewIndexSchema)
+    const pif = VAULT_TREE_CONFIG.flags
+    console.log(`[aegis-drive] vault preview index: schema ${pif.previewIndexSchemaAvailable ? (previewIndexSchema.probed ? 'verified' : 'declared') : 'not declared'}, read ${pif.previewIndexReadEnabled ? 'enabled' : 'disabled'}, write ${pif.previewIndexWriteEnabled ? 'ENABLED' : 'disabled'}`)
     console.log(`[aegis-drive] vault tree: schema ${VAULT_TREE_CONFIG.flags.schemaAvailable ? (treeSchema.probed ? 'verified' : 'declared') : 'not declared'}, protocol ${VAULT_TREE_CONFIG.flags.protocolEnabled ? 'enabled' : 'disabled'}, destructive purge ${VAULT_TREE_CONFIG.flags.destructivePurgeEnabled ? 'ENABLED' : 'disabled'}`)
     app = createApp({ env: process.env, mediaLimits: media.limits, mediaService: media.service, vaultTreeConfig: VAULT_TREE_CONFIG })
     // Observe a pre-existing host backup lease before any Trash byte cleanup.

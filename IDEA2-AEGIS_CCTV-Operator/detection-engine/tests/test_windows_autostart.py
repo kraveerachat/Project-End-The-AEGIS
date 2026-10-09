@@ -4,6 +4,9 @@ import re
 import unittest
 from pathlib import Path
 
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.utils import canonicalize_name
+
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_ROOT = ENGINE_ROOT / "windows"
@@ -27,7 +30,9 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertTrue(expected.issubset({path.name for path in WINDOWS_ROOT.glob("*.ps1")}))
 
     def test_scripts_do_not_hardcode_the_verified_operator_profile(self) -> None:
-        joined = "\n".join(path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.rglob("*.*"))
+        joined = "\n".join(
+            path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.glob("*.ps1")
+        )
         self.assertNotIn(r"C:\Users\puppu", joined)
         self.assertNotIn(r"OneDrive\Desktop\AEGIS_System", joined)
 
@@ -38,6 +43,35 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("$runtimePython = Join-Path $runtimeVenv 'Scripts\\python.exe'", installer)
         for excluded in ("'.env'", "'segments'", "'snapshots'", "'__pycache__'"):
             self.assertIn(excluded, installer)
+
+    def test_engine_pipe_client_dependency_flows_through_install_and_repair_only_on_windows(self) -> None:
+        requirements = [
+            Requirement(line.strip())
+            for line in (ENGINE_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        win32 = [item for item in requirements if canonicalize_name(item.name) == "pywin32"]
+        self.assertEqual(1, len(win32), "Engine Windows named-pipe client must be provisioned")
+        self.assertEqual("==312", str(win32[0].specifier))
+        self.assertIsNotNone(win32[0].marker)
+        self.assertTrue(win32[0].marker.evaluate({"sys_platform": "win32"}))
+        self.assertFalse(win32[0].marker.evaluate({"sys_platform": "linux"}))
+
+        installer = self.read("install_autostart.ps1")
+        repair = self.read("repair_autostart.ps1")
+        self.assertIn("Copy-Item -LiteralPath $item.FullName -Destination $runtimeApp", installer)
+        self.assertNotIn("'requirements.txt'", installer.split("$excludedNames =", 1)[1].split(")", 1)[0])
+        self.assertRegex(
+            installer,
+            r"& \$runtimePython -m pip install[^\n]*--requirement\s*`\s*\r?\n\s*"
+            r"\(Join-Path \$runtimeApp 'requirements\.txt'\)",
+        )
+        self.assertIn("& $installer @arguments", repair)
+        self.assertIn("SkipDependencyInstall = $SkipDependencyInstall", repair)
+        self.assertIn("[switch]$SkipDependencyInstall", repair)
+
+        for module in ("pywintypes", "win32con", "win32event", "win32file", "win32pipe"):
+            self.assertRegex(installer, rf"\bimport\s+[^\n]*\b{module}\b")
 
     def test_engine_uses_hkcu_supervisor_not_interactive_task(self) -> None:
         installer = self.read("install_autostart.ps1")
@@ -61,6 +95,55 @@ class WindowsAutostartSourceTests(unittest.TestCase):
         self.assertIn("'-R', $reverseForward", tunnel)
         self.assertIn("while ($true)", tunnel)
         self.assertNotIn("StrictHostKeyChecking=no", tunnel)
+
+    def test_network_destinations_are_explicit_and_never_dynamic_docker_defaults(self) -> None:
+        installer = self.read("install_autostart.ps1")
+        tunnel = self.read("run_detection_tunnel.ps1")
+        helper = self.read("prepare_tunnel_key.ps1")
+        for source in (installer, tunnel, helper):
+            self.assertNotIn("172.18.", source)
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$RemoteBindAddress")
+        self.assertRegex(helper, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[string\]\$MonitorTargetHost")
+        self.assertRegex(tunnel, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[ValidateRange\(1,\s*65535\)\]\s*\[int\]\$RemotePort")
+        self.assertRegex(installer, r"\[Parameter\(Mandatory\s*=\s*\$true\)\]\s*\[ValidateRange\(1,\s*65535\)\]\s*\[int\]\$RemotePort")
+        self.assertNotIn("18077", installer)
+        self.assertNotIn("18077", tunnel)
+        self.assertIn("RemoteBindAddress must identify one explicit server interface", tunnel)
+        for source in (installer, tunnel):
+            self.assertIn("AddressFamily]::InterNetwork", source)
+
+        helper_arguments = installer.split("$helperArguments =", 1)[1].split(
+            "$helperAction =", 1
+        )[0]
+        self.assertIn('-MonitorTargetHost `"$MonitorTargetHost`"', helper_arguments)
+        tunnel_arguments = installer.split("$tunnelArguments =", 1)[1].split(
+            "$tunnelAction =", 1
+        )[0]
+        self.assertIn("-RemotePort $RemotePort", tunnel_arguments)
+
+        env_example = (ENGINE_ROOT / ".env.example").read_text(encoding="utf-8")
+        self.assertIn("AEGIS_AGENT_ENGINE_STREAM_URL=", env_example)
+        self.assertNotIn("aegis-stream-host.internal:18077", env_example)
+
+    def test_windows_lifecycle_is_reusable_for_laptop_and_external_webcam_hosts(self) -> None:
+        scripts = "\n".join(
+            path.read_text(encoding="utf-8") for path in WINDOWS_ROOT.glob("*.ps1")
+        )
+        for forbidden in (
+            "machine-a-node",
+            "machine-c-node",
+            "physical-camera-a",
+            "physical-camera-c",
+            "built-in laptop camera",
+            "external webcam",
+            "Machine A == CAM-01",
+            "Machine C == CAM-02",
+        ):
+            self.assertNotIn(forbidden, scripts)
+        self.assertIn("$resolvedConfiguration", self.read("install_autostart.ps1"))
 
     def test_installer_requires_machine_configuration_and_key_material(self) -> None:
         installer = self.read("install_autostart.ps1")

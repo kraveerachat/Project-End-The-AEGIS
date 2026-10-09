@@ -83,19 +83,116 @@ export function createBufferedSink({ limitBytes = MAX_BUFFERED_PLAINTEXT_BYTES }
   }
 }
 
+/** ชื่อจุดวัดเวลาของการดาวน์โหลด V2 — ส่งออกทาง onTiming เท่านั้น ไม่มี log ใน production */
+export const VAULT_DOWNLOAD_TIMING = Object.freeze({
+  CLICK: 'DOWNLOAD_CLICK_TS',
+  PICKER_REQUEST: 'PICKER_REQUEST_TS',
+  PICKER_RETURN: 'PICKER_RETURN_TS',
+  META_AUTH_DONE: 'META_AUTH_DONE_TS',
+  FIRST_CHUNK_REQUEST: 'FIRST_CHUNK_REQUEST_TS',
+  FIRST_PLAINTEXT_WRITE: 'FIRST_PLAINTEXT_WRITE_TS',
+  COMPLETE: 'DOWNLOAD_COMPLETE_TS',
+})
+
+const timingNow = () => globalThis.performance?.now?.() ?? Date.now()
+
+/** แกะ DEK + ถอด metadata ด้วย AAD ของมัน — ครึ่ง "พิสูจน์ซอง" ร่วมของการดาวน์โหลดเดี่ยวและ ZIP หลายไฟล์ */
+async function unwrapAndAuthenticate(kek, blob) {
+  const dek = await unwrapVaultV2Dek(kek, blob)
+  const meta = await decryptVaultV2MetaWithDek(dek, blob)
+  return { dek, meta }
+}
+
+/**
+ * พิสูจน์ซองของรายการ V2 หนึ่งรายการโดยไม่เปิดปลายทาง — ใช้ใน pre-flight ของ ZIP หลายไฟล์ (spec §11)
+ * อ่านจาก record ในหน่วยความจำเท่านั้น (ไม่มี network)
+ *
+ * ⚠️ ไม่คืน DEK: pre-flight ต้องไม่สะสมกุญแจของทุกรายการไว้ในหน่วยความจำ
+ * ⚠️ คืน meta.plainSize "ตามที่ถอดได้ทุกประการ" — ไม่แปลงชนิด ไม่ตั้งค่าเริ่มต้น การตรวจว่าเป็น
+ *    จำนวนเต็มที่ปลอดภัยเป็นหน้าที่ของ pre-flight (ค่าเพี้ยนต้องถูกปฏิเสธ ไม่ใช่ถูก "ซ่อม" ที่นี่)
+ * @returns {Promise<{ ok: true, plainSize: unknown } | { ok: false, reason: 'wrong-key' }>}
+ */
+export async function authenticateVaultV2Entry({ kek, blob }) {
+  try {
+    const { meta } = await unwrapAndAuthenticate(kek, blob)
+    return { ok: true, plainSize: meta?.plainSize }
+  } catch {
+    return { ok: false, reason: 'wrong-key' }
+  }
+}
+
+/**
+ * เตรียมปลายทางของการดาวน์โหลด V2 ตามลำดับที่ปลอดภัยและไม่ทำให้ผู้ใช้รอ:
+ *
+ *   showSaveFilePicker (await ตัวแรก ยังอยู่ใน user gesture)
+ *   → แกะ DEK + พิสูจน์ metadata ด้วย AAD ของมัน
+ *   → createWritable() (เปิดปลายทางเพื่อเขียน หลังพิสูจน์ซองแล้วเท่านั้น)
+ *
+ * ⚠️ ห้ามมี await ใด ๆ ก่อน showSaveFilePicker ในฟังก์ชันนี้ และผู้เรียกต้องเรียกฟังก์ชันนี้
+ *    เป็น await ตัวแรกของ click handler — งานก่อนตัวเลือกไฟล์ต้องเป็น O(1) และไม่ขึ้นกับ
+ *    ขนาดไฟล์ (การแกะซองบน WebCrypto ต่อคิวกับงานถอดรหัสอื่นของแท็บ และกิน transient
+ *    activation ของการกด — ถ้าหมดเวลา ตัวเลือกไฟล์จะถูกปฏิเสธ)
+ * ⚠️ การพิสูจน์ metadata ไม่ได้ถูกลดทอน: ยังเกิดก่อน createWritable() และก่อนไบต์แรกของ
+ *    เนื้อไฟล์ ซองที่ผิด/สลับมา = ไม่เปิดปลายทางเพื่อเขียนเลย
+ *
+ * @returns {Promise<{ ok: true, dek: CryptoKey, sink: object }
+ *                 | { ok: false, reason: 'no-key'|'cancelled'|'picker'|'too-large-for-memory'|'wrong-key'|'destination' }>}
+ */
+export async function prepareVaultV2Download({
+  kek, blob, suggestedName, plainSize, signal, scope = globalThis, onTiming, now = timingNow,
+}) {
+  const mark = (name) => { try { onTiming?.(name, now()) } catch { /* การวัดต้องไม่ทำให้ดาวน์โหลดล้ม */ } }
+  if (!kek) return { ok: false, reason: 'no-key' }
+
+  let handle = null
+  if (supportsStreamingFileSink(scope)) {
+    mark(VAULT_DOWNLOAD_TIMING.PICKER_REQUEST)
+    try {
+      handle = await scope.showSaveFilePicker({ suggestedName })
+    } catch (err) {
+      // ผู้ใช้กดยกเลิกตัวเลือกไฟล์ = ไม่ใช่ความล้มเหลว
+      return { ok: false, reason: err?.name === 'AbortError' ? 'cancelled' : 'picker' }
+    }
+    mark(VAULT_DOWNLOAD_TIMING.PICKER_RETURN)
+  } else if (Number(plainSize) > MAX_BUFFERED_PLAINTEXT_BYTES) {
+    return { ok: false, reason: 'too-large-for-memory' }
+  }
+  if (signal?.aborted) return { ok: false, reason: 'cancelled' }
+
+  let dek
+  try {
+    ;({ dek } = await unwrapAndAuthenticate(kek, blob))
+  } catch {
+    // ⚠️ ยังไม่ได้เปิดปลายทางเพื่อเขียน — ไม่มีไบต์ใดของไฟล์นี้ถูกเขียนลงดิสก์
+    return { ok: false, reason: 'wrong-key' }
+  }
+  mark(VAULT_DOWNLOAD_TIMING.META_AUTH_DONE)
+  // ล็อกระหว่างตัวเลือกไฟล์เปิดอยู่ = ไม่เปิดปลายทาง
+  if (signal?.aborted) return { ok: false, reason: 'cancelled' }
+
+  if (!handle) return { ok: true, dek, sink: createBufferedSink() }
+  try {
+    return { ok: true, dek, sink: createFileSystemSink(await handle.createWritable()) }
+  } catch {
+    return { ok: false, reason: 'destination' }
+  }
+}
+
 /**
  * ดาวน์โหลด + ถอดรหัส blob V2 ทีละ chunk ลง sink
  *
  * @param {{ kek?: CryptoKey, dek?: CryptoKey, blob: object, sink: object,
  *           onProgress?: (p: object) => void, signal?: AbortSignal,
- *           fetchBytes?: Function }} options
+ *           fetchBytes?: Function, onTiming?: (name: string, ts: number) => void }} options
  * @returns {Promise<{ ok: boolean, reason?: string, chunksRead: number, bytesWritten: number,
  *                     meta?: object }>}
  */
 export async function downloadVaultV2({
   kek, dek: providedDek, blob, sink, onProgress, signal, fetchBytes = apiFetchBytes,
+  onTiming, now = timingNow,
 }) {
   const aborted = () => Boolean(signal?.aborted)
+  const mark = (name) => { try { onTiming?.(name, now()) } catch { /* การวัดต้องไม่ทำให้ดาวน์โหลดล้ม */ } }
   let dek = providedDek
   let meta = null
   let bytesWritten = 0
@@ -120,6 +217,7 @@ export async function downloadVaultV2({
       if (aborted()) return fail('cancelled')
 
       // ── ขอทีละก้อน — หนึ่งคำขอ หนึ่งข้อความ AEAD ─────────────────────────
+      if (index === 0) mark(VAULT_DOWNLOAD_TIMING.FIRST_CHUNK_REQUEST)
       const res = await fetchBytes(
         `/api/vault/blobs/${encodeURIComponent(blob.id)}/chunks/${index}`, { signal },
       )
@@ -148,6 +246,7 @@ export async function downloadVaultV2({
       if (plain.length !== range.end - range.start) return fail('chunk-size-mismatch')
 
       await sink.write(plain)
+      if (index === 0) mark(VAULT_DOWNLOAD_TIMING.FIRST_PLAINTEXT_WRITE)
       bytesWritten += plain.length
       chunksRead += 1
       plain = null // ปล่อยทันที — ก้อนถัดไปต้องไม่ทับซ้อนกับก้อนนี้ในหน่วยความจำ
@@ -163,7 +262,10 @@ export async function downloadVaultV2({
 
     if (bytesWritten !== Number(meta.plainSize ?? 0)) return fail('size-mismatch')
 
+    // ⚠️ ยกเลิก/ล็อกหลังเขียนก้อนสุดท้ายแต่ก่อน close() = ต้อง abort ไม่ใช่ประกาศว่าสำเร็จ
+    if (aborted()) return fail('cancelled')
     const result = await sink.close()
+    mark(VAULT_DOWNLOAD_TIMING.COMPLETE)
     return { ok: true, chunksRead, bytesWritten, meta, result }
   } catch (err) {
     if (err?.code === 'BUFFER_LIMIT') return fail('too-large-for-memory')

@@ -35,6 +35,35 @@ docker compose
 | NAS | Disabled by default; production transfer/integrity verification pending |
 | Windows auto-start | Portable installer, Engine supervisor, SYSTEM tunnel reconnect, status/repair/uninstall scripts implemented; every laptop still needs machine-specific provisioning and reboot proof |
 
+## Dedicated Windows Identity Agent (source checkpoint)
+
+The Machine identity path is a separate Windows service named
+`AEGISIdentityAgent`, running as `NT SERVICE\AEGISIdentityAgent`. Its isolated
+runtime lives under `%ProgramFiles%\AEGIS\IdentityAgent`; encrypted mutable
+state lives under `%ProgramData%\AEGIS\IdentityAgent`. It does not import the
+Detection Engine, camera, stream, model, or lifecycle modules.
+
+The application Ed25519 private key is protected with DPAPI `CurrentUser` under
+the service identity. There is no plaintext, LocalMachine, SSH-key, or broader
+ACL fallback. Run the reviewed DPAPI preflight under the installed service
+identity before generating a key; provisioning exports only public SPKI PEM and
+its SHA-256 fingerprint. The Windows acceptance gate is still required—source
+tests do not prove the real service profile, DPAPI, or ACL behavior.
+
+Install Agent dependencies only into its dedicated virtual environment:
+
+```text
+requirements-identity-agent-windows.txt
+```
+
+The Windows Engine runtime installs its own `pywin32==312` named-pipe client
+dependency through the Windows-marked Engine requirements. Its virtual
+environment remains separate from the Agent's: the Engine imports client
+primitives only and receives no Agent key, session, or signing authority.
+The normal Windows install/repair path installs this requirement into the
+Engine venv; `-SkipDependencyInstall` does not reconcile a missing package
+and the installer preflight will reject that incomplete runtime.
+
 Object detection is not identity. The modular runtime does not import the
 legacy `YOLO/object -> Authorized/Admin` behavior and must never infer access
 authorization from an object class.
@@ -94,7 +123,7 @@ The default development configuration has:
 The runtime API can start while the camera is unavailable; `VideoCatcher`
 reports disconnected state and retries with bounded exponential backoff.
 
-## Windows Detection Laptop installation
+## Windows Detection Machine installation
 
 Use [`windows/README.md`](windows/README.md) for the Windows bootstrap. It
 installs a machine-local copy under `%LOCALAPPDATA%`, creates a runtime-local
@@ -197,6 +226,32 @@ The tests use camera/runtime doubles and do not require real hardware:
 python -m unittest discover -s tests -v
 ```
 
+## Cross-platform machine registration checklist
+
+The deployment contract is deliberately split between shared behavior and
+machine-local data:
+
+1. Register one unique Node identity and one unique physical-camera identity
+   for the machine. Do not derive either value from a username.
+2. Register the Node-to-physical-camera mapping on the server. Machine A owns
+   its built-in laptop camera, Machine B owns its local Linux camera, and
+   Machine C owns its external webcam.
+3. Configure the account alias policy identically on every machine:
+   `operator -> CAM-01` and `operator2 -> CAM-02`. Account switching changes
+   only this logical alias, never the registered physical camera.
+4. Provision a unique key version, SSH identity, verified host trust, tunnel
+   destination, server bind address, reverse port, and local camera device as
+   deployment data. No Node ID, physical-camera ID, host/IP, unique reverse
+   port, or camera hardware type is a reusable-source constant.
+5. Verify idle, first demand, shared/reference-counted demand, final release,
+   and account switching on the target OS. Source/static tests do not prove a
+   physical camera or reboot lifecycle on an untested machine.
+
+The shared Engine, Monitor authorization, demand/release, and model semantics
+are the same for Windows and Linux. Only device discovery and service lifecycle
+are OS adapters. Trained model weights and business rules are not selected by
+machine name or operating system.
+
 ## Persistent edge-node installation
 
 - Windows nodes use the scripts and runbook in `windows/`.
@@ -209,6 +264,15 @@ recordings and local virtual environments outside Git. Every additional node
 must have a unique camera/node identity, its own SSH key and a server-approved
 unique reverse-forward port; local ports `8077` and `18002` may be reused on
 different machines.
+
+Current verification is intentionally asymmetric. The Windows lifecycle is the
+shared implementation for Machine A (laptop/built-in camera) and Machine C
+(PC/external webcam), with camera selection supplied by each machine's `.env`.
+The Linux systemd Engine+tunnel lifecycle has source/static coverage for Machine
+B, including Linux camera discovery, but the repository does not yet provide a
+Linux dedicated Identity Agent adapter or real Machine B runtime acceptance.
+Those gaps are `FOLLOW-UP_REQUIRED`; they do not require a rewrite of shared
+authorization, demand/release, or model behavior.
 
 They cover configuration loading, NAS-disabled startup, lifecycle rollback and
 shutdown, NAS success truthfulness, placeholder/hybrid authorization safety,

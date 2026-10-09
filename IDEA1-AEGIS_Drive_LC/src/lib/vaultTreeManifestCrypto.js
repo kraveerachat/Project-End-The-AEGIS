@@ -33,6 +33,8 @@ export class ManifestCryptoError extends Error {
  * @returns {Promise<{ciphertext:Uint8Array, ivB64:string, wrappedManifestDekB64:string, wrapIvB64:string, paddedLength:number}>}
  */
 export async function encryptManifestRevision(trk, manifest, ctx, limits = VAULT_TREE_CLIENT_LIMITS, { skipValidation = false } = {}) {
+  // the AAD's schema version must describe the body it authenticates — never skippable
+  if (manifest?.schemaVersion !== ctx?.manifestSchemaVersion) throw new ManifestCryptoError('BAD_INPUT', 'manifest schemaVersion differs from ctx.manifestSchemaVersion')
   if (!skipValidation) {
     try { validateManifest(manifest, limits) } catch (e) { throw new ManifestCryptoError('MANIFEST_INVALID', e.message, e) }
   }
@@ -84,6 +86,7 @@ export async function decryptManifestRevision(trk, envelope, ctx, limits = VAULT
     throw new ManifestCryptoError(e instanceof CanonicalError && e.code === 'LIMIT_DECODED_BYTES' ? 'LIMIT_DECODED_BYTES' : 'MANIFEST_INVALID', e.message, e)
   }
   padded.fill(0)
+  if (manifest.schemaVersion !== ctx.manifestSchemaVersion) throw new ManifestCryptoError('MANIFEST_INVALID', 'plaintext schemaVersion differs from the revision schema version')
   try { validateManifest(manifest, limits) } catch (e) {
     throw new ManifestCryptoError('MANIFEST_INVALID', e instanceof ManifestError ? e.message : 'invalid', e)
   }

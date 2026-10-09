@@ -133,6 +133,44 @@ MQTT_CLIENT_ID = "idea3-core"  # fixed Core broker identity; ESP32 identities ar
 DRY_RUN = _env_bool("AEGIS_DRY_RUN", False)
 AUTO_CONTAIN = _env_bool("AEGIS_AUTO_CONTAIN", False)
 
+# ---- Core-mediated Recovery (R1-R8) ----
+# Probe targets are non-secret and unset means NOT_CONFIGURED, never a passing check. The Core runs the probes;
+# no desktop process supplies or executes them.
+RECOVERY_MANAGEMENT_PROBE_TARGET = os.getenv("AEGIS_RECOVERY_MANAGEMENT_PROBE_TARGET", "").strip()
+RECOVERY_NETWORK_PROBE_TARGETS = os.getenv("AEGIS_RECOVERY_NETWORK_PROBE_TARGETS", "").strip()
+RECOVERY_WEB_READINESS_URL = os.getenv("AEGIS_RECOVERY_WEB_READINESS_URL", "").strip()
+
+
+def _optional_int(name):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+# The Recovery AF_UNIX server starts only when an operator uid is configured (production profile only); unset or
+# invalid keeps it disabled. The socket group is optional and only widens the file mode to 0660 for that group;
+# the SO_PEERCRED uid check remains the authority.
+RECOVERY_OPERATOR_UID = _optional_int("AEGIS_RECOVERY_OPERATOR_UID")
+RECOVERY_SOCKET_GID = _optional_int("AEGIS_RECOVERY_SOCKET_GID")
+RECOVERY_SOCKET = os.getenv("AEGIS_RECOVERY_SOCKET", "").strip()
+
+# F1: the Core-local production alert ingress (R1 source). One numeric uid (the account running the detector) may submit
+# an IPv4 attacker candidate over the dedicated F1 socket below. Unset or invalid keeps the channel disabled (fail closed).
+ALERT_SOURCE_UID = _optional_int("AEGIS_ALERT_SOURCE_UID")
+# R1D: the historical-incident disposition channel is INERT by default: it exists only when this flag is exactly YES (and the
+# profile is production, a detector authority is configured and no disposition has ever been recorded). The peer must be uid 0.
+R1D_DISPOSITION_ENABLED = os.getenv("AEGIS_R1D_DISPOSITION_ENABLED", "")
+# OD-F1-DEPLOY-01: the dedicated F1 alert transport. Constants on purpose (no environment override): the general runtime
+# directory and the Recovery runtime are never an alert path. The group is filesystem reachability only; the uid is the authority.
+ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"
+ALERT_SOCKET_PATH = ALERT_RUNTIME_DIR + "/alert.sock"
+ALERT_GROUP = "aegis-idea3-alert"
+
 
 def validate_config():
     """ตรวจค่าตั้งตอนเริ่มโปรแกรม — คืน list ของคำเตือน (ไม่ถึงกับ error แต่ควรรู้)"""

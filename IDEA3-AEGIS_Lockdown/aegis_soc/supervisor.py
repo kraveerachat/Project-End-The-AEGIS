@@ -20,7 +20,10 @@ from pathlib import Path
 
 from . import config
 from . import database as db
+from . import historical_disposition as hd
 from . import local_restore as lr
+from . import recovery_core as rc
+from . import recovery_protocol as rp
 from .controller import AegisCommandController, CommandResult
 from .dispatch_worker import (
     ACTIVE,
@@ -227,7 +230,12 @@ class AegisSupervisor:
         )
         self.restore_credential = restore_credential if d4_enabled else None
         self.local_restore = None
+        self.recovery = rc.CoreRecoveryService(self)
+        self.recovery_server = None
+        self.alert_server = None
+        self.historical_server = None
         self._command_lock = threading.RLock()
+        self._fresh_lockdown: tuple[str, int] | None = None  # process-local; never restored from the database
         self._containment_count_lock = threading.Lock()
         self._containment_count = 0
         self._containment_pending = threading.Event()
@@ -285,6 +293,46 @@ class AegisSupervisor:
             self.log_event("INFO", "state_transition", state=state, reason=detail)
         self.status.write(self.settings.status_path)
 
+    def _restore_basis_approved(self, basis) -> bool:
+        if isinstance(basis, lr.BreakGlassBasis):
+            # A forged basis cannot pass: it must name a real, spent claim of the fresh episode, consumed exactly once.
+            if self.fresh_lockdown_episode() != basis.episode_id:
+                return False
+            try:
+                return db.consume_break_glass_claim(basis.claim_id, basis.episode_id)
+            except Exception:
+                return False
+        return isinstance(basis, str) and basis in lr.PRODUCTION_RESTORE_BASES
+
+    def fresh_lockdown_episode(self) -> int | None:
+        """The open durable lockdown episode id ONLY while THIS process holds a fresh authenticated LOCKDOWN for it.
+
+        The proof is process-local and is never reconstructed from the database, so a Core restart clears it.
+        """
+        proof = self._fresh_lockdown
+        context = self.protocol
+        if proof is None or context is None or proof[0] != context.device_id:
+            return None
+        try:
+            episode = db.get_open_lockdown_episode(proof[0])
+        except Exception:
+            return None
+        return proof[1] if episode and episode["id"] == proof[1] else None
+
+    def _on_authenticated_status(self, state, device_id, msg_id) -> None:
+        """Authenticated Protocol-v1 STATUS only: update the durable episode model and the process-local freshness proof."""
+        if state not in ("LOCKDOWN", "NORMAL"):
+            return
+        with self._command_lock:
+            self._fresh_lockdown = None
+            try:
+                episode_id = db.record_authenticated_status(device_id, state, msg_id)
+            except Exception as exc:
+                self.log_event("ERROR", "lockdown_episode_record_failed", error=type(exc).__name__)
+                return
+            if state == "LOCKDOWN" and episode_id is not None:
+                self._fresh_lockdown = (device_id, episode_id)
+
     def issue_command(
         self,
         action: str,
@@ -294,8 +342,22 @@ class AegisSupervisor:
         origin: str = "unknown",
         authorize_restore: bool = False,
         not_after: float | None = None,
+        restore_basis: str | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state."""
+        if (
+            action == "RESTORE_UPLINK"
+            and self.settings.profile == "production"
+            and not self._restore_basis_approved(restore_basis)
+        ):
+            # Production chokepoint: no caller can publish RESTORE without exactly one approved basis, which only the D4 gate
+            # supplies: NORMAL_R5_BASIS after the Recovery preconditions passed, or BREAK_GLASS_BASIS after the durable
+            # one-per-lockdown-episode claim (OD-R5-BG-01). No basis: refuse.
+            detail = "RESTORE_UPLINK rejected: production RESTORE requires the verified Recovery policy basis"
+            db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+            return CommandResult(
+                action, False, False, self.controller.dry_run, None, detail, reason_code="RESTORE_POLICY_REQUIRED",
+            )
         containment = action == "CUT_UPLINK"
         if containment:
             with self._containment_count_lock:
@@ -447,6 +509,14 @@ class AegisSupervisor:
     def _on_connection(self, connected: bool) -> None:
         self.mqtt.is_connected = connected
         self.status.broker = "CONNECTED" if connected else "DISCONNECTED"
+        # Persist immediately so status.json converges with the live broker
+        # state instead of waiting for the next health-loop pass. RuntimeStatus.write
+        # serializes snapshot+replace under a lock, so this MQTT-thread write cannot
+        # be overtaken by an older supervisor-loop snapshot.
+        try:
+            self.status.write(self.settings.status_path)
+        except OSError as exc:
+            self.log_event("WARNING", "broker_status_persist_failed", error=type(exc).__name__)
 
     def _on_status(self, state, rssi, heap, command_nonce="") -> None:
         with self._command_lock:
@@ -553,6 +623,10 @@ class AegisSupervisor:
             self.log_event("WARNING", "invalid_attacker_ip", value=str(ip)[:64])
             return
         self.log_event("WARNING", "detector_alert", attacker_ip=safe_ip)
+        try:  # Core-owned R1: record the incident from a validated alert; never contains or cuts by itself
+            self.recovery.bind_incident(safe_ip)
+        except Exception as error:
+            self.log_event("ERROR", "incident_bind_failed", error=type(error).__name__)
         if not self.settings.auto_contain:
             return
         if self.status.armed != "ARMED":
@@ -592,6 +666,7 @@ class AegisSupervisor:
     def bind_callbacks(self) -> None:
         self.mqtt.connection_callback = self._on_connection
         self.mqtt.status_callback = self._on_status
+        self.mqtt.authenticated_status_callback = self._on_authenticated_status
         self.mqtt.ack_callback = self._on_ack
         self.mqtt.attacker_callback = self._on_attacker
 
@@ -605,6 +680,16 @@ class AegisSupervisor:
             audit=db.log_event,
             audit_strict=db.log_event_strict,
             monotonic=self.monotonic,
+            incident_lookup=db.get_open_incident,
+            attempt_lookup=db.restore_attempt_exists,
+            # Production only: a non-production Core cannot satisfy the Recovery gates (they refuse NOT_PRODUCTION), so the
+            # lab D4 gate keeps its original behaviour. In production the policy is mandatory (see issue_command).
+            precondition_lookup=(
+                self.recovery.restore_precondition_unmet if self.settings.profile == "production" else None
+            ),
+            # OD-R5-BG-01 break-glass: production only, with the same recovery service and the process-local fresh proof.
+            break_glass_lookup=self.recovery.break_glass_unmet if self.settings.profile == "production" else None,
+            episode_lookup=self.fresh_lockdown_episode if self.settings.profile == "production" else None,
         )
         server = lr.LocalRestoreServer(self.settings.runtime_dir / lr.CHANNEL_NAME, gate)
         server.start()
@@ -612,6 +697,105 @@ class AegisSupervisor:
 
     def stop_local_restore(self) -> None:
         server, self.local_restore = self.local_restore, None
+        if server is not None:
+            server.close()
+
+    def start_recovery(self) -> None:
+        """Start the Core-owned Recovery AF_UNIX channel. Optional: it never blocks or fails the Core."""
+        if self.recovery_server is not None:
+            return
+        operator_uid = config.RECOVERY_OPERATOR_UID
+        if self.settings.profile != "production" or operator_uid is None or not lr.local_restore_supported():
+            self.log_event("INFO", "recovery_channel_disabled", profile=self.settings.profile)
+            return
+        server = rc.RecoveryServer(
+            config.RECOVERY_SOCKET or rp.DEFAULT_SOCKET_PATH,
+            self.recovery,
+            allowed_uid=operator_uid,
+            socket_gid=config.RECOVERY_SOCKET_GID,
+        )
+        try:
+            server.start()
+        except (rc.RecoveryChannelError, OSError) as error:
+            self.log_event("ERROR", "recovery_channel_failed", error=type(error).__name__)
+            return
+        self.recovery_server = server
+
+    def stop_recovery(self) -> None:
+        server, self.recovery_server = self.recovery_server, None
+        if server is not None:
+            server.close()
+
+    def start_historical_disposition(self) -> None:
+        """R1D: the dedicated, root-only, one-shot historical-incident disposition channel. INERT by default (exact flag, production,
+        configured detector authority) and never started once a disposition exists. Optional: it never blocks or fails the Core."""
+        if self.historical_server is not None:
+            return
+        if not hd.enabled(self.settings.profile, enabled_flag=config.R1D_DISPOSITION_ENABLED) or not lr.local_restore_supported():
+            return
+        if config.ALERT_SOURCE_UID is None:
+            self.log_event("ERROR", "historical_disposition_failed", error="DETECTOR_AUTHORITY_UNCONFIGURED")
+            return
+        if hd.disposition_exists() or hd.attempt_exists() or hd.marker_present():
+            self.log_event("INFO", "historical_disposition_closed", reason="ALREADY_DISPOSED_OR_ATTEMPTED")
+            return
+        server = hd.HistoricalDispositionServer(
+            self.settings.runtime_dir / hd.CHANNEL_NAME,
+            hd.HistoricalDispositionService(profile=self.settings.profile, detector_uid=config.ALERT_SOURCE_UID),
+            allowed_uid=0,
+        )
+        try:
+            server.start()
+        except (hd.DispositionChannelError, OSError) as error:
+            self.log_event("ERROR", "historical_disposition_failed", error=type(error).__name__)
+            return
+        self.historical_server = server
+
+    def stop_historical_disposition(self) -> None:
+        server, self.historical_server = self.historical_server, None
+        if server is not None:
+            server.close()
+
+    def on_production_alert(self, ip: str) -> dict:
+        """R1 only: record the validated attacker candidate as the bound incident. Never acts on the host."""
+        result = self.recovery.bind_incident(ip)
+        self.log_event("WARNING", "production_alert", attacker_ip=ip, action=str(result.get("action")))
+        return result
+
+    def start_alert_ingress(self) -> None:
+        """Start the Core-local alert ingress (the production R1 source). Optional: it never blocks or fails the Core."""
+        if self.alert_server is not None:
+            return
+        source_uid = config.ALERT_SOURCE_UID
+        if self.settings.profile != "production" or source_uid is None or not lr.local_restore_supported():
+            self.log_event("INFO", "alert_ingress_disabled", profile=self.settings.profile)
+            return
+        if source_uid == 0 or source_uid == os.geteuid():
+            # The detector is a dedicated non-root account that is not the Core: root and the Core uid never author alerts.
+            self.log_event("ERROR", "alert_ingress_failed", error="SOURCE_UID_NOT_DEDICATED")
+            return
+        import grp  # POSIX only; reached only after lr.local_restore_supported()
+
+        try:
+            alert_gid = grp.getgrnam(config.ALERT_GROUP).gr_gid
+        except KeyError:
+            self.log_event("ERROR", "alert_ingress_failed", error="ALERT_GROUP_UNRESOLVED")
+            return
+        server = rc.AlertServer(
+            config.ALERT_SOCKET_PATH,
+            rc.AlertIngress(self.on_production_alert),
+            allowed_uid=source_uid,
+            socket_gid=alert_gid,
+        )
+        try:
+            server.start()
+        except (rc.RecoveryChannelError, OSError) as error:
+            self.log_event("ERROR", "alert_ingress_failed", error=type(error).__name__)
+            return
+        self.alert_server = server
+
+    def stop_alert_ingress(self) -> None:
+        server, self.alert_server = self.alert_server, None
         if server is not None:
             server.close()
 
@@ -716,6 +900,9 @@ class AegisSupervisor:
             self.bind_callbacks()
             self.recover_protocol_state()
             self.start_local_restore()
+            self.start_recovery()
+            self.start_alert_ingress()
+            self.start_historical_disposition()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
             if not self.settings.dry_run:
@@ -747,6 +934,9 @@ class AegisSupervisor:
             return 1
         finally:
             self.stop_requested = True
+            self.stop_historical_disposition()
+            self.stop_alert_ingress()
+            self.stop_recovery()
             self.stop_local_restore()
             self.children.stop_all()
             self.mqtt.stop()

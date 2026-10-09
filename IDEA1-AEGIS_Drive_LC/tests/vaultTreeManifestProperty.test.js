@@ -98,3 +98,63 @@ test('MP-2 effectiveState(node) equals any(self or ancestor stored state ≠ act
     for (const n of storedActiveUnderTrashed) assert.equal(n.lifecycle.state, 'active')
   }
 })
+
+// ── Unified Preview P2a: schema v2 generators (T-MAN-V2) ─────────────────────
+
+const B64 = (rnd) => Buffer.from(Array.from({ length: 16 }, () => Math.floor(rnd() * 256))).toString('base64')
+const VP1 = { thumb: [512, 512, 256 * 1024, null], poster: [512, 512, 256 * 1024, null], motion: [480, 270, 4 * 1024 * 1024, 6000], proxy: [854, 480, 1024 * 1024 * 1024, 3_600_000] }
+const MIME = { thumb: ['image/webp', 'image/jpeg'], poster: ['image/webp', 'image/jpeg'], motion: ['video/mp4', 'video/webm'], proxy: ['video/mp4'] }
+const FORMATS = ['', 'mp4', 'jpeg', 'png', 'webm', 'pdf', 'unknown']
+const int = (rnd, lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1))
+
+function randomPreview(rnd, kind, sourceBlobRef, k) {
+  const [longMax, shortMax, sizeMax, durMax] = VP1[kind]
+  const long = int(rnd, 1, longMax), short = int(rnd, 1, Math.min(long, shortMax))
+  const [width, height] = rnd() < 0.5 ? [long, short] : [short, long]
+  const p = { kind, profile: 'vp1', blobRef: { formatVersion: 2, id: `d-${kind}-${k}` }, contentId: B64(rnd), sourceBlobRef: { ...sourceBlobRef }, mime: MIME[kind][int(rnd, 0, MIME[kind].length - 1)], width, height, plainSize: int(rnd, 1, sizeMax), createdAtClient: NOW }
+  if (durMax) p.durationMs = int(rnd, 1, durMax)
+  return p
+}
+
+function randomTreeV2(rnd) {
+  const m = randomTree(rnd)
+  m.schemaVersion = 2
+  let k = 0
+  for (const n of m.nodes.values()) {
+    if (n.kind !== 'file') continue
+    k++
+    if (rnd() < 0.7) n.contentFormat = FORMATS[int(rnd, 0, FORMATS.length - 1)]
+    if (rnd() < 0.8) n.previews = ['thumb', 'poster', 'motion', 'proxy'].filter(() => rnd() < 0.5).map((kind) => randomPreview(rnd, kind, n.blobRef, k))
+  }
+  return m
+}
+
+const firstPreview = (m) => [...m.nodes.values()].find((n) => n.previews?.length)?.previews[0]
+const firstFile = (m) => [...m.nodes.values()].find((n) => n.kind === 'file')
+const V2_MUTATIONS = [
+  ['unknown preview key', (m) => { const p = firstPreview(m); if (!p) return false; p.extra = 1 }, 'UNKNOWN_KEY'],
+  ['derivative blobRef v1', (m) => { const p = firstPreview(m); if (!p) return false; p.blobRef.formatVersion = 1 }, 'PREVIEW_BAD_BLOB_REF'],
+  ['contentId 15 bytes', (m) => { const p = firstPreview(m); if (!p) return false; p.contentId = p.contentId.slice(0, 20) }, 'PREVIEW_BAD_CONTENT_ID'],
+  ['width above bound', (m) => { const p = firstPreview(m); if (!p) return false; p.width = 100_000 }, 'PREVIEW_OUT_OF_BOUNDS'],
+  ['plainSize zero', (m) => { const p = firstPreview(m); if (!p) return false; p.plainSize = 0 }, 'PREVIEW_BAD_FIELD'],
+  ['bad kind', (m) => { const p = firstPreview(m); if (!p) return false; p.kind = 'banner' }, 'PREVIEW_BAD_KIND'],
+  ['bad mime', (m) => { const p = firstPreview(m); if (!p) return false; p.mime = 'text/html' }, 'PREVIEW_BAD_MIME'],
+  ['duplicate kind', (m) => { const n = [...m.nodes.values()].find((x) => x.previews?.length); if (!n) return false; n.previews.push({ ...n.previews[0], blobRef: { formatVersion: 2, id: 'dup' } }); if (n.previews.length > 4) n.previews.splice(1, 1) }, 'PREVIEW_DUPLICATE_KIND'],
+  ['unknown contentFormat', (m) => { const f = firstFile(m); if (!f) return false; f.contentFormat = 'exe' }, 'BAD_CONTENT_FORMAT'],
+  ['folder with previews', (m) => { const f = [...m.nodes.values()].find((x) => x.kind === 'folder'); f.previews = [] }, 'FOLDER_HAS_PREVIEWS'],
+  ['v2 keys under schema 1', (m) => { const f = [...m.nodes.values()].find((x) => x.previews || x.contentFormat !== undefined); if (!f) return false; m.schemaVersion = 1 }, 'UNKNOWN_KEY'],
+]
+
+test('MP-3 300 random valid v2 manifests pass; every single-field corruption rejects with its code', () => {
+  let tried = 0
+  for (let i = 0; i < 300; i++) {
+    assert.equal(validateManifest(randomTreeV2(makeRnd(5000 + i)), LIMITS).ok, true, `v2 tree ${i}`)
+    for (const [label, mutate, code] of V2_MUTATIONS) {
+      const copy = randomTreeV2(makeRnd(5000 + i))
+      if (mutate(copy) === false) continue
+      tried++
+      assert.throws(() => validateManifest(copy, LIMITS), (e) => e.code === code, `v2 tree ${i}: ${label} → ${code}`)
+    }
+  }
+  assert.ok(tried > 1000, `v2 mutations exercised: ${tried}`)
+})

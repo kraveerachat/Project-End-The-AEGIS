@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+INGEST_AUTH_MODES = ("legacy_shared_key", "ed25519_required")
 
 
 def die(message: str) -> None:
@@ -32,6 +33,16 @@ def validate_identifier(value: str, label: str) -> str:
             f"{label} must be 1-64 characters using only letters, digits, '.', '_' or '-'"
         )
     return value
+
+
+def positive_integer(value: str) -> int:
+    try:
+        parsed = int(str(value), 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
 
 
 def parse_account_alias(value: str) -> tuple[str, str]:
@@ -111,7 +122,7 @@ def print_nodes(rows) -> None:
         return
     print(
         f"{'NODE':<24} {'PHYSICAL':<10} {'POLICY':<9} {'CAMERA':<12} "
-        f"{'VERSION':<9} {'ACTIVE':<8} FINGERPRINT"
+        f"{'VERSION':<9} {'AUTH MODE':<20} {'ACTIVE':<8} FINGERPRINT"
     )
     for row in rows:
         physical_id = row.get("physical_camera_id") or "-"
@@ -120,7 +131,7 @@ def print_nodes(rows) -> None:
         print(
             f"{row['node_id']:<24} {str(physical_id):<10} {policy_mode:<9} "
             f"{camera_id:<12} "
-            f"{row['key_version']:<9} {str(row['active']):<8} "
+            f"{row['key_version']:<9} {row['ingest_auth_mode']:<20} {str(row['active']):<8} "
             f"{row['public_key_fingerprint']}"
         )
 
@@ -150,10 +161,11 @@ def cmd_register(args: argparse.Namespace) -> None:
             cur.execute(
                 """
                 INSERT INTO detection_nodes
-                  (node_id, camera_id, public_key, public_key_fingerprint, key_version, active)
-                VALUES (%s, %s, %s, %s, 1, TRUE)
+                  (node_id, camera_id, public_key, public_key_fingerprint,
+                   key_version, ingest_auth_mode, active)
+                VALUES (%s, %s, %s, %s, 1, %s, TRUE)
                 """,
-                (node_id, camera_id, public_key, fingerprint),
+                (node_id, camera_id, public_key, fingerprint, "legacy_shared_key"),
             )
             cur.execute(
                 """
@@ -188,7 +200,7 @@ def cmd_register(args: argparse.Namespace) -> None:
         conn.close()
     print(
         f"registered node={node_id} physical_camera_id={physical['physical_camera_id']} "
-        f"camera={camera_id} fingerprint={fingerprint} version=1"
+        f"camera={camera_id} fingerprint={fingerprint} version=1 mode=legacy_shared_key"
     )
 
 
@@ -199,7 +211,7 @@ def cmd_list(args: argparse.Namespace) -> None:
             cur.execute(
                 """
                 SELECT dn.node_id, dn.camera_id, dn.public_key_fingerprint,
-                       dn.key_version, dn.active, pc.physical_camera_id,
+                       dn.key_version, dn.ingest_auth_mode, dn.active, pc.physical_camera_id,
                        ap.mode AS policy_mode
                   FROM detection_nodes dn
              LEFT JOIN physical_cameras pc ON pc.node_id = dn.node_id
@@ -232,6 +244,7 @@ def cmd_disable(args: argparse.Namespace) -> None:
 
 def cmd_rotate_key(args: argparse.Namespace) -> None:
     node_id = validate_identifier(args.node_id, "node id")
+    expected_version = positive_integer(args.expected_current_key_version)
     public_key, fingerprint = load_public_key(args.public_key)
     conn = connect()
     try:
@@ -246,16 +259,59 @@ def cmd_rotate_key(args: argparse.Namespace) -> None:
                            active = TRUE,
                            updated_at = now()
                      WHERE node_id = %s
+                       AND key_version = %s
                  RETURNING key_version
                     """,
-                    (public_key, fingerprint, node_id),
+                    (public_key, fingerprint, node_id, expected_version),
                 )
                 row = cur.fetchone()
                 if not row:
-                    raise ValueError(f"node '{node_id}' does not exist")
+                    cur.execute(
+                        "SELECT key_version FROM detection_nodes WHERE node_id = %s",
+                        (node_id,),
+                    )
+                    current = cur.fetchone()
+                    if not current:
+                        raise ValueError(f"node '{node_id}' does not exist")
+                    raise ValueError(
+                        f"node '{node_id}' key version mismatch: "
+                        f"expected {expected_version}, current {current['key_version']}"
+                    )
     finally:
         conn.close()
     print(f"rotated node={node_id} fingerprint={fingerprint} version={row['key_version']}")
+
+
+def cmd_set_ingest_auth_mode(args: argparse.Namespace) -> None:
+    node_id = validate_identifier(args.node_id, "node id")
+    mode = str(args.mode)
+    if mode not in INGEST_AUTH_MODES:
+        raise ValueError("ingest auth mode is not supported")
+    conn = connect()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                UPDATE detection_nodes
+                   SET ingest_auth_mode = %s, updated_at = now()
+                 WHERE node_id = %s
+             RETURNING node_id, ingest_auth_mode, key_version
+                """,
+                (mode, node_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"node '{node_id}' does not exist")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    print(
+        f"ingest auth node={row['node_id']} mode={row['ingest_auth_mode']} "
+        f"version={row['key_version']}"
+    )
 
 
 def _require_node(cur, node_id: str) -> None:
@@ -590,7 +646,20 @@ def build_parser() -> argparse.ArgumentParser:
     rotate = commands.add_parser("rotate-key", help="replace a node public key")
     rotate.add_argument("--node-id", required=True)
     rotate.add_argument("--public-key", required=True, type=pathlib.Path)
+    rotate.add_argument(
+        "--expected-current-key-version",
+        required=True,
+        type=positive_integer,
+    )
     rotate.set_defaults(handler=cmd_rotate_key)
+
+    ingest_mode = commands.add_parser(
+        "set-ingest-auth-mode",
+        help="set the explicit authentication mode for one node",
+    )
+    ingest_mode.add_argument("--node-id", required=True)
+    ingest_mode.add_argument("--mode", required=True, choices=INGEST_AUTH_MODES)
+    ingest_mode.set_defaults(handler=cmd_set_ingest_auth_mode)
 
     fixed = commands.add_parser("set-fixed-alias", help="set one fixed logical alias for a node")
     fixed.add_argument("--node-id", required=True)

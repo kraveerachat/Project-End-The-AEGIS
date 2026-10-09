@@ -117,7 +117,7 @@ function DiskHealthCard({ t, disk, now, remoteAccess, remoteLoading = false, rem
             </NotYetImplemented>
           )}
           {diskAvailable && disk.stale && (
-            <p role="status" className="text-[12.5px] rounded-[10px] px-3 py-2 mb-3 leading-relaxed" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
+            <p role="status" className="neo-callout text-[12.5px] rounded-[10px] px-3 py-2 mb-3 leading-relaxed" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>
               {t('diskStale', { minutes: Math.round((disk.maxAgeSeconds ?? 1800) / 60) })}
             </p>
           )}
@@ -196,7 +196,7 @@ function BackupCard({ t, backup, historyState, go, canManage, now }) {
       {!protectedTarget && (
         <div className="mb-4 flex flex-col gap-3">
           {state === 'SAME_FAILURE_DOMAIN' && (
-            <p role="alert" className="text-[12.5px] rounded-[10px] px-3 py-2 leading-relaxed" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>
+            <p role="alert" className="neo-callout neo-callout--danger text-[12.5px] rounded-[10px] px-3 py-2 leading-relaxed" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>
               {t('backupSameDomainWhy')}
             </p>
           )}
@@ -279,9 +279,9 @@ function BackupCard({ t, backup, historyState, go, canManage, now }) {
         </>
       )}
 
-      <div className="mt-4 overflow-x-auto rounded-[var(--r-tile)] border border-line">
+      <div className="neo-table-frame mt-4 overflow-x-auto rounded-[var(--r-tile)] border border-line">
         <div className="min-w-[520px]">
-          <div className="grid grid-cols-[1fr_160px_120px] gap-3 px-4 h-9 items-center bg-sunken border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]">
+          <div className="neo-table-head grid grid-cols-[1fr_160px_120px] gap-3 px-4 h-9 items-center bg-sunken border-b border-line text-[11px] font-semibold text-ink-3 uppercase tracking-[0.06em]">
             <span>{t('colJob')}</span>
             <span>{t('colStarted')}</span>
             <span>{t('colResult')}</span>
@@ -308,7 +308,7 @@ function BackupCard({ t, backup, historyState, go, canManage, now }) {
               {canManage && available && state === 'NOT_CONFIGURED' ? t('backupScheduleEmpty') : t('backupHistoryEmpty')}
             </InlineEmptyState>
           ) : jobs.slice(0, 8).map((job) => (
-            <div key={job.jobId} className="grid grid-cols-[1fr_160px_120px] gap-3 px-4 py-2.5 items-center border-b border-line last:border-b-0 text-[13px]">
+            <div key={job.jobId} className="neo-table-row grid grid-cols-[1fr_160px_120px] gap-3 px-4 py-2.5 items-center border-b border-line last:border-b-0 text-[13px]">
               <span className="min-w-0 truncate">
                 <span className="font-medium text-ink">{job.kind === 'verify' ? t('jobVerify') : t('jobBackup')}</span>
                 <span className="text-ink-3 text-[12px]"> · {job.trigger === 'schedule' ? t('triggerSchedule') : t('triggerManual')}</span>

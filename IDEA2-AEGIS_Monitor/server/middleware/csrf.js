@@ -4,10 +4,16 @@
 // → ไม่มี cookie ที่ JS ต้องอ่าน จึงไม่แตะ document.cookie เลย (zero browser storage)
 //
 // สามชั้น: SameSite=Strict → Origin check → Synchronizer token
-import { currentCsrfToken } from '../auth/session.js'
+import { currentCsrfToken, currentUser } from '../auth/session.js'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 const PRE_SESSION_PATHS = new Set(['/login'])
+const AUTH_FIRST_PATHS = new Set(['/local-node/challenge', '/local-node/verify'])
+
+function normalizedPath(path) {
+  const value = path.replace(/\/+$/, '')
+  return value || '/'
+}
 
 export function csrfProtection(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next()
@@ -26,6 +32,10 @@ export function csrfProtection(req, res, next) {
   }
 
   if (PRE_SESSION_PATHS.has(req.path)) return next()
+
+  // Preserve the explicit unauthenticated 401 contract on these routes while
+  // still requiring CSRF for every authenticated association request.
+  if (AUTH_FIRST_PATHS.has(normalizedPath(req.path)) && !currentUser(req)) return next()
 
   const sessionToken = currentCsrfToken(req)
   const headerToken = req.headers['x-csrf-token']

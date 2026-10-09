@@ -1,0 +1,12 @@
+# Reviewed CTv change contract, expressed as the exact evidence keys p4-l0-capture.sh
+# records: the Core unit file bytes/metadata, the Core restart identity, and only
+# the detector Requires= lifecycle identity consequence. Unit directive names
+# (ProtectClock, User, ...) are not captured keys; they are proven by
+# ctv_host_runtime_verify, not by the comparator.
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.class
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.meta
+host.unit_file./etc/systemd/system/aegis-idea3-core.service.sha256
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
+svc.aegis-idea3-detector.service.MainPID
+svc.aegis-idea3-detector.service.ExecMainStartTimestamp

@@ -1,0 +1,8 @@
+# AEGIS IDEA3 PR11 Phase 4 — Stage F1i allowed PRE->POST host state drift.
+#
+# F1i creates ONE release directory under an ALREADY-EXISTING /opt/aegis-idea3/releases (post-L7), so no path key changes (unlike the first-ever pre-L7 install, where
+# `host.path./opt/aegis-idea3` and `.../releases` went absent -> present). The ONLY approved drift is the release catalog (`host.aegis_idea3.release_catalog`), and that is NOT a
+# plain allow-key: it is approved solely by the RELATIONAL rule (ALLOW_L6C_RELEASE_FILE with `stage F1i` + `release_id <id>`): every release already in the catalog must stay
+# byte-identical and exactly the one named id may be added. The runner additionally proves the added entry carries the journaled tree digest.
+# Zero active keys by contract: `current`, credentials/core.env metadata, the Core MainPID/NRestarts, units, listeners and every other captured record must be unchanged, and the
+# PRE->RB comparison uses no allowance at all (zero drift).

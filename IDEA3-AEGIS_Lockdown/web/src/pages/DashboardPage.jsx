@@ -329,6 +329,7 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
             [t('idea3.heartbeat'), localizedValue(heartbeat.status, activeLanguage, t)],
             ['ACK', localizedValue(ack.status, activeLanguage, t)],
             [t('idea3.requested'), localizedValue(device?.requestedRelayState, activeLanguage, t)],
+            [t('idea3.observedUplink'), localizedValue(device?.observedUplinkState, activeLanguage, t)],
             [t('idea3.physicalRelay'), localizedValue(physicalRelay, activeLanguage, t)],
             [t('idea3.hardware'), localizedValue(snapshot.recovery?.liveHardware ? 'AVAILABLE' : 'DISABLED', activeLanguage, t)],
             [t('idea3.lastUpdate'), formatDateTime(snapshot.runtime?.generatedAt, activeLanguage)],

@@ -80,6 +80,49 @@ export async function listTreeBlobs(opts = {}) {
   return assertTreeOk(await fetchJson(`/api/vault/tree/blobs${q}`, { method: 'GET', signal }))
 }
 
+// ── D-1 separate encrypted preview index — READ ONLY (PR-A) ──────────────────
+// The index is optional acceleration: "no index" (404 PREVIEW_INDEX_NOT_FOUND) and "reader disabled on this server"
+// (503 PREVIEW_INDEX_DISABLED) are normal answers and both mean "use the original-derived tile path".
+// The single write wrapper (PR-C, casPreviewIndexHead) is transport only: no merge, no retry, no queue — the writer
+// (PR-D) owns those. Nothing here retries, caches or touches browser storage.
+
+/** the owner's optional preview-index head, or null when there is none / the reader is disabled */
+export async function getPreviewIndexHead(opts) {
+  const { fetchJson, signal } = parts(opts)
+  const r = await fetchJson('/api/vault/tree/preview-index/head', { method: 'GET', signal })
+  if (r && r.ok !== true && ((r.status === 404 && r.data?.code === 'PREVIEW_INDEX_NOT_FOUND') || (r.status === 503 && r.data?.code === 'PREVIEW_INDEX_DISABLED'))) return null
+  return assertTreeOk(r)
+}
+
+/** V2 envelopes of preview-index blobs (caller batches to the server limit); [] makes no request */
+export async function getPreviewIndexEnvelopes(ids, opts) {
+  if (!Array.isArray(ids) || ids.length === 0) return []
+  const { fetchJson, signal } = parts(opts)
+  const data = assertTreeOk(await fetchJson(`/api/vault/tree/preview-index/envelopes?ids=${encodeURIComponent(ids.map(String).join(','))}`, { method: 'GET', signal }))
+  return data?.blobs ?? []
+}
+
+/** opaque, paginated listing of preview-index blobs ({ blobs: [{ id, lifecycle, createdAt }], next }) */
+export async function listPreviewIndexBlobs({ after = null, limit = null } = {}, opts) {
+  const { fetchJson, signal } = parts(opts)
+  const q = new URLSearchParams()
+  if (limit !== null && limit !== undefined) q.set('limit', String(limit))
+  if (after !== null && after !== undefined) q.set('after', String(after))
+  const qs = q.toString()
+  return assertTreeOk(await fetchJson(`/api/vault/tree/preview-index/blobs${qs ? `?${qs}` : ''}`, { method: 'GET', signal }))
+}
+
+/**
+ * Owner-scoped preview-index head CAS (server write-gated). The body is sent exactly as given:
+ *   { expectedGeneration, expectedRootBlobId, rootBlobId, rootContentIdB64, attachBlobIds, supersededBlobIds, idempotencyKey }
+ * A lost race throws TreeApiError code PREVIEW_INDEX_CONFLICT with data.currentGeneration/currentRootBlobId; a transport
+ * failure throws with its errorKind as the code — the caller decides whether to replay with the same idempotencyKey.
+ */
+export async function casPreviewIndexHead(body, opts) {
+  const { fetchJson, signal } = parts(opts)
+  return assertTreeOk(await fetchJson('/api/vault/tree/preview-index/head', { method: 'POST', body, signal }))
+}
+
 export async function beginMigration(opts) {
   const { fetchJson, signal } = parts(opts)
   return assertTreeOk(await fetchJson('/api/vault/tree/migration/begin', { method: 'POST', body: {}, signal }))

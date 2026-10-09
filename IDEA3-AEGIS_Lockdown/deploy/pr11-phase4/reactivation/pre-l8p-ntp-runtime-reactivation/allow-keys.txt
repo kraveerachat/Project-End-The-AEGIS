@@ -1,0 +1,21 @@
+# AEGIS IDEA3 PR11 Phase 4 — PRE-L8p NTP RUNTIME REACTIVATION: allowed PRE->POST (and PRE->ROLLBACK) drift keys.
+# Exact keys, no wildcard. Only the two units' own RUNTIME bookkeeping and the derived time state may move. UnitFileState (svc.*.UnitFileState) and every
+# /etc/chrony.conf key (time.file./etc/chrony.conf.*) are deliberately ABSENT: p4-compare.sh's PROTECTED default-deny therefore flags any change as drift. Unlike L5 this
+# package never writes the configuration, so unlike L5 the config keys are not approved here.
+# The three time.timesyncd.* keys are daemon-runtime values: p4-l0-capture.sh records the stable sentinel TIMESYNCD_INACTIVE_NOT_QUERIED for them whenever
+# systemd-timesyncd is not running (it never queries a stopped timesyncd: that would reactivate it and stop chronyd). The timesyncd.conf FILE keys stay protected.
+svc.chronyd.service.ActiveState
+svc.chronyd.service.ExecMainStartTimestamp
+svc.chronyd.service.MainPID
+svc.chronyd.service.NRestarts
+svc.chronyd.service.Result
+svc.chronyd.service.SubState
+svc.systemd-timesyncd.service.ActiveState
+svc.systemd-timesyncd.service.ExecMainStartTimestamp
+svc.systemd-timesyncd.service.MainPID
+svc.systemd-timesyncd.service.Result
+svc.systemd-timesyncd.service.SubState
+time.chrony.leap
+time.timesyncd.FallbackNTPServers
+time.timesyncd.ServerName
+time.timesyncd.SystemNTPServers

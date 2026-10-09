@@ -68,6 +68,28 @@ def component_factory(events, *, fail_second=False):
 
 
 class DetectionEngineLifecycleTests(unittest.TestCase):
+    def test_required_accelerator_failure_exits_nonzero_after_shutdown(self):
+        events = []
+
+        def build(context, _recognizer):
+            class FailingWorker(FakeWorker):
+                def start(self):
+                    super().start()
+                    context.metrics.on_accelerator_failure()
+                    context.stop_event.set()
+
+            worker = FailingWorker("capture", events)
+            return EngineComponents(
+                monitor=NullMonitor(), api=FakeAPI(events), alerts=NullAlerts(),
+                workers=[worker], shutdown_order=[worker],
+            )
+
+        engine = DetectionEngine(config=EngineConfig(nas_enabled=False), component_factory=build)
+        with self.assertRaisesRegex(RuntimeError, "GPU-required inference failed"):
+            engine.run_forever()
+        self.assertIn("capture:join", events)
+        self.assertEqual(events[-2:], ["api:stop", "api:join"])
+
     def test_runtime_starts_without_nas_and_shuts_down_cleanly(self):
         events = []
         engine = DetectionEngine(

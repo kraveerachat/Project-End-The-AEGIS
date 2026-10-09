@@ -5,6 +5,7 @@
 //    สองแอปไม่มีวันอ่าน session ข้ามกัน และไม่มีแอปใดยอมรับ cookie ของ HUB (SSO ถูกถอนทิ้ง)
 import session from 'express-session'
 import { randomBytes } from 'node:crypto'
+import { generateCanonicalToken } from '../nodeIdentity/challengeStore.js'
 
 export const SESSION_COOKIE = 'aegis.monitor.sid'
 
@@ -60,6 +61,8 @@ export function establishSession(req, user, remember) {
       req.session.createdAt = Date.now()
       // CSRF token (synchronizer pattern) — เก็บใน session, ส่งให้ client ทาง JSON เท่านั้น
       req.session.csrfToken = randomBytes(32).toString('hex')
+      // Bind browser-to-Agent proofs to this exact regenerated login session.
+      req.session.nodeSessionBinding = generateCanonicalToken(32, randomBytes)
       req.session.cookie.maxAge = remember ? REMEMBER_MS : IDLE_MS
       req.session.save((err2) => (err2 ? reject(err2) : resolve()))
     })
@@ -79,6 +82,48 @@ export function currentUser(req) {
 
 export function currentCsrfToken(req) {
   return req.session?.csrfToken ?? null
+}
+
+function sessionOf(reqOrSession) {
+  return reqOrSession?.session ?? reqOrSession ?? null
+}
+
+export function currentNodeSessionBinding(reqOrSession) {
+  const value = sessionOf(reqOrSession)?.nodeSessionBinding
+  return typeof value === 'string' ? value : null
+}
+
+export function bindLocalNode(reqOrSession, verifiedNode) {
+  const target = sessionOf(reqOrSession)
+  if (!target || !currentNodeSessionBinding(target)) throw new TypeError('authenticated session binding is required')
+  const nodeId = verifiedNode?.nodeId
+  const physicalCameraId = Number(verifiedNode?.physicalCameraId)
+  const keyVersion = Number(verifiedNode?.keyVersion)
+  const verifiedAt = Number(verifiedNode?.verifiedAt)
+  const expiresAt = Number(verifiedNode?.expiresAt)
+  if (
+    typeof nodeId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(nodeId)
+    || !Number.isSafeInteger(physicalCameraId) || physicalCameraId <= 0
+    || !Number.isSafeInteger(keyVersion) || keyVersion <= 0
+    || !Number.isSafeInteger(verifiedAt) || verifiedAt < 0
+    || !Number.isSafeInteger(expiresAt) || expiresAt <= verifiedAt
+  ) throw new TypeError('verified local node is not canonical')
+  target.localNode = { nodeId, physicalCameraId, keyVersion, verifiedAt, expiresAt }
+}
+
+export function clearLocalNode(reqOrSession) {
+  const target = sessionOf(reqOrSession)
+  if (target) delete target.localNode
+}
+
+export function currentLocalNode(reqOrSession, nowMs = Date.now()) {
+  const target = sessionOf(reqOrSession)
+  const value = target?.localNode
+  if (!value || !currentNodeSessionBinding(target) || !Number.isSafeInteger(nowMs) || nowMs >= value.expiresAt) {
+    clearLocalNode(target)
+    return null
+  }
+  return { ...value }
 }
 
 /** เคลียร์ mustResetPassword ในเซสชันปัจจุบันหลังรีเซ็ตรหัสผ่านสำเร็จ (DB ถูกอัปเดตแล้วโดยผู้เรียก) */

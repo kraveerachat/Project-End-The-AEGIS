@@ -34,6 +34,9 @@ const REGISTER = Object.freeze({
   maxConcurrentJobs: 4,
   maxRetainedObjectUrls: 256,
   memoryCeilingBytes: 256 * MIB,
+  // Unified Preview P1 (provisional; plan Task 9 measures the audio cap in a real browser)
+  audioWholeDecryptMaxBytes: 32 * MIB,
+  textPreviewMaxBytes: 1 * MIB,
 })
 
 test('LM-HIGHRES normal lane stays 16 MP; the reduced-decode lane carries the measured envelope', () => {

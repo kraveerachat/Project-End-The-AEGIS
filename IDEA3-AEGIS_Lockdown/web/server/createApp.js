@@ -10,6 +10,7 @@ import { createRateLimiter } from './security/rateLimit.js'
 import { createBoundedSessionStore } from './security/sessionStore.js'
 import { createDemoProvider } from './providers/demoProvider.js'
 import { createLiveProvider } from './providers/liveProvider.js'
+import { createDemoRegistry } from './repositories/demoRegistry.js'
 import { AuditPersistenceError } from './repositories/auditRecords.js'
 import { AUDIT_SCHEMA_VERSION, createSqliteRepository } from './repositories/sqliteRepository.js'
 
@@ -28,6 +29,7 @@ export function createApp({
   repository,
   sessionStore,
   machineContact = null,
+  demoRegistry = createDemoRegistry({ clock }),
 }) {
   const appRepository = repository ?? createSqliteRepository({ path: config.auditDbPath, clock })
   // PR10 D8: a bounded in-memory TTL store unless a caller supplies its own.
@@ -119,8 +121,8 @@ export function createApp({
       return res.status(503).json({ status: 'DEGRADED', audit: 'DEGRADED' })
     }
   })
-  app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository }))
-  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository, machineContact }))
+  app.use(`${apiBase}/auth`, createAuthRouter({ config, loginLimiter, repository: appRepository, demoRegistry }))
+  app.use(`${apiBase}/security`, createSecurityRouter({ config, demoProvider, liveProvider, repository: appRepository, demoRegistry, machineContact }))
   app.use(apiBase, (_req, res) => res.status(404).json({
     error: { code: 'NOT_FOUND', message: 'ไม่พบข้อมูลที่ร้องขอ' },
   }))

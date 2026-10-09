@@ -14,12 +14,22 @@ import { apiFetch, apiUrl } from '../lib/api.js'
 import { fmtBytes, fmtRelative, fmtDateTime } from '../lib/format.js'
 import { UploadDrawer } from '../components/UploadDrawer.jsx'
 import { AEGIS_ITEMS_TYPE, canDropOn, dragPayloadFor, isExternalFileDrag, readDragPayload, writeDragPayload } from '../lib/fileDragDrop.js'
-import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, previewKindFor, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { DEFAULT_SORT, SORT_LABEL_KEYS, SORT_MODES, filterItems, filesPreviewCapability, previewPathFor, sectionItems } from '../lib/filesView.js'
+import { previewModeOf } from '../lib/preview/registry.js'
+import { FilePreviewMedia } from '../components/preview/FilePreviewMedia.jsx'
 import { MediaProvider, MediaThumb, useOwnedMediaRuntime } from '../components/MediaThumb.jsx'
 import { FileCardCheckbox, FileCardMenuButton, FileCardShell } from '../components/FileCardPresentation.jsx'
 import { SelectionAction, SelectionActionBar } from '../components/SelectionActionBar.jsx'
 import { readFolderHistory, writeFolderHistory } from '../lib/folderHistory.js'
 import { WorkspaceMarqueeScope, WorkspaceMarqueeSource } from '../components/WorkspaceMarquee.jsx'
+import { PreviewModalShell } from '../components/preview/PreviewModalShell.jsx'
+// multi-file streaming ZIP: the transfer panel lives under components/vault/ and is reused as-is (spec §9)
+import { VaultTransferPanel } from '../components/vault/VaultTransferPanel.jsx'
+import { createRateEstimator } from '../lib/transferRate.js'
+import { BULK_ZIP_ENABLED, planBulkDownload } from '../lib/bulkDownloadPlan.js'
+import { createFilesEntrySource, runBulkZip } from '../lib/bulkZipDownload.js'
+import { supportsStreamingFileSink } from '../lib/vaultChunkedDownload.js'
+import { supportsWorkerStreamDownload } from '../lib/downloadStreamSession.js'
 
 const EXT_ICONS = {
   xlsx: FileSpreadsheet, docx: FileText, pdf: FileText, zip: FileArchive, 'tar.gz': FileArchive,
@@ -104,7 +114,7 @@ export function FileMenu({ t, onAction, onClose, file }) {
   const isFolder = file?.kind === 'folder'
   // Preview มีเฉพาะไฟล์ปกติชนิดที่แสดงผลได้ — ไม่มีสำหรับโฟลเดอร์ (ไม่มีไบต์) และไม่มีสำหรับ
   // Private Vault (เซิร์ฟเวอร์ไม่มี plaintext ให้ — Vault มีเส้นทาง preview ของตัวเองในจอ Vault)
-  const previewable = previewKindFor(file) !== null
+  const previewable = previewModeOf(filesPreviewCapability(file)) !== null
   const items = [
     ...(previewable ? [{ id: 'preview', icon: Eye, label: t('preview') }] : []),
     // โฟลเดอร์ไม่มีไบต์ให้ดาวน์โหลดหรือตรวจ checksum — คำสั่งที่กดแล้วไม่เกิดอะไรคือคำสั่งที่โกหก
@@ -228,7 +238,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
   return (
     <>
       <div
-        className="fixed inset-0 fade-in"
+        className="file-details-scrim fixed inset-0 fade-in"
         style={{ background: 'color-mix(in srgb, var(--ink) 18%, transparent)', zIndex: 'var(--z-scrim)' }}
         onClick={onClose}
         aria-hidden
@@ -236,7 +246,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
       <aside
         role="dialog"
         aria-label={t('fileDetails')}
-        className={`fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
+        className={`file-details-drawer fixed top-0 right-0 bottom-0 w-[400px] max-sm:w-full bg-card border-l border-line overflow-y-auto ${jolt ? 'shake-x' : ''}`}
         style={{ zIndex: 'var(--z-drawer)', boxShadow: 'var(--elev-2)', animation: 'drawer-in var(--dur-slow) var(--ease) both' }}
       >
         <div className="p-6">
@@ -248,7 +258,7 @@ function MetaDrawer({ t, lang, file, onClose }) {
           </div>
 
           {/* preview */}
-          <div className={`mt-4 h-40 rounded-[var(--r-tile)] border border-line flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
+          <div className={`neo-media-frame mt-4 h-40 rounded-[var(--r-tile)] border border-line flex items-center justify-center ${file.vault ? 'hatch hatch-ink3 bg-sunken' : 'bg-sunken'}`}>
             <Icon size={44} strokeWidth={1.2} className="text-ink-3" />
           </div>
           <div className="flex items-center gap-2 mt-3">
@@ -516,7 +526,7 @@ export function FolderTile({ t, file, selected, anySelected, onSelect, onOpen, o
 function SectionHeading({ children }) {
   // หัวข้อส่วนไม่ใช่พื้นที่ว่างของกริด — ลากจากป้าย "Folders"/"Files" ต้องไม่เริ่มกรอบเลือก
   return (
-    <h2 data-marquee-ignore="" className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
+    <h2 data-marquee-ignore="" className="neo-section-heading text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink-3 mb-2.5 select-none">{children}</h2>
   )
 }
 
@@ -711,59 +721,30 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
     setSeenIdentity(identity)
     setPhase('loading')
   }
-  const kind = file ? previewKindFor(file) : null
+  // Unified Preview P1: image | video | audio | text — tiles still use previewKindFor (image/video only)
+  const cap = file ? filesPreviewCapability(file) : null
+  const kind = previewModeOf(cap)
   const src = file ? apiUrl(previewPathFor(file)) : ''
+  // Unified Preview P0: the shared shell owns name/meta/status/Download; a type without a provider
+  // gets the stable fallback instead of an empty frame (spec §19)
+  const status = kind ? phase : 'unsupported'
+  const reason = cap?.state === 'unsupported-codec' ? t('previewAudioCodecUnsupported') : null
   return (
-    <Modal open={Boolean(file)} onClose={onClose} width={880} labelledBy="file-preview-title">
-      <ModalClose onClose={onClose} label={t('close')} />
-      <h2 id="file-preview-title" className="text-[16px] font-semibold text-ink pr-8 truncate">{file?.name}</h2>
-      <p className="text-[12px] text-ink-3 mt-1" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {file?.type} · {fmtBytes(file?.size ?? 0)}
-      </p>
-      <div
-        className="mt-4 rounded-[var(--r-tile)] bg-sunken border border-line flex items-center justify-center overflow-hidden relative"
-        style={{ minHeight: 220 }}
-        data-file-preview-kind={kind ?? ''}
-        data-file-preview-phase={phase}
-      >
-        {phase === 'loading' && (
-          <p role="status" className="absolute text-[13px] text-ink-3">{t('previewLoading')}</p>
-        )}
-        {phase === 'failed' ? (
-          <p role="alert" className="text-[13px] font-medium px-6 py-10 text-center max-w-md" style={{ color: 'var(--danger)' }}>
-            {t('previewUnavailable')}
-          </p>
-        ) : kind === 'video' ? (
-          <video
-            controls
-            preload="metadata"
-            playsInline
-            src={src}
-            onLoadedMetadata={() => setPhase('ready')}
-            onError={() => setPhase('failed')}
-            className="max-w-full"
-            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
-          />
-        ) : kind === 'image' ? (
-          <img
-            src={src}
-            alt={file?.name ?? ''}
-            decoding="async"
-            onLoad={() => setPhase('ready')}
-            onError={() => setPhase('failed')}
-            className="max-w-full object-contain"
-            style={{ maxHeight: '68vh', opacity: phase === 'ready' ? 1 : 0 }}
-          />
-        ) : null}
-      </div>
-      <div className="flex gap-2.5 mt-5 justify-end">
-        <Btn variant="outline" onClick={onClose}>{t('close')}</Btn>
-        <Btn variant="primary" onClick={() => file && onDownload?.(file)}>
-          <Download size={14} strokeWidth={1.5} />
-          {t('download')}
-        </Btn>
-      </div>
-    </Modal>
+    <PreviewModalShell
+      t={t}
+      open={Boolean(file)}
+      onClose={onClose}
+      title={file?.name ?? ''}
+      meta={{ typeLabel: file?.type, size: file?.size ?? 0 }}
+      status={status}
+      reason={reason}
+      labelledBy="file-preview-title"
+      onDownload={() => file && onDownload?.(file)}
+      bodyProps={{ 'data-file-preview-kind': kind ?? '', 'data-file-preview-phase': phase }}
+    >
+        <FilePreviewMedia t={t} kind={kind} capability={cap} src={src} phase={phase}
+          fileName={file?.name ?? ''} onPhase={setPhase} />
+    </PreviewModalShell>
   )
 }
 
@@ -772,6 +753,7 @@ export function FilePreviewModal({ t, file, onClose, onDownload }) {
 // ทุกการกระทำ (สร้างโฟลเดอร์/ลบ) เป็น request จริง + refetch; ไม่มี alert()/prompt()
 export function Files({
   t, lang, go, userId = null, navigationParams = {}, placeholderMode = false,
+  bulkZipEnabled = BULK_ZIP_ENABLED,
 }) {
   const reduced = useReducedMotion()
   const now = useNow(30_000)
@@ -822,6 +804,23 @@ export function Files({
   const [askDelete, setAskDelete] = useState(null) // null | { ids: string[], label: string }
   const [mutating, setMutating] = useState(false)
   const [mutateError, setMutateError] = useState(false)
+  // ZIP หลายไฟล์: busy ของการโอน (SC-2 — Files ไม่มีไดอะล็อกยืนยัน), แถบความคืบหน้า และข้อความแจ้ง
+  const downloadBusyRef = useRef(false)
+  const downloadAbortRef = useRef(null)
+  const downloadRateRef = useRef(null)
+  const [downloadTransfer, setDownloadTransfer] = useState(null)
+  const [bulkNotice, setBulkNotice] = useState([])
+  // ⚠️ ออกจากจอ Files ระหว่างสร้าง ZIP = ยกเลิก archive (แผงความคืบหน้าและปุ่ม Cancel หายไปพร้อมจอ —
+  //    ห้ามปล่อยให้เขียนลงไฟล์ของผู้ใช้ต่อแบบมองไม่เห็น) ใช้เส้นทางยกเลิกแบบ fail-closed เดิมของ runBulkZip
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      downloadAbortRef.current?.abort()
+      downloadAbortRef.current = null
+    }
+  }, [])
   const [preview, setPreview] = useState(null)              // null | file (ไฟล์ปกติที่ preview ได้)
   const [renameTarget, setRenameTarget] = useState(null)   // null | file
   const [renameValue, setRenameValue] = useState('')
@@ -1036,6 +1035,56 @@ export function Files({
     a.remove()
   }
 
+  /** Download ของแถบการเลือก — 1–3 ไฟล์ = anchor ทีละไฟล์เหมือนเดิม, 4+ = ZIP เดียวผ่านตัวเลือกไฟล์เดียว
+   *  ⚠️ ไม่มี await ใดก่อน runBulkZip: ตัวเลือกไฟล์ต้องเปิดภายใน user activation ของการกดนี้ */
+  const startBulkDownload = () => {
+    if (downloadBusyRef.current) { setBulkNotice([{ key: 'filesDownloadBusy' }]); return }
+    const plan = planBulkDownload({
+      source: 'files', items: [...selectedIds], resolve: (id) => files.find((f) => f.id === id) ?? null,
+      fsa: supportsStreamingFileSink(), workerStream: supportsWorkerStreamDownload(), enabled: bulkZipEnabled,
+    })
+    const notices = [
+      ...(plan.skippedFolders ? [{ key: 'zipFoldersSkipped', vars: { n: plan.skippedFolders } }] : []),
+      ...(plan.unavailable ? [{ key: 'zipUnavailable', vars: { n: plan.unavailable } }] : []),
+      ...(plan.fallbackNotice === 'no-fsa-large' ? [{ key: 'filesZipLargeFallback' }] : []),
+    ]
+    if (plan.mode === 'refused') { setBulkNotice([{ key: 'zipTooManyFiles' }]); return }
+    setBulkNotice(notices)
+    if (plan.mode === 'per-file') { for (const f of plan.perFile) downloadFile(f); return }
+    if (plan.mode !== 'zip') return
+    const ctrl = new AbortController()
+    downloadAbortRef.current = ctrl
+    downloadRateRef.current = createRateEstimator()
+    const run = runBulkZip({
+      plan, source: createFilesEntrySource(), busyRef: downloadBusyRef, signal: ctrl.signal,
+      onProgress: (p) => {
+        if (!mountedRef.current) return
+        if (p.stage === 'done') { setDownloadTransfer(null); return }
+        const rate = downloadRateRef.current?.sample(p.transferredBytes, performance.now(), { totalBytes: p.totalBytes }) ?? null
+        setDownloadTransfer({ ...p, rate })
+      },
+    })
+    void run.then((res) => {
+      if (!mountedRef.current) return
+      if (res.status === 'failed' && res.reason === 'stream-unavailable') {
+        // worker-stream เปิดไม่ได้ตอนรันจริง (เช่น เบราว์เซอร์ปิด Service Worker) ก่อนที่ไบต์ใดจะถูกเขียน —
+        // ถอยไปดาวน์โหลดทีละไฟล์พร้อมคำอธิบายเดิม แทนที่จะรายงานว่าล้มเหลว
+        setDownloadTransfer(null)
+        setBulkNotice((prev) => [...prev, { key: 'filesZipLargeFallback' }])
+        for (const e of plan.entries) downloadFile(files.find((f) => f.id === e.id) ?? e)
+      } else if (res.status === 'failed') {
+        setDownloadTransfer((prev) => ({
+          ...(prev ?? { kind: 'download', transferredBytes: 0, totalBytes: 0, percent: 0 }),
+          stage: 'failed', reason: res.reason, failedName: res.failedEntry?.name ?? null, rate: null,
+        }))
+      } else if (res.status === 'busy') {
+        setBulkNotice([{ key: 'filesDownloadBusy' }])
+      } else {
+        setDownloadTransfer(null)
+      }
+    }).finally(() => { if (downloadAbortRef.current === ctrl) downloadAbortRef.current = null })
+  }
+
   const onMenuAction = (action, file) => {
     if (action === 'rename') {
       setRenameTarget(file)
@@ -1051,7 +1100,7 @@ export function Files({
       downloadFile(file)
     } else if (action === 'preview') {
       // "ดู" เป็นคำสั่งของตัวเอง — ไม่ใช่ทางลัดไป Download และไม่แตะการคลิกการ์ดเดิม
-      if (previewKindFor(file)) setPreview(file)
+      if (previewModeOf(filesPreviewCapability(file))) setPreview(file)
     } else if (action === 'meta' || action === 'verify') {
       openDetail(file)
     } else if (action === 'link') {
@@ -1083,7 +1132,16 @@ export function Files({
     <div>
       {/* breadcrumbs — บรรพบุรุษจริงจากเซิร์ฟเวอร์ ไม่ใช่เส้นทางที่จอสะสมเอง
           ⚠️ เดิมเป็นรายการสตริงที่ไม่เคยยาวขึ้น จึงเป็นการตกแต่งที่ไม่ได้บอกตำแหน่งจริง */}
-      <nav aria-label={t('breadcrumb')} className="flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none flex-wrap">
+      <p role="status" aria-live="polite" data-testid="files-bulk-notice" className={bulkNotice.length ? 'text-[12.5px] text-ink-3 mb-3' : 'sr-only'}>
+        {bulkNotice.map((n) => t(n.key, n.vars)).join(' ')}
+      </p>
+      <VaultTransferPanel
+        t={t}
+        transfer={downloadTransfer}
+        onCancel={() => downloadAbortRef.current?.abort()}
+        onDismiss={() => setDownloadTransfer(null)}
+      />
+      <nav aria-label={t('breadcrumb')} className="neo-folder-path flex items-center gap-1.5 text-[13px] text-ink-3 font-semibold mb-4 select-none flex-wrap">
         <button
           type="button"
           onClick={() => goToFolder(null)}
@@ -1124,7 +1182,7 @@ export function Files({
       )}
 
       {/* toolbar */}
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div className="neo-toolbar neo-files-toolbar flex items-center gap-2.5 mb-5 flex-wrap">
         <label className="relative flex-1 min-w-[220px] max-w-md">
           <span className="sr-only">{t('searchFilesPlaceholder')}</span>
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none" aria-hidden />
@@ -1142,7 +1200,7 @@ export function Files({
             {availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}
           </PillSelect>
         </div>
-        <div className="inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
+        <div className="neo-view-toggle inline-flex items-center gap-0.5 bg-card border border-line rounded-full p-0.5">
           {[{ v: 'grid', icon: LayoutGrid, label: t('gridView') }, { v: 'list', icon: List, label: t('listView') }].map(({ v, icon: I, label }) => (
             <button
                key={v}
@@ -1163,6 +1221,8 @@ export function Files({
             ))}
           </PillSelect>
         </div>
+        {/* Primary actions sit together at the end of the toolbar (Neo only). */}
+        <span className="neo-toolbar-spacer" aria-hidden />
         <Btn variant="outline" onClick={() => { setFolderModal(true); setMutateError(false) }}>
           <FolderPlus size={15} strokeWidth={1.5} />
           {t('newFolder')}
@@ -1228,12 +1288,7 @@ export function Files({
           {/* ⚠️ เดิมปุ่มสองตัวนี้ถูกวาดโดยไม่มี onClick เลย — ปุ่มที่กดแล้วไม่เกิดอะไร
               คือปุ่มที่โกหกผู้ใช้ ตอนนี้ทั้งคู่ผูกกับคำสั่งจริง */}
           <SelectionAction
-            onClick={() => {
-              for (const id of selectedIds) {
-                const picked = files.find((f) => f.id === id)
-                if (picked && picked.kind !== 'folder') downloadFile(picked)
-              }
-            }}
+            onClick={startBulkDownload}
           >
             <Download size={14} strokeWidth={1.5} />
             {t('download')}

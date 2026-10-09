@@ -150,13 +150,26 @@ def render_dnsmasq_config(values: dict[str, str]) -> str:
     return template
 
 
-def render_dnsmasq_service() -> str:
+def render_dnsmasq_service(values: dict[str, str]) -> str:
     template_path = (
         Path(__file__).resolve().parents[1]
         / "network"
         / "aegis-idea3-dnsmasq.service.example"
     )
-    return template_path.read_text(encoding="utf-8")
+    template = template_path.read_text(encoding="utf-8")
+
+    # The boot-order readiness gate names the exact approved AP state; the L4 handler renders the same placeholders.
+    replacements = {
+        "<AEGIS_AP_INTERFACE>": values["interface"],
+        "<AEGIS_AP_ADDRESS>": values["ap_address"],
+        "<AEGIS_AP_PREFIXLEN>": values["ap_prefixlen"],
+        "<AEGIS_AP_CHANNEL>": values["channel"],
+    }
+
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+
+    return template
 
 
 
@@ -258,7 +271,7 @@ def render(values: dict[str, str], output_dir: Path) -> None:
     )
 
     (output_dir / "aegis-idea3-dnsmasq.service").write_text(
-        render_dnsmasq_service(),
+        render_dnsmasq_service(values),
         encoding="utf-8",
     )
 

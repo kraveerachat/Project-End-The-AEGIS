@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-09-15
+updated: 2026-10-05
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,63 +15,830 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
-## Current Task
+## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
-Task: IDEA2 Machine A Monitor stream-abort crash runtime unblocker
-Branch: `fix/idea2-monitor-stream-abort-crash`
+Branch `fix/idea2-operator-live-navigation-persistence` is a source-only PR1.5
+follow-up based on main `7dbcae4f0b8fd8aef26e7da52614c9a3fed42880`.
+The current Live landing remains unchanged: arriving there after login is an
+intentional Live activation. Authentication alone does not create a separate
+hidden viewer; an authenticated session on Archive without an activated or
+permitted Live view has no stream.
+
+**Operator Live navigation persistence:** after an authorized CCTV-Operator
+enters Live, the same mounted Live subtree and same-origin Monitor MJPEG viewer
+remain active through internal Archive, Diagnostics, and Settings navigation.
+The inactive subtree is hidden, inert, absent from accessibility navigation,
+and occupies no layout space. Returning to Live does not reopen the stream.
+Logout, session loss, browser close, and normal camera switching retain their
+existing teardown; SOC still releases Live viewers when navigating away.
+`LiveFeed` image-source cleanup and server-side stream/authorization/producer
+authority are unchanged.
+
+**Single-camera Operator Live UI:** a CCTV-Operator with exactly one
+server-authorized camera sees the existing hero video without the redundant
+lower CameraSelector or reserved gap. The Access control and Event stream
+panels remain. Multi-camera Operators and SOC retain the selector and camera
+switching. This is role and server-camera-count based, never username based.
+
+Local real-App/generated-frame browser regression went RED on navigation
+teardown and the redundant selector, then passed all 30 Playwright tests,
+including nine new cases. The neutral Monitor suite passed 184 with zero
+failures and 58 conditional skips; Vite production build passed. These are
+source/local tests, **not** a Production deployment or Machine A real-camera
+acceptance. PR2 Archive/recording and PR3 GPU runtime remain separate.
+
+## Current task — GPU-required inference source policy (2026-10-04)
+
+Branch `feat/idea2-gpu-required-inference` adds an Engine-only, source-tested
+accelerator policy. Development defaults remain `AEGIS_GPU_REQUIRED=false` and
+`AEGIS_INFERENCE_DEVICE=cpu`; a future Production configuration must explicitly
+select `true` and `cuda:0`. Required mode rejects unavailable/invalid CUDA or
+a YOLO model that does not report the selected CUDA device before workers and
+camera start. Each YOLO prediction receives the selected device; a later YOLO
+failure stops the Engine instead of falling back to CPU. YuNet/SFace identity
+failures remain fail-secure. Health/metrics distinguish configured device,
+reported YOLO device, successful GPU samples and the CPU OpenCV backend.
+
+This policy does **not** add a `capture_on_demand` requirement or change the
+existing camera-demand lifecycle. Real CUDA/PyTorch installation, Machine A
+hardware GPU proof, Production rollout and Live acceptance are **NOT VERIFIED**
+by repository tests. PR2 recording/archive remains separate and unstarted;
+no model assets, thresholds, templates, UI, Agent or deployed runtime changed.
+
+## Current task — sustained Live steady-state watchdog follow-up (2026-10-04)
+
+Task: PR1 follow-up for the post-first-byte Live stream timeout. Branch:
+`fix/idea2-monitor-steady-idle-watchdog`; owner: Pub; starting main:
+`9e5ce3d79e1455ba0707117ad9a5a7ccbbcf889f`. Current state:
+PR1 CLOSED / MACHINE A REAL-CAMERA ACCEPTED (operator and operator2).
+Production mutation allowed: NO.
+
+Owner-provided Production evidence after PR #328 showed that the first-byte
+watchdog no longer fired: demand appeared, the camera connected, and one viewer
+remained active, but the Monitor logged two six-second steady-state timeouts
+while Operator stayed on Live. The owner then rolled the Monitor image back to
+`aegis-prod-monitor:idea2-ba-csp-6ddcf184a5a9`. This is a confirmed mismatch
+with the Engine's default 15-second post-first-frame idle allowance, not a
+failure of the 50-second cold-start boundary. The earlier PR #328 section below
+remains the historical source-checkpoint result, not evidence that sustained
+real-camera acceptance had passed at that earlier checkpoint.
+
+The follow-up retains 50 seconds until the first nonempty upstream body data,
+then allows a bounded 20-second steady gap (Engine default 15 seconds plus
+five seconds for proxy/transport delivery). Headers alone never switch phases.
+Authorization before demand/fetch, Browser Association, producer generation,
+session/assignment revalidation, browser-close abort and one release per demand
+remain on their existing paths. No Engine, Agent, UI, Archive, GPU, database,
+HUB or deployed runtime was changed by this repository task.
+
+| Session | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| S1 | RED→GREEN Monitor timeout reconciliation | PASS | A scaled 70 ms inter-frame gap failed under the old 30 ms-equivalent timer, then survived the new 100 ms-equivalent timer; the later stall still closed. Focused route tests 49 pass / 1 conditional skip; broader focused 70 pass / 1 skip; full Monitor 184 pass / 58 conditional skips; Playwright 21/21; Vite build PASS. | Historical source checkpoint; later Machine A real-camera acceptance is recorded below. |
+
+Owner-provided Machine A real-camera acceptance closed PR1 for both account
+aliases: `operator → CAM-01` and `operator2 → CAM-02`. Each independently
+passed `PRE_LIVE_IDLE`, `LIVE_ACQUISITION`, `SUSTAINED_LIVE_120S`,
+`FINAL_VIEWER_RELEASE`, `POST_LOGOUT_IDLE`, `PHYSICAL_LED_SUSTAIN`, and
+`PHYSICAL_LED_RELEASE`. The physical camera LED stayed on through sustained
+Live and turned off after final viewer/logout. This is owner-reported hardware
+evidence, not a new test performed by this documentation-only PR #338 follow-up.
+PR2 recording/archive remains separate and unstarted; PR3 GPU-required
+inference is source-only and is not a claim of real GPU or Production acceptance.
+
+## Current task — sustained Live first-byte watchdog (2026-10-04)
+
+Branch `fix/idea2-monitor-first-byte-watchdog` is a repository-only PR1 fix for
+the owner-reported Production symptom in which Monitor closed a cold Operator
+stream after six seconds without a first frame. The Monitor proxy now gives
+the first nonempty upstream body data a 50-second deadline, covering the
+Engine's default 45-second cold-first-frame window plus five seconds for the
+proxy/transport boundary. After the first data arrives, the existing six-second
+steady-state idle watchdog remains in force. The watchdog also bounds a fetch
+that never returns stream data. Authorization, physical producer demand,
+session/assignment revalidation, browser-close cleanup, and release remain on
+their existing paths; Engine, recording, Archive, GPU, UI, and Production
+runtime are unchanged.
+
+RED route tests reproduced the premature close before the first byte; GREEN
+focused lifecycle tests passed 12/12. The broader focused Monitor set passed
+68 with one conditional PostgreSQL skip, the full neutral Monitor suite passed
+182 with 58 conditional skips, Playwright passed 21/21, and the Vite build
+passed locally. These were source/test results only at that historical
+checkpoint. Later owner-provided Machine A real-camera acceptance for both
+operator aliases is recorded in the PR1 follow-up section above. PR2
+recording/archive remains separate and unstarted; PR3 GPU-required inference
+has source work in Draft PR #338 but no real GPU or Production acceptance.
+
+## Current task — Browser Association CSP narrow source fix (2026-10-04)
+
+Branch `fix/idea2-browser-association-csp` is a repository-only fix for the
+confirmed Production browser denial of the Operator's local Agent association
+request. Monitor's own CSP and the browser-facing HUB `/monitor/` CSP now grant
+only `http://127.0.0.1:8078` in `connect-src`. The HUB `/monitor/` location
+retains the existing upstream security headers and CSP intersection while
+repeating the six HUB headers so nginx location-level `add_header` does not
+drop them. No other effective CSP directive is intentionally widened.
+HUB root, Drive, IDEA3, and `/monitor/internal/*` are unchanged. Existing
+browser-flow tests still prove credentials are omitted, SOC does not associate,
+and association does not request a camera stream.
+
+Local evidence: the new/existing focused CSP and association tests passed
+24/24; applicable HUB config tests passed 41/41; full neutral Monitor tests
+passed 179 with 58 conditional skips and zero failures; HUB and Monitor Vite
+builds passed. The broader HUB browser suite was attempted but did not finish
+within the bounded local run; it is not claimed green. Production nginx syntax
+or browser acceptance has not been tested here. This branch does **not** deploy
+the CSP change or prove Machine A live association/camera recovery. Kla must
+review the cross-scope HUB policy before any Production rollout.
+
+## Current task — M2-E3 persistent idle pipe accept (2026-10-04)
+
+Branch: `fix/idea2-agent-persistent-idle-pipe-accept`, based on main
+`ed351310ed2e0161c2e0fadb68c0f858cdc315bb`. The Agent now keeps its
+overlapped `ConnectNamedPipe` pending while idle instead of cancelling and
+republishing the first pipe instance at the five-second read timeout. Intentional
+shutdown cancels and drains the idle accept, clears the active handle, and
+closes it once; Win32 995 is normal only in that idle-shutdown context. Once a
+client connects, the existing bounded request read, response write, and
+post-response close remain unchanged. Engine local acquisition and Agent
+response budgets, ACL/SID authorization, wire protocol, and camera-demand
+boundaries are unchanged.
+
+RED reproduced the premature idle close and service-loop republish. GREEN:
+native Windows connector reached the original pipe after 12.2 seconds idle;
+two requests crossed the former five-second boundary; native idle shutdown
+completed; the existing 50/100 no-prepoll stress cases passed. Focused Agent
+pipe tests 41/41 and full Engine/Agent tests 273/273 passed locally. Governance
+and Vault validation passed; independent review found Critical 0, Important 0.
+
+This is repository source/test evidence only. Installed Machine A heartbeat
+recovery has **not** been verified. No Machine A runtime, Identity Agent service,
+Production, private key, camera, or tunnel was modified. The earlier PR #318
+receipt remains immutable and historical. `M2_E3=NOT_CLOSED_PENDING_POST_MERGE_MACHINE_A_ACCEPTANCE`.
+
+## Current task — M2-E3 final Windows pipe response lifecycle hardening (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-peer-disconnect-final`; base:
+`27ac710f32b8ecbf38a3ee263ca87c8c36d8e9bf`; source checkpoint:
+`7f00f78a776c01e47551a7b0cb2398702a1daa5d`, followed by the bounded
+pre-write acquisition amendment on the same PR #318 branch.
+
+State: SOURCE FIXED / LOCAL WINDOWS PIPE TESTS VERIFIED / MACHINE A LIVE
+RECOVERY NOT VERIFIED. After merged PR #317 and PR #316 were installed on
+Machine A, the owner observed seven new Engine `AGENT_UNAVAILABLE` warnings in
+40 seconds despite repeated automatic HUB heartbeat HTTP 200 responses and
+successful challenge/verify requests. Engine remained idle with camera
+connected=false, demanded=false, viewers=0. That is owner-provided live
+evidence of the pre-fix problem, not post-fix acceptance.
+
+RED tests exposed Win32 233 on the post-complete-response close path, a
+completed Engine response masked by a client `CloseHandle` failure, failed
+wait/cancel paths that did not drain pending OVERLAPPED I/O, unsafe publish
+diagnostic absence, and a zero-byte close completion during the cancel race.
+GREEN now classifies only 109/232/233 as normal peer close after the complete
+Agent response write. Connect, request read, and response write still fail on
+233; incomplete/invalid write counts, ordinary timeout, and trailing data
+remain failures. The Engine retains its separate <=5-second local pipe and
+<=30-second Agent response budgets. Close/publish diagnostics record only
+phase, exception class, and numeric Win32 code, never payload or exception
+message. ACL/SID, DPAPI, signing/session protocol, HTTPS, camera demand, and
+service failure backoff were not weakened.
+
+Local Windows verification: focused pipe/client 52/52, explicit Identity
+Agent modules 114/114, Windows lifecycle 49/49, full Engine/Agent 261/261,
+all five native pywin32 tests executed with zero skips at the original PR
+checkpoint. The immutable receipt for that checkpoint records its historical
+limitation and remains unchanged.
+
+The later PR #318 amendment closes the local no-instance gap without retrying
+an Agent transaction: only Win32 2/231 during `WaitNamedPipe`/`CreateFile`
+before handle acquisition may retry within the original at-most-five-second
+local deadline. Win32 121 and deadline exhaustion terminate as timeout;
+unrelated errors fail immediately. Once a handle is acquired, write/read
+failure cannot replay the request. The separately bounded Agent response
+wait remains unchanged. RED reproduced early failure on transient missing/busy
+instances and a deadline-expired wait that still attempted `CreateFile`.
+GREEN: focused pipe/client 60/60 and full Engine/Agent 269/269 on local
+Windows; the native 50/100 sequential transactions now call the real Engine
+connector back-to-back with no external pipe pre-poll, each reaching the
+Agent transport once. Service success has no backoff, injected unrelated
+failure retains backoff, and camera-demand side effects remain zero.
+Governance 61/61, Vault validation PASS with two pre-existing Canvas warnings,
+ten PowerShell parses, diff check, and changed-content secret scan passed.
+Independent read-only review: Critical 0, Important 0.
+
+This supersedes the receipt's former unsynchronized-acquisition limitation
+as a local source/test fact only. Installed Machine A heartbeat recovery is
+still not verified and remains owner-gated after human review/merge. No
+Machine A runtime, camera, private key, tunnel, Production, or Production DB
+was modified; M2-E3 is not closed.
+
+## Current task — M2-E3 successful Agent pipe-close lifecycle (2026-10-03)
+
+Branch: `fix/idea2-agent-pipe-close-lifecycle`; owner: Pub. Base:
+`d5e4072525bc213bba29e6ae491aac8dfc0de009`; source/test checkpoint:
+`11cfd3214b6058b5780dbd457a87615c201b5747`.
+
+State: SOURCE FIXED / LOCAL WINDOWS TESTS VERIFIED / MACHINE A HEARTBEAT
+RECOVERY NOT VERIFIED. Owner-provided live evidence after the prior response
+timeout change showed 22 automatic heartbeat HTTP 200s, successful Agent auth,
+and database heartbeat updates, while the Engine still reported
+`AGENT_UNAVAILABLE` and heartbeat gaps expanded to about 10–60 seconds. Machine A
+was safely rolled back before this repository-only task. These observations
+narrowed the suspected fault to the successful Agent response/pipe-close path,
+but they do not prove this source fix has recovered the installed runtime.
+
+RED: `test_post_response_peer_close_accepts_only_broken_or_closing_pipe`
+failed on Win32 232 in initial, pending, and immediate close-wait paths;
+`test_successful_close_republishes_same_first_instance_without_service_backoff`
+showed the successful HTTP 200 response followed by service backoff instead of
+republishing. GREEN: only the post-complete-response close wait now accepts
+Win32 109 or 232. Error 233, unrelated errors, response-write failures,
+partial writes, ordinary close timeouts, and trailing protocol data remain
+failures. Three sequential same-name first-instance round trips pass in both
+controlled and native Windows tests; the old handle closes once, no service
+backoff follows a successful client close, and camera-demand side effects stay
+zero. Engine request/response budgets, client connector, Agent HTTPS,
+DACL/SIDs, wire protocol, key/session authority, and retry policy are unchanged.
+
+Local Windows verification: focused pipe/client 43/43, Identity Agent 154/154,
+full Detection Engine 252/252, including native pywin32 tests with zero native
+skips. Governance 61/61, Vault validation PASS with two existing Canvas
+owner-review warnings, Python syntax/import, four relevant PowerShell parses,
+diff check, and changed-content secret scan passed. Independent read-only
+review found Critical 0 and Important 0; its two optional test-coverage
+observations were addressed before the final full-suite run. Installed Machine A,
+its Agent service, camera, private key, tunnel, Browser Association, Production,
+and PR #293 were not modified. Live Machine A acceptance remains a separate
+owner-gated step after review and merge.
+
+## Current task — M2-E3 Engine→Agent response timeout budget (2026-10-03)
+
+Branch: `fix/idea2-engine-agent-response-timeout-budget`; owner: Pub. Source
+checkpoint: `c357b7b07556e5e7d539cd3f58d4033dfb14089e` from `origin/main`
+`7649d180d01bc92501a7cad792a9f8a610988490`.
+
+State: SOURCE FIXED / LOCAL WINDOWS TESTS VERIFIED / MACHINE A HEARTBEAT
+RECOVERY NOT VERIFIED. Owner-provided live evidence after the Engine pywin32
+installation showed five of five local Engine→Agent pipe controls succeeded,
+while automatic Engine heartbeats still logged `AGENT_UNAVAILABLE`; the
+Production HUB access log observed an automatic heartbeat HTTP 200. This is
+consistent with the Engine's former single five-second deadline expiring while
+the Agent completes allowed HTTPS challenge/verify/heartbeat work, but source
+tests alone do not prove that this explains every live heartbeat failure.
+
+The Engine now keeps the existing at-most-five-second local pipe
+availability/connect/request-write budget and separately waits at most 30
+seconds by default for the Agent response after a completed write.
+`AEGIS_IDENTITY_AGENT_RESPONSE_TIMEOUT_S` is bounded to 0.1–30 seconds;
+`AEGIS_IDENTITY_AGENT_TIMEOUT_S` remains bounded to 0.1–5 seconds. The Agent
+HTTP defaults, protocol, identity authority, heartbeat cadence, camera demand,
+and legacy shared-key behavior were not changed. RED proved the old connector
+timed out on a response delayed beyond the local window. GREEN: focused
+Engine/pipe tests 48/48 and full Engine suite 245/245 on Windows, including
+native cancellation. Governance 61/61, Vault validation PASS with two existing
+canvas owner-review warnings, PowerShell parser checks, diff check, and
+changed-content secret scan passed. Independent review found no Critical or
+Important issue; its minor non-default-budget coverage observation was fixed
+and rerun. No installed Machine A, Agent service/configuration, private key,
+camera, tunnel, Production, Browser Association, or PR #293 state was changed.
+
+The previous Engine pywin32 dependency checkpoint below is historical and its
+dependency blocker is closed by owner-provided installation/import evidence;
+the separate live response/heartbeat acceptance gate remains open.
+
+## Current task — M2-E3 Engine Windows named-pipe client dependency (2026-10-03)
+
+Branch: `fix/idea2-engine-windows-pipe-client-dependency`; owner: Pub. Source
+checkpoint: `6824a41361eae2651bb3bd0b37c682e51ac9c9e8` from `origin/main`
+`0ab80a1a7d9ff2b45dbcdfb021aba900841cd128`.
+
+State: SOURCE FIXED / LOCAL WINDOWS DEPENDENCY VERIFIED / MACHINE A HEARTBEAT
+ACCEPTANCE PENDING. The Engine requirements now install `pywin32==312` only on
+Windows, and the existing Windows installer preflight imports the five named-pipe
+client modules (`pywintypes`, `win32con`, `win32event`, `win32file`, `win32pipe`).
+Normal repair delegates to that installer; the Engine and Identity Agent remain
+separate virtual environments. The Engine receives no Agent private key,
+session, or signing authority. Focused adjacent tests pass 113/113; the full
+Engine suite passes 239/239. A fresh disposable Windows Engine venv installed
+the Engine requirements, imported all five modules at version 312, passed
+`pip check`, and passed its 29/29 focused tests. The installed Machine A Engine
+venv was not changed or tested by this checkpoint.
+
+Owner-provided post-PR #313 Machine A evidence supersedes the earlier Agent
+acceptance-pending statement below: the Agent's named pipe answered 400/400
+observations after source refresh, with its protected identity/configuration
+preserved and camera idle. The remaining observed physical-heartbeat blocker
+was the installed Engine venv missing the five pywin32 modules, producing
+`AGENT_UNAVAILABLE`. The local source/dependency fix does not prove that a
+reviewed Machine A Engine refresh or live heartbeat acceptance has happened.
+Production, Machine A runtime, Agent identity/configuration, and PR #293 were
+not modified in this task.
+
+## Concurrent task — M2-E3 Identity Agent idle pipe publication (2026-10-03)
+
+Branch: `fix/idea2-identity-agent-idle-pipe-publish`; owner: Pub. Source
+checkpoint: `534db82408df97817496cfb809c7ac96958932aa` on main base
+`6227635c4e9efd89563494c180c49e70a38baaa6`.
+
+State: SOURCE FIXED / LOCAL WINDOWS VERIFIED / MACHINE A ACCEPTANCE PENDING.
+Owner-provided live M2-E3 evidence showed the installed Agent service running but
+the named pipe absent in 200 observations across about 20 seconds; a separate
+pywin32 diagnostic pipe worked. Source/tests reproduced the boundary: an idle
+`ConnectNamedPipe` timeout previously escaped `serve_once` and triggered the
+service host's retry backoff, leaving publication gaps near the Engine's
+five-second heartbeat cadence. Only a cancelled, drained idle accept now
+returns normally so the next pipe instance can publish without backoff.
+Unexpected cancellation-drain errors still propagate; connected read/write
+timeouts, SID checks, pipe ACL/first-instance flags, and zero camera-demand
+side effects remain covered.
+
+Focused Agent/Windows tests pass 42/42 and full Detection Engine tests pass
+237/237 in the local Python 3.12/pywin32 test environment. A native Windows
+same-name republish plus authorized one-shot heartbeat test passes and was
+repeated three times. Independent scoped review reports Critical=0,
+Important=0, Minor=0. These are local source tests, not evidence that the
+installed Machine A Agent has been updated or that its live heartbeat has
+recovered. Production, Machine A runtime/service/key, camera, tunnel, and
+PR #293 were not changed. After owner review/merge, a separately approved
+source refresh and bounded Machine A pipe/heartbeat acceptance remain required
+before M2-E3 can close or Browser Association begins.
+
+## Current task — Production Agent HTTPS ingress (2026-10-02)
+
+Branch: `fix/idea2-production-agent-https-ingress`; owner: Pub. Source base:
+`4a8cc3c95e2f4147fbab9c505079c0377a271d99`.
+
+State: SOURCE IMPLEMENTED / LOCAL STATIC VERIFIED / RUNTIME SMOKE BLOCKED —
+repository-only edge and configuration contract work at checkpoints
+`9c65a5af` and `535634a9`.
+Production currently denies every `/monitor/internal/*` request at the HUB,
+while the Machine Identity Agent's canonical Monitor base naturally targets six
+registry-backed or signed routes below that prefix. This task is adding a
+case-sensitive, exact-route, POST-only, query-free, 16 KiB machine allowlist
+ahead of the existing deny-by-default guard. Browser Cookie and Authorization
+headers are removed at the edge; Agent proof headers and all Monitor-side
+registry, signature, replay, and legacy-auth behavior remain authoritative.
+
+The exact six-route, lowercase, POST-only contract now rejects every raw URI
+containing a query delimiter or other non-canonical spelling, enforces 16 KiB,
+and removes Cookie and Authorization before proxying. Source inspection and
+tests confirm the Agent does not use browser Authorization: challenge/verify
+use JSON and signed writes use `X-Aegis-*` proof headers. Production examples
+now use `https://aegis.internal` for both Agent and browser-association
+audiences without enabling strict local-node rollout by default.
+
+Focused HUB routing passes 36/36, HUB navigation preservation passes 11/11,
+focused Monitor identity/authentication passes 33/33, focused Agent
+configuration/session passes 11/11, and the neutral Monitor suite passes 179
+with 58 explicit conditional PostgreSQL skips. HUB and Monitor Vite builds,
+collaboration governance (33/33), Vault validation, diff check, and changed-
+content secret scan pass. Fresh scoped review found Critical=0, Important=1
+(fixed by `535634a9`), Minor=1 deferred. The disposable real-Nginx smoke was
+not executed because the local Docker API was unavailable; its script parses
+cleanly and remains an explicit pre-rollout gate. A broader Engine run was also
+environment-limited by absent optional Python packages; no Engine source
+changed and the affected Agent tests are green.
+
+No Production, database, Machine A runtime, key, camera, or tunnel mutation was
+performed. Kla integration review of the shared HUB surface, a reviewed merge,
+real-Nginx smoke, and separately authorized Production rollout remain required.
+
+### Session register
+
+| ID | Scope | State | Evidence | Remaining / Next |
+|---|---|---|---|---|
+| S1 | Exact Production HTTPS machine-ingress contract and canonical audience examples | PARTIAL | RED 1/5 pass and 4/5 expected failures; GREEN focused suites, builds, governance/Vault/diff/secret gates above; real Nginx smoke blocked by unavailable Docker API | Publish Draft PR for Pub/Kla review; run real-Nginx smoke before owner-approved rollout |
+
+## Previous task — SCM-compatible one-shot maintenance (2026-10-02)
+
+Branch: `fix/idea2-identity-agent-scm-oneshot`; owner: Pub. Source base:
+`f967ac4c11d0b02dbf4c08c98aac48437ff2efb5`.
+
+State: SOURCE IMPLEMENTED / LOCAL VERIFIED — repository-only hotfix. Machine A
+proved that the service-identity maintenance command completed its DPAPI
+CurrentUser action, but SCM returned error 1053 because the process exited
+before entering `StartServiceCtrlDispatcher`. The corrected temporary commands
+retain `--service`; the process enters the dispatcher and defers exactly one of
+DPAPI preflight, resumable provisioning, or ACL attestation to `SvcDoRun`.
+Maintenance never constructs the normal browser/named-pipe host. Pywin32 alone
+owns final service status, and every wrapper requires a stopped service with
+zero Win32 and service-specific exit codes before accepting current evidence.
+
+Focused Windows lifecycle/key-store/service verification passes 67/67;
+adjacent Agent/Windows verification passes 69 with two native-pywin32
+environment skips. The CA-bundle suite remains honestly limited in this local
+runtime: 8 tests pass and 3 error because `requests` is absent; CA source was
+not changed. Independent scoped review found Critical=0, Important=0, Minor=0.
+Machine A has not rerun this corrected source. Production, its database,
+installed Machine A runtime, service state, evidence, and private identity
+remain unchanged. A reviewed PR/merge and separately authorized runtime refresh
+remain required before another live maintenance attempt.
+
+### Session register
+
+| ID | Scope | State | Evidence | Remaining / Next |
+|---|---|---|---|---|
+| S1 | Reproduce dispatcher bypass; implement and verify bounded service maintenance dispatch | PASS | RED: dispatcher combination rejected, direct maintenance executed, no one-shot service host; GREEN: 67/67 focused plus 69 pass / 2 environment skips adjacent | Open and review a PR, then merge before owner-authorized Machine A runtime refresh and live SCM rerun |
+
+## Identity Agent `sc.exe config` argument hotfix (2026-10-02)
+
+The Machine A DPAPI preflight stopped before key generation when the temporary
+service `binPath` configuration returned `sc.exe` exit 1639. On branch
+`fix/idea2-identity-agent-sc-config-argv`, a source-only correction passes
+`binPath=` and its complete command as separate arguments for DPAPI preflight,
+key provisioning, ACL validation, and restoration of the original service
+path. Restoration is attempted even if temporary configuration or stopping
+fails. The shared helper preserves embedded path quotes for Windows PowerShell
+5.1 and rejects the former packed argument shape. Focused Windows/Identity
+Agent tests: 60/60 pass; adjacent protocol/autostart tests: 69 pass, 2
+environment skips; five relevant PowerShell scripts parse cleanly.
+
+This is **not** Machine A acceptance: the installed service/runtime was not
+changed, no key was generated, and the DPAPI preflight was not rerun. The
+reviewed fix must reach the intended release through a PR/merge and an
+explicitly approved runtime update before a new Machine A preflight attempt.
+Production and its database remain unchanged.
+
+## PR #264 repository-integration scope reconciliation (2026-10-02)
+
+PR #264 is now treated as a **repository/source integration closeout**, not as
+proof that the H1 live environment or Production rollout has completed.
+This supersedes earlier instructions that kept PR #264 Draft solely until
+H1 N2-N7 live acceptance finished.
+
+- H1 N0 remains PASS and H1 N1 remains PASS by Human Owner report.
+- H1 N2-N7 remain **live/pre-H1 acceptance gates** and are still required
+  before N8 may authorize bounded H1 runtime work. Their evidence is not
+  backfilled, inferred, or promoted by merging PR #264.
+- The dedicated Identity Agent live/service path remains deferred and must not
+  be started merely because this repository PR merges.
+- The Camera-first Monitor/physical-producer source is repository-integrated
+  independently of H1 live acceptance. Production migrations 001-005, explicit
+  Node/physical registration, alias policy, Monitor deployment, real browser
+  stream acceptance, Telegram acceptance, and later recording/download remain
+  separate post-merge owner-gated work.
+- Therefore `PR264_REPOSITORY_MERGE_BLOCKED_BY_H1_N2_N7=NO` while
+  `H1_N8_AUTHORIZED=NO`, `PRODUCTION_DEPLOYED=NO`, and
+  `MACHINE_A_IDENTITY_AGENT_LIVE=DEFERRED`.
+- Authoritative main reconciled into the PR branch:
+  `812eabeea1450f3e947c9f9d9032351eca26efe0` -> merge commit
+  `aa05ebf20749029bb3fd6b23e2d62d3de825e022`; no force push or rebase.
+
+
+## Concurrent stacked source task — physical producer generation (2026-10-02)
+
+This bounded source task does **not** replace the Machine A Current Task or
+H1 facts below, close Task 16, or create that predecessor task's final receipt.
+
+Task: Monitor-side physical producer generation and per-viewer demand lifecycle.
+Branch: `fix/idea2-camera-producer-generation`; owner: Pub.
+Dependency/base: `feat/idea2-machine-a-no-powershell-runtime` at
+`37db029fc641ec9dff687dc6506c88f67a438631`; publish only as a stacked Draft.
+PR: Not created at this checkpoint; controller owns publication after review.
+Current state: PARTIAL — SOURCE IMPLEMENTED / LOCAL VERIFIED; integration
+review and separately authorized Production/external acceptance remain pending.
+Implementation/evidence checkpoint: `e5e8f82d9e3ad7b533f7a4d21cace1d91753447d`
+(parent `94141e2b63b91d8a7f78c3b53e518f080f7ff8fa`).
+Production mutation allowed: NO; Production mutation performed: NO.
+
+### Source contract and scope
+
+- One physical camera/registered Node owns the DB generation; concurrent
+  authorized CAM-01/CAM-02 account aliases share it. Identical aliases on
+  different physical cameras do not collide. Each viewer owns a separate
+  random demand, authenticated user/alias and keyed session-binding hash.
+- Strict Operator authorization precedes acquisition and Engine fetch;
+  acquire/renew lock and revalidate live authority transactionally. PostgreSQL
+  post-lock/write-boundary wall clock controls fixed 30-second leases.
+  Serialized 10-second revalidation renews exact authority or aborts.
+- Exact positive BIGINT decimal generation is sent only in server-side
+  `X-Aegis-Producer-Generation` beside the existing Engine key. No browser
+  authority, raw session binding, Engine key or handle is returned/logged.
+  Per-viewer release and final epoch retirement cover normal close, errors,
+  logout/revocation and connected non-draining backpressure abort.
+- Add migration 005; migrations 001–004 retain byte-identical Git blobs
+  against the design base. Fresh schema matches post-005 physical ownership.
+  Heartbeat remains availability, never registry/producer authority; explicit
+  host-side `manage_nodes.py` registration remains unchanged.
+- Changed source/tests/package stay within Monitor; exact cross-scope documents
+  are `docs/superpowers/plans/2026-10-01-idea2-physical-producer-generation.md`
+  and `docs/superpowers/specs/2026-10-01-idea2-physical-producer-generation-design.md`,
+  requiring Kla integration review. Engine, UI, deployment files, installed
+  Machine A, H1 and original dirty checkout were not changed by this task.
+
+### Source-task Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining / Next |
+|---|---|---|---|---|---|---|
+| S1 | Migration 005 and fresh schema | PASS | Static/real-PG parity, upgrade, history, rerun and unsafe-backfill negatives | `3f12522d383e35f8b015bdf6abbabc52fd8cb660` | LOCAL VERIFIED | Owner-gated migration rollout |
+| S2 | Physical epoch/demand service | PASS | Real-PG alias/concurrency/revocation/expiry/write-boundary proofs | `7ef474f000206d68b72f08420395489ac6d47fe1` | LOCAL VERIFIED | Runtime rollout/acceptance |
+| S3 | Stream integration and abort cleanup | PASS | HTTP header/authorization/revalidation/release and backpressure negatives | `94141e2b63b91d8a7f78c3b53e518f080f7ff8fa` | LOCAL VERIFIED | External Engine provenance |
+| S4 | Final source verification and fixture synchronization | PASS | Final neutral matrix, twice-green real-PG gate, build, governance and scoped review | `e5e8f82d9e3ad7b533f7a4d21cace1d91753447d` | SOURCE HANDOFF ONLY | One partial receipt, controller review/publication; no Production acceptance |
+
+### Fresh final evidence and honest failure history
+
+Windows isolated source checkout, Node 24.14.0, PostgreSQL 15.19; commands from
+Monitor unless stated. Neutral runs remove both database URL variables and set
+`AEGIS_TEST_PYTHON=C:/Program Files/Python312/python.exe` for cross-language proof.
+
+- `node --test tests/producerLifecycle.test.mjs tests/producerLifecyclePostgres.test.mjs tests/physicalCameraStreamRouting.test.mjs tests/machineAAccountSymmetry.test.mjs tests/streamLifecycle.test.mjs tests/nodeRegistry.test.mjs tests/registryMigrations.test.mjs tests/physicalCameraHeartbeat.test.mjs tests/viewerDemandAvailability.test.mjs tests/liveCamera.test.mjs` — 138 total, 81 pass, 0 fail, 57 conditional DB skips.
+- Neutral `npm test` — 236 total, 178 pass, 0 fail, 58 conditional DB skips.
+- Only disposable `AEGIS_MONITOR_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55448/postgres`, with default `DATABASE_URL` unset: `node --test tests/physicalCameraStreamRouting.test.mjs tests/streamLifecycle.test.mjs tests/machineAAccountSymmetry.test.mjs tests/physicalLinkRoute.test.mjs tests/producerLifecycle.test.mjs tests/producerLifecyclePostgres.test.mjs tests/registryMigrations.test.mjs` — twice 122 pass, 0 fail, 0 skips. Exact test schemas/other clients absent afterward; controller owns cluster shutdown.
+- Initial combined PG runs failed at the real HTTP viewer cleanup assertion
+  (2 active demands versus 1; complete repeated RED: 121 pass / 1 fail / 0 skip).
+  Isolated case passed. Controller-approved test-only synchronization now
+  explicitly waits for completed real release (5-second statement-timeout
+  bound), preserves every DB lifecycle assertion and closes both viewers
+  before schema teardown. Conservative classification: fixture synchronization/
+  cleanup defect; prior latency beyond 200 ms was **not measured**. Subsequent
+  combined GREEN repeated twice; original failures are retained, not erased.
+- `npm run build` — PASS, 2,077 modules. Root governance/Vault/collaboration
+  tests 52/52; Vault validator PASS with two pre-existing owner-data Canvas
+  warnings; all 14 changed JS/MJS syntax checks and diff checks PASS.
+  Changed-content secret scan PASS; scoped review Critical 0 / Important 0 /
+  Minor 0. Publication policy/remote CI and final whole-branch review remain
+  controller-owned; local Draft policy fixture passed.
+
+### Evidence boundary, remaining work and handoff
+
+- Engine generation validation/tests: `NOT_PRESENT_IN_THIS_SOURCE_BRANCH`.
+  Controlled Monitor upstream tests prove its request contract only. Owner
+  live preflight (401 without key; 400 invalid producer generation with key)
+  is EXTERNAL evidence; reconcile live Engine source/image/version provenance
+  before deployment. No Engine validation was weakened or implemented here.
+- The pre-existing DB-enabled WHOLE-suite fixture/pool hang remains unresolved;
+  no DB-enabled full-suite green is claimed. Other legacy DB fixture coverage
+  is not substituted by the affected lifecycle/migration/HTTP gate.
+- Production prerequisites: separately approved migrations 001–005, reviewed
+  `SESSION_SECRET` presence/configuration (never its value), explicit Node and
+  physical registration, account alias/assignment reconciliation, server-
+  approved stream destination, Engine provenance, rollout/rollback decision,
+  and real external acceptance. Nothing in Production was inspected/mutated.
+- Machine A browser/camera/reboot acceptance, Telegram, recording/download,
+  SOC passive/no-wake and fleet/soak acceptance are NOT accepted/implemented
+  by this source task. DB outage may defer immediate release until bounded
+  lease expiry; indefinitely hung dependency recovery is not proven. Existing
+  other fixture SQL-cleanup robustness limitations remain deferred.
+- Next: exactly one partial final receipt for this successor source task,
+  then controller independent whole-branch review and Draft stacked publication;
+  Pub functional review and Kla integration decisions remain required. No push,
+  PR creation, merge, rebase, Production action or predecessor closure here.
+
+## Current Task — Engine producer generation reconciliation v2
+
+Task: reconcile the stranded historical Engine generation contract with PR #298 merged current main
+Branch: `fix/idea2-engine-producer-generation-reconcile-v2`
 Owner: Pub
-PR: Human review and human merge only — owner-approved receipt sequencing reconciliation recorded below
-Current state: READY FOR HUMAN REVIEW — deterministic source coverage and human Machine A LOCAL runtime acceptance passed; Production remains undeployed and unaccepted
-Started: 2026-09-15
-Last checkpoint: implementation `733fb5d40810f0620082672efc783d5aba8242c2`; Machine A LOCAL runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; current-main synchronization `3be340b0f8acccae8bba0a74e049dbdba0e3dae1`; baseline `90efbc8ec95aa026ca7dd8f12f8de91a99d1645b`
+PR: Draft publication pending; human review and merge only
+Current state: SOURCE IMPLEMENTED / LOCAL VERIFIED / REAL MACHINE ACCEPTANCE PENDING
+Started: 2026-10-03
+Base SHA: `1579712866ef0e83c5b949b0afed7a7969e0f80f`
+Implementation checkpoint: `86eec04b3d22c62a97ca07da9783806fe291d11b`
+Production mutation allowed: NO
+
+The predecessor reconciliation worktree stopped when `main` advanced. Its
+uncommitted receipt and 10-file candidate remain untouched and are historical
+context only; this successor was created from main after PR #298 merged.
+PR #298 brought canonical SID comparison, staged DataRoot ACL lifecycle, and
+expected-current-key-version rotation CAS into main. These Agent/CLI paths are
+outside this successor diff.
+
+Historical Engine generation source exists at `f24367bd32ba369be765ce105d981ce3a0f024a7`
+and `dceb52f3b5452a11cee3f815af0d52fe74de1bd7`, neither in current main.
+The current Monitor already sends server-owned `X-Aegis-Producer-Generation`
+with its independent Engine key for strict Operator streams. The Engine now
+validates one canonical positive PostgreSQL BIGINT header after key auth and
+leases viewers per physical producer generation. Same-generation viewers share
+capture; newer generations invalidate old leases and frames; final current
+viewer release removes demand. Always-on compatibility may omit the header,
+but cannot join an already numbered producer. Stale preflight returns 409;
+supersession after response start closes cleanly without stale demand.
+
+### Session Register — Engine generation successor
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| EG-V2-S1 | Current-main Engine generation source, tests, and Monitor fixture | PASS | RED: 11 tests, 15 failures/6 errors on base; GREEN: focused Engine 30/30, full Engine/Agent 232/232; focused Monitor 59 pass/1 conditional PostgreSQL skip; full Monitor 179 pass/58 conditional PostgreSQL skips; Vite build, governance 61/61 and Vault validation PASS | `86eec04b3d22c62a97ca07da9783806fe291d11b` | SOURCE IMPLEMENTED / LOCAL VERIFIED | Draft publication; exact installed Engine artifact and Machine A acceptance unproven; SOC passive-live separate | one new partial receipt, then Draft PR |
+
+Machine A configuration remains a Human-gated deployment requirement:
+`AEGIS_MONITOR_INGEST_MODE=identity_agent`,
+`AEGIS_CAPTURE_ON_DEMAND=true`, `AEGIS_STREAM_ENABLED=true`, and both
+`AEGIS_AGENT_ENGINE_STREAM_URL` and `AEGIS_STREAM_PUBLIC_URL` equal
+`http://aegis-stream-host.internal:18077/stream.mjpg`. Repository defaults are
+not evidence that those values are installed. No live configuration was read.
+The installed Engine source/image SHA is unproven. The strict SOC route still
+lacks server-owned generation and a passive no-wake viewer contract; resolve
+that in a separate task before capture-on-demand Production rollout.
+
+## Previous Task — Pre-Live Blocker Fix A (PR #298 merged)
+
+Task: IDEA2 pre-live Windows Identity Agent blocker fixes and safe Node key rotation
+Branch: `fix/idea2-prelive-windows-agent-blockers`
+Owner: Pub
+PR: #298 merged into main at `1579712866ef0e83c5b949b0afed7a7969e0f80f`
+Current state: SOURCE MERGED — real Windows retest required
+Started: 2026-10-02
+Starting SHA: `9f5a01148ce016bc0056dbbcc85ac8a3e5fac23f`
 Production mutation allowed: NO
 
 ### Goal
 
-Keep the Monitor backend alive when an MJPEG upstream stalls and cancellation
-rejects asynchronously, so real Machine A camera acceptance can continue
-without weakening the established on-demand camera lifecycle.
+Repair the confirmed pywin32 312 SID-comparison incompatibility, split the
+fresh DataRoot `icacls` owner/grant lifecycle into checked safe operations, and
+make public-node key rotation compare-and-swap on an explicit current key
+version before the human resumes any live Machine A or Production action.
 
-### Scope
+### Scope and safety
 
-Prove the duplicate/async upstream-cancellation failure with a deterministic RED
-test, implement one authoritative idempotent cleanup path, verify stream cleanup
-and viewer-demand regression behavior, run the Monitor/design/UI/build checks,
-and prepare the bounded fix for human review. The existing physical-camera and
-account-alias contract remains unchanged.
-
-### Out of scope
-
-SOC passive/no-wake remediation, Telegram routing or delivery, Machine B/C,
-identity architecture, producer ownership, permanent diagnostic-infrastructure
-removal, UI redesign, Production deployment, camera hardware, model, training,
-and biometric changes are outside this runtime-unblocker task.
-
-### Safety boundaries
-
-The browser never owns Node or physical-camera identity. Machine identity still
-selects the physical camera; account identity selects only the CAM-01/CAM-02
-logical alias. This crash-containment PR does not change whether demand begins
-at login or when Live opens; the owner clarified during acceptance that an
-Operator session activating the local Machine A camera is acceptable, and the
-exact product trigger remains a follow-up requirement-reconciliation item. The
-camera stays closed without authorized demand, remains reference-counted, and
-closes after final release or logout. Production and persistent Machine A
-configuration remain unchanged.
+Only Identity Agent ACL source/tests, the Windows installer lifecycle
+source/tests, Monitor Node CLI source/tests/documentation, this canonical note,
+the task plan, and one final immutable receipt may change. Machine A, the
+installed service/runtime, keys, camera, tunnel, Production, Production DB, and
+containers remain untouched. Real Windows acceptance remains pending after
+human merge.
 
 ### Acceptance criteria
 
-The RED test must reproduce the process-level uncontained rejection path. The
-minimal GREEN fix must leave exactly one cleanup owner, contain asynchronous
-cancellation rejection, close only the affected browser response, release
-viewer demand, permit reconnect, preserve watchdog/session revalidation, and
-leave no timer, reader, socket, or unhandled-rejection leak. Full scoped and
-repository validation must pass before a Draft PR is prepared.
+The new tests must fail against the starting source and pass after the minimal
+fixes. ACL validation remains canonical-SID based and fail-closed; the final
+DataRoot owner/DACL remains service/SYSTEM only; rotation requires a positive
+expected version and atomically updates exactly one matching row while
+preserving the reviewed `active = TRUE` reactivation behavior. Targeted and
+broader relevant tests, PowerShell parsing, governance, Vault, diff, secret
+scan, source hash, clean Git state, normal push, and one Draft PR are required.
+
+## Session Register — Pre-Live Blocker Fix A
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PLB-A-S1 | Canonical SID validation, fresh DataRoot ACL ordering, Node key CAS, final source-only verification/publication | SOURCE MERGED | RED reproduced for missing `EqualSid`, combined owner/grant command, and missing CAS. GREEN: ACL 9/9; Windows/Agent lifecycle 91/91; adjacent Agent protocol 53 pass/2 native-pywin32 skips; Node CLI 28/28; Monitor 179 pass/58 conditional PostgreSQL skips; governance/Vault 58/58; Vite build, PowerShell parse, diff, and secret scan pass. | `fb98dfac75846ec8771a88f92ccb61af796e2f0e` | canonical SID equality and exact mask; checked grant→owner→temporary-admin removal; expected-version CAS preserving reviewed reactivation | real Machine A Windows retest; no live key rotation performed | Human-gated runtime recheck |
+
+Authoritative Identity Agent source hash after the fix:
+`D1EEAE02CDF7F9E6A58D775F73E238905EE99618D17F28C511D81DAA45278F48`.
+The source-only verification does not claim live pywin32 312, `icacls`, service,
+DPAPI, key-rotation, camera, tunnel, or Production acceptance. The full Engine
+discovery run remains environment-limited by absent optional `requests`,
+OpenCV, and Starlette packages; all affected installed-dependency suites listed
+above passed.
+
+## Parent Task Context — Machine A No-PowerShell Runtime
+
+Task: IDEA2 Machine A permanent No-PowerShell runtime
+Branch: `feat/idea2-machine-a-no-powershell-runtime`
+Owner: Pub
+PR: Draft publication authorized; keep Draft until remaining H1/Task 16 acceptance and the one final task receipt are complete
+Current state: H0_STATE=HUMAN_PROVEN_COMPLETE; H1_N0=PASS; H1_N1=PASS per Human Owner live report; H1_N2_N3=NOT_LIVE_VERIFIED; H1_STATE=BLOCKED_PREREQUISITES. The Human reports healthy isolated N1 PostgreSQL and Monitor, a stable migration rerun, three lab containers, two internal networks, the lab PostgreSQL volume, no Monitor/PostgreSQL host ports, and unchanged Production identity. This repository-only session does not independently retest or mutate that lab. The separate remote source-checkout clean-gate retry returned `REMOTE_WORKTREE_CLEAN=NO` without dirty-path evidence and remains a host-side prerequisite to resolve before new source staging. Historical N0 and earlier source-only N1 evidence are preserved below. N2–N7, live CA/path acceptance, permanent Machine A install/reboot/account acceptance, and final task closeout remain outstanding.
+Started: 2026-09-19
+Live-accepted source checkpoint: `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; latest unrelated-main merge: `abd57aa58fc9d52f86e9f700b657fd366f5d8e12` (same pinned H1 inputs)
+Production mutation allowed: NO
+
+```text
+H1_PERSISTENT_LAB_PROVISIONED=YES_HUMAN_REPORTED_N1
+H1_N1_REPOSITORY_ARTIFACT=IMPLEMENTED_SOURCE_ONLY
+H1_N1_LIVE_STATE=PASS_HUMAN_REPORTED
+H1_N1_DOCKER_HOST_EXECUTION=SOURCE_ONLY_SUDO_NONINTERACTIVE_LOCAL_SOCKET
+PRODUCTION_MUTATION=NO
+MACHINE_A_RUNTIME_MUTATION=NO
+N0_CAPACITY_CRITERION=OWNER_APPROVED_FORMULA_AND_LIMITS
+N0_CAPACITY=PASS
+N0_STATE=PASS
+POSTMERGE_N0=PASS
+LIVE_N0_REVALIDATION_REQUIRED=NO
+CAPACITY_INPUT_FREEZE_SOURCE_SHA=9e39fe5786a5ac7428d2e5eb47cb2285a63bc606
+H1_PROBE_IMPLEMENTATION_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
+MONITOR_FINAL_SOURCE_SHA=d725365875f54e82f12a592878e382fa2dfa6978
+H1_GATEWAY=SOURCE_IMPLEMENTED_AND_DISPOSABLE_PROBE_VERIFIED
+CAPACITY_PROBE=LIVE_PASS_AND_CLEANED
+CAPACITY_PROBE_DOCKER_EXECUTION=EXPLICIT_DIRECT_OR_SUDO_NONINTERACTIVE
+GATEWAY_IMPLEMENTATION_REQUIRED=NO_SOURCE_COMPLETE
+N1_STARTED=YES_HUMAN_REPORTED
+```
+
+The earlier N0 development checkpoints below retain their original markers as
+historical test-contract evidence, not as current gate state:
+`N0_CAPACITY_CRITERION=NOT_DEFINED`, `N0_CAPACITY=NOT_PROVEN`,
+`N0_STATE=BLOCKED_CAPACITY_CHARACTERIZATION`,
+`BOUNDED_ACTIVE_CHARACTERIZATION_REQUIRED=YES`,
+`H1_GATEWAY=IMPLEMENTED_SOURCE_ONLY`,
+`CAPACITY_PROBE=IMPLEMENTED_SOURCE_ONLY`,
+`ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED`,
+`ATTEMPT_4_SERVICE_EXIT=GATEWAY_MONITOR_EXIT_1`,
+`STARTUP_EXIT_ROOT_CAUSE=NOT_PROVEN`,
+`STARTUP_LOG_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY`,
+`OPTIONAL_HEALTH_DIAGNOSTIC=IMPLEMENTED_SOURCE_ONLY`,
+`SERVICE_READINESS_DIAGNOSTICS=IMPLEMENTED_SOURCE_ONLY`, and
+`ACTIVE_CAPACITY_PROBE_READY=HUMAN_RERUN_REVIEW_REQUIRED`, plus the earlier
+`N1_STARTED=NO` source-only marker. These are historical, not current H1 gates.
+
+### Final reviewed main-equivalence evidence (N0, 2026-09-30)
+
+The first reviewed main merge `8ed07adf1a29a6b76ca5c776031a4fea6e37223e`
+had tree `0588a24ee4900b469a0dbf25cccc420c07cb5053`. A second approved
+main sync merged `ca8c0133b59695a4b9f0689d7efd61991af8ab32` as
+`abd57aa58fc9d52f86e9f700b657fd366f5d8e12`, with tree
+`5e93dcab71233c02de62acf2e5f6e5f433a2098a`. The second main advance
+changed exactly four IDEA3 paths and no IDEA2 or H1 runtime/build/probe input.
+Compared with the live-accepted source
+`5f154a25becfd8cf3c84f19a1585c51fbd4d399c`, both main advances are
+unrelated IDEA1/IDEA3 source/documentation changes. The latest merged H1 identities are:
+
+| Input | Git object ID |
+|---|---|
+| IDEA2 Monitor tree | `ff068da99352d7f1ee4b1eea7d79c398e54a7c05` |
+| H1 probe tree | `98a1c376dd0fa327ff93c7e5e8017c4056495fa0` |
+| H1 gateway tree | `a74c4e70c2ebe67201b0b6ab97d3b67a03a5d11f` |
+| H1 probe Compose blob | `2608bc9c14f089cf01261fa906687ab0469fe4f3` |
+| root Compose blob | `2115c597d7a94354f90160d22d38e13a711c59d0` |
+| root `.env.example` blob | `2a142639348c206158d9ab49399b8d7bc55738b0` |
+
+Monitor Dockerfile, `.dockerignore`, package manifests, `server/`, and `src/`
+also matched their live-accepted object IDs. After this merge, the non-live
+H1 contracts passed 40/40; physical heartbeat/Agent focus passed 16 with one
+conditional PostgreSQL skip; full Monitor passed 142 with three conditional
+PostgreSQL skips; Engine/Agent passed 194 tests with two expected Windows-native
+skips; Vite built 2,077 modules; static syntax, governance 50/50, Vault,
+and diff checks passed. These fresh local checks do not replace the separately
+reported human-run live N0 result or prove N1–N7. The raw capacity measurement
+artifact remains in the human-run evidence, not this repository; no numerical
+capacity value is reconstructed here.
+
+### Goal
+
+Deliver a repository-native Machine A runtime that starts the Detection Engine,
+dedicated Identity Agent, and tunnel automatically; keeps the camera closed when
+idle; resolves `operator` to CAM-01 and `operator2` to CAM-02; and always routes
+both accounts to Machine A's registered physical camera without manual terminal,
+heartbeat-loop, or diagnostic-bridge steps.
+
+### Scope
+
+Tasks 1–11 implemented the dedicated Ed25519 Identity Agent architecture,
+strict browser association, server-side verified-node session binding,
+authenticated physical heartbeat and ingest provenance, account-to-logical-
+alias policy, physical routing, and demand lifecycle symmetry. PRE-TASK-12/N12
+replaced the rejected diagnostic `:18078` bridge and hard-coded Docker gateway
+candidate with a stable deployment-owned, server-controlled Machine A stream
+endpoint. Original Task 12 implemented and checkpointed the repository-native
+Windows lifecycle without installing or changing the real Machine A runtime.
+Original Task 13 exercises the built Monitor, disposable PostgreSQL,
+protocol-real Agent proof, physical routing, and Engine demand/release path in
+an isolated local harness without the diagnostic bridge or persistent mutation.
+Original Task 14 freshly verified that complete candidate, including real
+disposable PostgreSQL gates, Windows lifecycle/static contracts, governance,
+Vault, dependency, secret, lifecycle, and scoped security review boundaries.
+
+### Out of scope
+
+Final SOC passive/no-wake remediation, Machines B/C rollout, archival footage,
+Telegram completion, UI redesign, Production deployment, Production database or
+network changes, camera hardware, model weights, training data, and biometric
+data are outside this task. The bounded Detector B legacy shared-key path remains
+compatible until a separately approved migration.
+
+### Safety boundaries
+
+The dedicated Agent alone owns the DPAPI-protected Ed25519 private key. Browser,
+Engine, heartbeat payload, hostname, IP, headers, query parameters, and storage
+never establish Node, physical-camera, or alias authority. Machine identity
+selects the physical camera; the live authenticated account selects only the
+logical alias. Authentication, Agent renewal, heartbeat, and browser association
+create no viewer demand. The existing Live workflow creates reference-counted
+demand, and final release/logout closes the camera. Production and the installed
+Agent/Engine/tunnel/camera runtime remain unchanged; only the separately approved
+Python 3.12.10 prerequisite has been installed on Machine A so far.
+
+### Acceptance criteria
+
+Every source behavior is implemented through observed RED-to-GREEN tests. Full
+Monitor, Engine, Agent, browser, UI-freeze, build, disposable PostgreSQL,
+governance, Vault, secret-scan, and scoped security-review gates must pass. Human
+acceptance must then prove reboot/login auto-start, idle camera OFF, Operator on
+CAM-01 using physical Camera A, final release OFF, Operator2 on CAM-02 using the
+same physical Camera A, final release OFF, and no manual bridge, heartbeat, npm,
+Vite, Python helper, or PowerShell workflow. The owner has separately authorized
+publication of the verified N0 checkpoint as a **Draft PR** before that final
+acceptance. This does not authorize a final receipt, Ready-for-Review status,
+merge, Production deployment, or a claim that Task 16 is complete.
 
 ## Session Register
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
+| H1-N2-N3-READINESS | Reconcile trust-only N2 and gateway-start N3; add repository-only validation and lifecycle artifacts | IN PROGRESS — REPOSITORY ONLY | Human reports N1 live PASS; repository source began at `0727b3a22e327e406b4fce2829c46fc4022d3c13`. Focused N2/N3 Python 16 pass/1 Windows symlink-environment skip, H1 61/61, Monitor 142 pass/3 conditional PostgreSQL skips, Windows lifecycle 37/37, full Agent CA 11/11 using existing Python 3.14, and governance 65/65 passed locally. A real Docker Compose render cannot run because the CLI is unavailable; fixture validation is not equivalent. The separate remote source-checkout clean gate remains unresolved after returning `REMOTE_WORKTREE_CLEAN=NO` with no path evidence. No new live action in this session. | — | Repository candidate remains unstaged/uncommitted until missing renderer check and final review are resolved | N2/N3 live DNS, certificates, trust, gateway, and route evidence remain separately authorized | Keep PR #264 Draft; no N1 lab, Machine A, or Production mutation |
+| H1-N1-DOCKER-MODE | Align persistent N1 host Docker commands with accepted sudo-noninteractive execution | PASS — SOURCE/LOCAL ONLY | RED showed direct-Docker and unpinned-daemon defects. The validator remains unprivileged for owner-only secret checks; Docker commands pin `unix:///var/run/docker.sock`; rendered values are never printed on failure; cleanup remains print-only. H1 56/56, Monitor 142 pass/0 fail/3 conditional PostgreSQL skips, governance 50/50, Python static/Vault/diff/changed-content secret scan PASS. No live Docker, N1 lab, Machine A, or Production mutation. | `aa222c68b2a62ef02ddc5e1a650c58d4f1d2d52a` | Repository compatibility fix verified locally; N1 live state NOT_STARTED | Human-run non-mutating server Compose render and separate live N1 authorization | Keep PR Draft; do not create the final receipt or start N1 live provision |
+| H1-N0-FINAL | Bounded non-Production capacity probe and post-main integration | PASS / CLOSED for N0 only | Attempt 8 blocked at postgres-seed; Attempt 9 PASS at `af42604`; first main merge `5f154a25` included the RED→GREEN physical-heartbeat correction; human-run post-merge N0 at that live SHA exited 0 with postgres-seed, monitor-health, measurements, and cleanup PASS. Fresh Production identity remained `a9793f92…` before/after (7/7/4). Later reviewed main `fdc2dd3d` merged cleanly and produced the exact predicted tree `0588a24e`; all H1 runtime inputs retained their pinned hashes, so no live rerun was required. Post-sync non-live H1 40/40; Monitor 142 pass/3 conditional PostgreSQL skips; Engine 194 tests/2 expected environment skips; Vite 2,077-module build PASS. | live source `5f154a25becfd8cf3c84f19a1585c51fbd4d399c`; final main merge `8ed07adf1a29a6b76ca5c776031a4fea6e37223e` | `POSTMERGE_N0=PASS`; H1 persistent lab, N1–N7, CA/path, and permanent Machine A acceptance still pending | Publish Draft PR for human/integration review; do not merge or start N1 without separate authorization |
+| H1-N0-CAPACITY-HISTORICAL-ATTEMPT4 | Earlier exact-candidate disk/RAM/PostgreSQL/rollback capacity gate | BLOCKED_CAPACITY_CHARACTERIZATION at Attempt 4 only; superseded by H1-N0-FINAL | Owner limits, immutable artifacts, sudo-only Docker access, and live preflight were proven. Attempts 1–3 failed closed at the PostgreSQL volume, running-only discovery, and optional-health inspection boundaries. Attempt 4 retained PostgreSQL as running/healthy and gateway/Monitor as exited with code 1, but its log lacked their startup stderr/stdout; no common crash cause was proven then and no `capacity-measurements.json` was produced in that attempt. Exact cleanup removed all probe resources and preserved Production identity. | source checkpoint `3272a90e8e51ffa2d9b8ef322768dcb4fe55780a` | Historical `ACTIVE_CAPACITY_PROBE=ATTEMPT_4_FAILED_CLEANED`; superseded by later PASS | Later Attempt 9 and post-merge N0 closed this boundary | Historical, not the current gate |
+| H1-AGENT-CA-BUNDLE | Managed private-CA trust for the dedicated Identity Agent | PASS — SOURCE/LOCAL ONLY | TDD covers public-only PEM validation, exact managed path, empty/unset default trust, reparse/out-of-scope/private-key/malformed/missing rejection, explicit Requests verification across auth and ingest, ambient trust-variable rejection, real disposable TLS chain success, untrusted CA and hostname mismatch denial, and Windows install/status/repair/uninstall ownership. Focused Agent/CA/lifecycle 57/57; full Engine/Agent 194 total / 192 pass / 2 expected native-pywin32 skips; Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; H1 contract 6/6; Windows lifecycle 37/37; PowerShell parse 10/10; governance 63/63; Vault PASS with two pre-existing Canvas warnings. No live CA, service, Machine A, lab, or Production state changed. | this local checkpoint | `CA_BUNDLE_IMPLEMENTATION=IMPLEMENTED_SOURCE_ONLY`; H1 remains blocked | N0-N7 and live reviewed H1 CA/path verification | stop before N0, H1, machine mutation, push, or PR |
+| H1-NONPROD-ENVIRONMENT-DESIGN | Isolated non-Production H1 architecture and N0-N8 runbook | BLOCKED_PREREQUISITES / DESIGN REVIEWED | Human-approved repository-only design fixes `aegis-h1-lab`, candidate-only HTTPS/stream hostnames, conditional ports, isolated PostgreSQL/Monitor/network/volume/credentials, exact browser/Agent route split, owner-reviewed registry policy, server-authoritative stream destination, and the source/local-verified managed `AEGIS_AGENT_CA_BUNDLE` lifecycle. No live DNS, TLS, database, container, registry, or Machine A resource exists from this checkpoint. | this local checkpoint | DESIGN PASS; CA-BUNDLE SOURCE/LOCAL PASS; LIVE PROVISIONING NOT PERFORMED | Run separately authorized N0-N7 and verify the live reviewed non-Production CA/path | Human reviews this local checkpoint; do not begin N0 or H1 |
+| MULTI-MACHINE-PORTABILITY | Pre-H1 portability hardening for Windows Machines A/C and Linux Machine B | PASS — SOURCE/STATIC ONLY | Binding model proven across A/B/C x operator/operator2: A = Windows laptop/built-in camera; B = Linux/local camera discovered at deployment; C = Windows PC/external webcam. RED proved reusable private-network endpoint and reverse-port defaults; GREEN makes the Monitor host, explicit non-loopback server bind, and unique reverse port mandatory deployment inputs. Authorization 17/17; Windows+Linux lifecycle 34/34; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; full Engine/Agent 179 tests / 177 pass / 0 fail / 2 expected native-Windows skips; UI freeze 5/5; PowerShell parse PASS; Bash parse PASS; Vite build PASS; governance/Vault 50/50 and PASS with two pre-existing Canvas warnings; diff/hardcode/secret/security review PASS. | this local checkpoint | Windows A/C share one configuration-driven lifecycle; Machine C needs no source rewrite. Shared Machine B business logic needs no rewrite, but the repository Linux adapter currently implements only Engine+tunnel systemd lifecycle and source-level camera discovery; Linux dedicated Identity Agent and real Machine B runtime acceptance are NOT_IMPLEMENTED / NOT_VERIFIED. Model semantics unchanged. | Future separately approved Linux identity-agent adapter and real Machine B install/reboot/camera acceptance; H0 is complete and H1 prerequisites remain separate | STOP before H1, any machine mutation, push, or PR |
+| ORIGINAL-TASK-15 | Prepare and Stop at the Human Machine A Installation Gate | H0 HUMAN_PROVEN_COMPLETE / H1 BLOCKED_PREREQUISITES | H0 prerequisite remediation and read-only acceptance are human-proven complete. Historical H0-2R defects and corrections remain recorded below. No Agent, Engine, tunnel, camera, Production, Task 16, receipt, push, or PR mutation is claimed. | current branch history through `25dd102ef1f487b04da0d16eb1054e1bbea9a33f`; this design checkpoint follows | H0 PASS; H1 NOT STARTED | Isolated H1 lab, managed CA bundle, and N0-N7 evidence | review design checkpoint; keep H1 blocked |
+| ORIGINAL-TASK-14 | Full automated verification and scoped security review | HUMAN-GATE READY | Starting SHA `ee9812d8d5c3992a04118e55149ae843b697fd6d`; focused Monitor lifecycle/security 70/70; focused Windows lifecycle 70/70; full Monitor 140 pass / 0 fail / 3 conditional PostgreSQL skips; all skipped behavior rerun against disposable PostgreSQL 15 with zero skips; full Engine/Agent 176 tests / 174 pass / 0 fail / 2 expected native-pywin32 environment skips; UI freeze 5/5; Vite build PASS; governance 49/49; Vault PASS with two pre-existing Canvas warnings; PR #134 lifecycle 7/7; hash-locked wheels 9/9; PowerShell parser 18/18; scoped review Critical 0 / Important 0 / Minor 0 | source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; this status-only evidence checkpoint follows | PASS — source/local candidate; Playwright runner absent and real installed Machine A runtime not exercised | Task 15 human installation-gate preparation; Task 16 acceptance/receipt/PR | stop before Task 15 |
+| ORIGINAL-TASK-13 | Production-like disposable integration without diagnostic harness | CLOSED | Starting SHA `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; `origin/main` `2694808092bd3c28dea14ed4bcd400e6bb0ec5d2` has no overlap with authorized Task 13 paths; Node integration 5/5; Engine contract 2/2; PostgreSQL 15 migrations applied twice; built Monitor shell, Agent proof, account aliases, physical source, demand/release, forged/stale denial, Agent recovery, heartbeat aging, and cleanup all passed | `test(idea2): prove permanent machine a runtime path` (this checkpoint) | PASS — disposable/local integration only; Production and installed Machine A unchanged | Task 14 full automated verification and security review | stop before Task 14 |
+| ORIGINAL-TASK-12 | Windows install/status/repair/uninstall/autostart lifecycle | CLOSED | Starting SHA `27d7723f96c4752d32047c5062c55173c3f4c9c2`; focused Windows/Agent 74/74; PowerShell parser 12/12; full Engine/Agent 174 tests / 172 pass / 0 fail / 2 expected native-pywin32 skips across the existing split dependency runtimes; Monitor 143 tests / 140 pass / 0 fail / 3 conditional PostgreSQL skips; UI freeze 5/5; Vite build PASS; hash-locked Windows wheels 9/9; governance 50/50; Vault PASS with two pre-existing canvas warnings; secret scan 21 paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0 | `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` | PASS at repository source/static/test-double boundary; installed Machine A runtime and privileged Windows lifecycle not executed | Task 13 integration | Task 13 |
+| PRE-TASK-12-N12 | Permanent Machine A stream endpoint contract | CLOSED | Task 11 base `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`; stable `aegis-stream-host.internal` application endpoint; server-owned Node/physical mapping; explicit non-loopback IPv4 SSH bind; Monitor 140 passed with 3 conditional PostgreSQL skips; Engine/Agent 139 tests, 0 failures, 2 pywin32 skips; endpoint 18/18; Agent 9/9; Windows 19/19; UI freeze 5/5; governance 50/50; Vite build PASS | `27d7723f96c4752d32047c5062c55173c3f4c9c2` | PASS at source/static/config evidence level; Production and installed Machine A runtime unchanged | original Task 12 |
+| MACHINE-A-NO-POWERSHELL-T1-T11 | Agent identity through physical camera demand lifecycle | CLOSED | Tasks 1–11 committed from `cc2ffff` through `cb17caee`; single physical heartbeat supports both account aliases; account switching requires no heartbeat switch; startup/auth/heartbeat create no demand; final demanding release closes the camera | `cb17caeecbc09b5cab224ae9369e3a29b860cbf8` | PASS — source/test checkpoints only; not installed Machine A acceptance | permanent endpoint prerequisite and original Tasks 12–16 | PRE-TASK-12/N12 |
+| MACHINE-A-NO-POWERSHELL-S1 | Isolated planning, current-main reconciliation, and Windows capability preflight | CLOSED | task-start `origin/main` `c5468c520f24d29fb37fefcf7c4411b91d4087f4`; PR #134 merged; Windows PowerShell/Python/DPAPI/8078/cryptography preflight accepted; pywin32 isolated-Agent dependency action identified | `cc2ffff` | PASS — planning/preflight; Production unchanged | superseded by implementation sessions above | historical record |
 | CP2 cleanup | Dispose isolated PostgreSQL resources and restore local Docker management | CLOSED | Human-run cleanup: exact CP2 container/volume absent, port 55433 released, Docker responsive, Git clean | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | none | CP3-S0 |
 | CP3-S0 | Read-only repository and runtime-auth reconnaissance | CLOSED | CP2 registry/key-version/physical-camera foundation exists; runtime still uses shared key/body identity; no Agent auth/session/DPAPI path exists | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS | freshness comparison | CP3-S0.5 |
 | CP3-S0.5 | Fetch and inspect newer `origin/main` for CP3 overlap | CLOSED | fetched `origin/main` `99a6f916f5b4aa20da2a1c2ee68e75162f7e23b7`; 69 newer commits do not touch IDEA2/CP3 interfaces | `9bdcf0647cf5c66cdb303066e6cad15f552ebf25` | PASS — no reconciliation required | architecture specification | CP3-S1 |
@@ -80,6 +847,129 @@ repository validation must pass before a Draft PR is prepared.
 | CF-S1-DESIGN | Camera-First Machine A browser-session association architecture | CLOSED | First broken boundary addressed in design: authenticated session -> verified local Node -> registered physical camera -> existing stream; CP3 preserved/paused; CP5 and final SOC remediation deferred | this documentation checkpoint | PASS — design only; no runtime/test/Production mutation | owner review and shortest TDD implementation plan | stop for human design review |
 | CF-S1-PLAN | Bounded TDD implementation plan for Camera-First Slice 1 | CLOSED | Five reviewable tasks with exact file/interface maps, RED/GREEN commands, S1-H1–H5 human gates, protected camera boundaries, and CP3/CP5 exclusions | this documentation checkpoint | PASS — planning only; implementation not started | owner review and authorization for Task 1 RED | stop for human plan review |
 | CAM-RUNTIME-UNBLOCKER | Monitor MJPEG idle-watchdog cancellation crash | PASS | RED reproduced the strict unhandled `AbortError`; focused lifecycle 12/12, Monitor 32 pass / 0 fail / 2 conditional PostgreSQL skips, browser 18/18, UI freeze 4/4, Vite build PASS; Engine targeted 18/18; full Engine 74/76 with two unchanged current-main generation failures; human LOCAL Machine A idle/open/sustain/stall/recover/release acceptance PASS | `733fb5d40810f0620082672efc783d5aba8242c2`; runtime evidence `0ca4e655b666bf843c1a9be5773248af59569ea9`; main sync `3be340b0f8acccae8bba0a74e049dbdba0e3dae1` | PASS — source and LOCAL runtime; NOT Production | human code/integration review | keep undeployed; human merge only |
+
+## Machine A No-PowerShell Task Status Dashboard
+
+| Plan boundary | State | Current truth |
+|---|---|---|
+| Tasks 1–11 | COMPLETE | Agent identity, verified session, physical provenance/routing, one physical heartbeat, and demanding-viewer lifecycle are committed through `cb17caee`. History is preserved. |
+| PRE-TASK-12 / N12 | CLOSED | Checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2`; stable named/configured endpoint, server-owned source mapping, and explicit SSH-bind contract pass source/static/config gates. Live Machine A acceptance remains later evidence. |
+| Original Task 12 | CLOSED | Checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f`; repository-native Windows install/status/repair/uninstall/autostart lifecycle passes source/static/test-double gates. No permanent Machine A runtime mutation occurred. |
+| Original Task 13 | CLOSED | Node integration 5/5 and Engine contract 2/2 passed against the built app, disposable PostgreSQL 15, protocol-real Agent proof transport, and protocol-real Engine stream. Dynamic ports and database schemas were released. Production and installed Machine A remain unchanged. |
+| Original Task 14 | HUMAN-GATE READY | Fresh complete source/local verification and scoped security review passed at source checkpoint `ee9812d8`; all Task 14 disposable PostgreSQL and dependency resources were removed. Playwright is honestly `BLOCKED_ENVIRONMENT` because the approved runner is absent. |
+| Original Task 15 / H1 N0–N3 | H0 HUMAN_PROVEN_COMPLETE / N0 PASS / N1 PASS HUMAN-REPORTED / N2–N3 LIVE PENDING | Managed Agent CA-bundle source/lifecycle is locally verified. N0 passed with post-main equivalence. Human reports an isolated healthy N1 PostgreSQL/Monitor lab and stable migration rerun; repository-only N2/N3 readiness is in progress. DNS, CA/trust, gateway listener, live browser/Agent validation, and permanent Machine A runtime remain unproven. Production unchanged per owner report. |
+| Original Task 16 | NOT STARTED | Permanent Machine A installation, reboot/account/camera acceptance, and the one final task receipt remain pending. Owner-authorized Draft PR publication does not close them. |
+
+### Planned / Completed / Remaining
+
+- **Completed:** Original Tasks 1–11, ending at Task 11 SHA `cb17caeecbc09b5cab224ae9369e3a29b860cbf8`.
+- **Completed:** PRE-TASK-12/N12 TDD and checkpoint `27d7723f96c4752d32047c5062c55173c3f4c9c2` for a deployment-owned stable hostname, explicit container host mapping, explicit SSH tunnel bind/port, and server-owned Node/physical-camera endpoint authorization.
+- **Completed:** Original Task 12 checkpoint `d0e9fe59ea5d3daec9b999f2f2c4639f3ceef17f` for Windows lifecycle tooling and static/test-double verification only; privileged real-Windows installation remains a later human gate.
+- **Completed:** Original Task 13 production-like integration: 5/5 Node integration tests and 2/2 Engine runtime-contract tests passed with the built Monitor, disposable PostgreSQL 15, protocol-real Agent proof transport, and Engine demand/release lifecycle. No Vite acceptance, `:18078`, manual heartbeat loop, manual stream proxy, Production URL, or persistent Machine A mutation was used.
+- **Completed:** Original Task 14 full automated verification and scoped security/lifecycle review against source checkpoint `ee9812d8d5c3992a04118e55149ae843b697fd6d`; Critical 0 / Important 0 / Minor 0. The absent Playwright runner remains an explicit environment limitation rather than a fabricated pass.
+- **Completed:** Original Task 15 prepared and statically validated the Human Owner installation gate. Human H0-1/H0-2R-1 passed. Fresh WinGet diagnostics proved that the first H0-2R-2 command never selected or ran an installer because Windows PowerShell 5.1 split the nested `--override` at `Program Files`. The corrected exact official-installer path was later authorized and exited zero; `C:\Program Files\Python312\python.exe` proves Python 3.12.10 AMD64 and `py.exe -0p` lists it beside the unchanged-location Python 3.14 baseline. H0-2R-3 stopped only because its registration check incorrectly required the Burn bundle GUID in HKLM.
+- **Completed:** H0 is human-proven complete. The historical H0-2R failures and their bounded corrections remain below as an audit trail rather than current blockers.
+- **Completed:** Repository-only `AEGIS_AGENT_CA_BUNDLE` implementation and local disposable-certificate verification. TLS verification remains mandatory; no live trust material or runtime was provisioned.
+- **Completed:** Attempt 9 and the post-merge human-run disposable H1 N0 capacity probe at live source `5f154a25` passed. Reviewed main syncs `fdc2dd3d` and `ca8c0133` changed no pinned IDEA2/H1 runtime input; targeted non-live tests/build passed after each sync. Production identity was unchanged during the live N0 probe.
+- **Remaining:** N2–N7, the unresolved remote source-checkout clean gate, reviewed H1 public CA/path acceptance, live gateway and browser/Agent proof, permanent Machine A installation, reboot/operator/operator2 acceptance, and the one final receipt. Draft PR #264 stays Draft; Ready status and merge remain human-gated.
+
+### PRE-TASK-12 verified contract and known limitations
+
+- The rejected `:18078` bridge and hard-coded `172.18.x.x` application destination are absent from the accepted runtime contract. Negative tests reject loopback, runtime IP, port zero, malformed URL, wrong Node, wrong physical camera, and heartbeat override candidates.
+- Monitor uses the deployment-owned `aegis-stream-host.internal` name plus an explicit Compose host mapping. Windows tooling requires an explicit non-loopback SSH reverse-listener bind and port. Deployment preflight must still prove those two deployment values identify the same reachable interface.
+- No live container-to-host hop was run because Docker CLI/runtime is unavailable in this Codex environment. No real Machine A camera, Production network, Production Compose, SSH tunnel, database, or installed runtime was changed or claimed verified.
+- Playwright was not rerun because the existing dependency set does not contain `@playwright/test`; no package/dependency mutation was made to hide that environment limitation. UI freeze 5/5 and Vite production build passed.
+- Machine A is the only later runtime-acceptance target. Machines B/C are intentionally deferred; the source is generic by deployment hostname, Node, physical-camera ID, and port, so later provisioning does not require an application rewrite.
+
+### PRE-TASK-12 final verification evidence
+
+- Endpoint/physical routing: `node --test tests/physicalCameraStreamRouting.test.mjs tests/physicalLinkRoute.test.mjs tests/machineAAccountSymmetry.test.mjs` — 18 passed, 0 failed, including a real cross-origin redirect/credential containment test.
+- Agent endpoint contract: `python tests/test_agent_session.py -v` — 9 passed, 0 failed.
+- Windows deployment contract: `python tests/test_windows_autostart.py -v` — 19 passed, 0 failed; modified PowerShell files parse with 0 errors.
+- Full Monitor: `npm test` — 140 passed, 0 failed, 3 conditional PostgreSQL skips.
+- Full Engine/Agent: `python -m unittest discover -s tests -p 'test_*.py' -v` — 139 tests, 0 failures, 2 expected pywin32 environment skips.
+- UI/build/governance: UI freeze 5/5; Vite production build PASS; Vault/collaboration test matrix 50/50.
+- Security/infrastructure: an independent review found and TDD closed redirect credential forwarding, IPv6 bind formatting, trailing-dot parity, and explicit-port-80 parity defects; final re-review is Critical 0 / Important 0 / Minor 0. Strict source rejects redirects and fails closed; no browser/heartbeat destination authority; no embedded secret; root Compose change is a declared shared dev/test infrastructure surface requiring later integration review.
+
+### Original Task 14 verification evidence
+
+- **Starting/source checkpoint:** `ee9812d8d5c3992a04118e55149ae843b697fd6d` on `feat/idea2-machine-a-no-powershell-runtime`; Task 14 changed no production source or tests. Final fetch recorded `origin/main` `5f1c11abf65f5680eef7871646e341a7426f2447`; its three newly observed commits are IDEA3-only and do not overlap Task 14's sole authorized tracked path.
+- **Focused candidate gates:** Monitor lifecycle/security 70/70; Windows lifecycle 70/70; Task 13 production-like regression 7/7; PR #134 stream-abort/lifecycle regression 7/7.
+- **Full Monitor:** 143 tests, 140 passed, 0 failed, 3 conditional PostgreSQL skips in the environment-neutral run. The PostgreSQL-gated migration/registry/ingest/heartbeat/CLI/integration behavior then ran against disposable PostgreSQL 15 with zero skips: registry migrations 6/6, Node registry 7/7, ingest provenance 3/3, physical heartbeat 4/4, Python CLI/PostgreSQL 33/33, and Task 13 integration 5/5. Schema plus migrations 001–004 also applied successfully twice.
+- **Full Engine/Agent:** 176 tests, 174 passed, 0 failed, 2 expected native-pywin32 environment skips. The established Python 3.14 Engine environment ran 167 tests (165 pass, 2 skips); the approved bundled Python 3.12 cryptography runtime ran the remaining Agent key/browser modules 9/9.
+- **Windows/dependency gates:** all 18 PowerShell files parsed; 9/9 hash-locked CPython 3.12 Windows wheels resolved with `--require-hashes`; installer/status/repair/uninstall safety and single HKCU Engine startup ownership remained intact.
+- **UI/build:** UI-freeze 5/5 and Vite production build PASS (2,076 modules). Playwright is `BLOCKED_ENVIRONMENT`: `package.json` declares the approved runner, but the existing installation has no Playwright executable. Task 14 did not install or mutate dependencies to fabricate a pass.
+- **Governance/security:** collaboration/governance 49/49; Vault validation PASS with the two pre-existing owner-data Canvas warnings; changed-file, log-output, private-key/secret, and endpoint-authority scans PASS; `git diff --check` PASS. The fresh scoped review covered proof domains/raw bodies, replay/concurrency, DPAPI/ACL, loopback Origin/CORS/PNA, browser/session binding, live revalidation, physical source/SSRF bounds, demand/release, legacy downgrade, Windows ownership, cleanup, rollback, and Production isolation: Critical 0 / Important 0 / Minor 0.
+- **Negative controls preserved:** forged browser Node/physical identity, unknown/disabled Node, stale/invalid association, heartbeat/browser stream override, malformed endpoint, wrong service/key identity, duplicate Engine owner, invalid ACL/key state, and auth/heartbeat/status demand are rejected by deterministic tests.
+- **Dependency review limitations:** the current production dependency audit reports three moderate `qs` advisories, but the Monitor source never reads `req.query` or enables URL-encoded body parsing, so the reviewed vulnerable parser path is not reachable. The Engine environment reports an `opencv-python` metadata mismatch while the intentional `opencv-contrib-python` package provides working `cv2`; the complete Engine suite passes. These are deferred dependency hygiene observations, not Task 14 Critical/Important findings.
+- **Cleanup:** the exact disposable PostgreSQL cluster/databases, Python dependency directory, wheel-check directory, schemas, and port 55441 were removed/released. No unrelated resource, Production state, or installed Machine A runtime changed.
+
+### Original Task 15 Human Gate preparation
+
+- **Title and plan:** `Prepare and Stop at the Human Machine A Installation Gate`, from `docs/superpowers/plans/2026-09-19-idea2-machine-a-no-powershell-runtime.md`, starting at `48c4f8ff30b83400933b3b55434becd2bf449fab`.
+- **Prepared package:** H0 read-only branch/source/Windows/Python/owner/listener/camera/rollback inventory; H1 external non-secret Agent config, hash-bound Agent install, DPAPI preflight, protected key/public export, non-Production registry/alias/auth-mode setup, Engine/tunnel install, and Agent start; H2 immediate status/ACL/key/idle validation; H3 two-reboot operator/operator2 acceptance; H4 bounded repository repair; H5 default identity-preserving rollback and separately labelled destructive identity boundary.
+- **Abort conditions:** unexpected Engine owner, unknown Agent, unexpected port owner, wrong managed root/service identity, source/dependency hash failure, DPAPI/key/ACL failure, tunnel or stable endpoint mismatch, camera not idle, unexpected existing Node/runtime, Production database, or any prerequisite failure.
+- **Security boundary:** private key remains DPAPI CurrentUser protected under `NT SERVICE\AEGISIdentityAgent`; only its public key/fingerprint may cross to the approved non-Production registry. Browser, heartbeat, username, IP, hostname, headers, storage, and logical alias cannot select the physical camera or upstream destination.
+- **Runtime contract:** Engine remains the single HKCU Run owner; Agent is automatic on `127.0.0.1:8078` and creates no demand; server-owned stream target is `aegis-stream-host.internal:18077`; diagnostic `:18078` and hard-coded Docker IPs remain absent.
+- **Mutation truth:** `INSTALLED_MACHINE_A_RUNTIME_CHANGED=NO`, `PRIVILEGED_MACHINE_A_COMMAND_EXECUTED=NO`, `PRODUCTION_MUTATION_PERFORMED=NO`, `TASK16_STARTED=NO`.
+- **Known limitations:** preparation/static validation does not prove real service installation, service-identity DPAPI behavior, real Node registration, reboot recovery, browser association, physical Camera A, or operator/operator2 demand/release. Those are Task 16 Human Owner evidence.
+
+#### H0-2 prerequisite-remediation discovery
+
+- **Observed Human evidence:** `H0_1=PASS`; `H0_2=BLOCKED_PREREQUISITE`; blocker `CPYTHON_3_12_X64_REQUIRED`. Machine A currently exposes only Python 3.14 x64 at `C:\Users\puppu\AppData\Local\Python\pythoncore-3.14-64\python.exe`.
+- **Reviewed package:** WinGet `Python.Python.3.12`, exact version 3.12.10, Python Software Foundation x64 installer `python-3.12.10-amd64.exe`, SHA-256 `67B5635E80EA51072B87941312D00EC8927C4DB9BA18938F7AD2D27B328B95FB`.
+- **H0-2R-1 result:** PASS. `py.exe -0p` listed only Python 3.14; the recorded Python 3.14 SHA-256 is `03168C01B7B7491423350E82C26FEE71F35B43694D1319D3C668BDA6903A0C38`; read-only exact WinGet machine/x64 selection found the expected 3.12.10 package, publisher, URL, and installer hash.
+- **First H0-2R-2 result:** BLOCKED before installer execution. WinGet 1.29.380 diagnostic activity `{D0444D22-C6E9-4F4A-B6E9-01C3D738BC57}` logged the single intended override as two argv items: `TargetDir=C:\Program` and a second positional `Files\Python312 ...` query. Package matching therefore ended with `0x8A150014`; `C:\Program Files\Python312\python.exe` remained absent and `py.exe -0p` remained 3.14-only.
+- **Scope decision:** machine-scope side-by-side install at `C:\Program Files\Python312\python.exe`, because the later Agent virtual environment runs as `NT SERVICE\AEGISIdentityAgent` and must not depend on the interactive user's private AppData tree. Administrator elevation is required. The corrected method uses the exact official PSF URL, mandatory SHA-256 and Authenticode verification, and Python's supported adjacent `unattend.xml` so no nested native quoting is needed. It explicitly disables PATH, shared-launcher, file-association, and shortcut changes; a hash-bound baseline proves Python 3.14, machine/user PATH, launcher, and Python Store-alias entries remain unchanged.
+- **Corrected H0-2R-2 result:** installer exit 0. Baseline SHA-256 is `A3BBB9A032378D22EF0F2BDAD1752980985A5FFD77F94ED66CAEAF0476C7D621`; the exact Program Files runtime reports Python 3.12.10 AMD64 and `py.exe -0p` lists Python 3.14 plus the new 3.12 path.
+- **Second H0-2R-3 finding:** runtime/path/bitness proof passed, then `PYTHON_312_PRODUCT_REGISTRATION_MISMATCH` exposed a second runbook defect. Read-only registry evidence shows the exact Burn bundle `{b6ce88eb-2ce3-4d91-8efc-425ae1f48caf}` in HKCU and seven exact Python Software Foundation 3.12.10 x64 MSI components in HKLM. CPython's bundle authoring keeps the Burn maintenance entry per-user while `InstallAllUsers=1` selects `ForcePerMachine` component packages. The bundle location is not machine-scope authority.
+- **Prepared evidence:** corrected H0-2R-3 requires one exact HKCU bundle entry, the seven exact expected HKLM component registrations across the two machine views, no additional matching registration, exact runtime/version/path/bitness, and the original hash-bound Python 3.14/PATH/launcher/Store-alias baseline. H0-2R-2F now refuses staging cleanup when either bundle or component evidence exists. H0-2R-4 requires the complete corrected model before uninstall and proves the runtime root plus every exact/matching registration absent afterward.
+- **Mutation truth:** `PYTHON_312_INSTALLED=YES_NOT_YET_ACCEPTED`; `PYTHON_312_INSTALLER_EXIT=0`; `PYTHON_314_CHANGED=NO_EVIDENCE_OF_CHANGE`; `AGENT_ENGINE_RUNTIME_CHANGED=NO`; `H0_2R_3=BLOCKED_REGISTRATION_MODEL`; `H0_3_STARTED=NO`; `TASK16_STARTED=NO`; `PRODUCTION_MUTATION_PERFORMED=NO`.
+
+#### H0 completion and H1 prerequisite reconciliation
+
+- The Human Owner subsequently accepted the corrected read-only H0 evidence:
+  `H0_STATE=HUMAN_PROVEN_COMPLETE`. The earlier blocked lines above remain
+  immutable historical sequencing evidence, not the current gate state.
+- At this earlier design checkpoint H1 had not started; that statement is
+  historical and is superseded by the Human Owner's later N1 PASS report above.
+  The approved H1 design is
+  `docs/superpowers/specs/2026-09-28-idea2-h1-isolated-nonproduction-environment-design.md`.
+  It requires the isolated `aegis-h1-lab` environment, the now source/local-
+  verified managed `AEGIS_AGENT_CA_BUNDLE` lifecycle, live reviewed CA/path
+  evidence, and N0-N7 PASS before N8 can authorize any bounded H1 action.
+- `LIVE_PROVISIONING_PERFORMED=NO`; `PRODUCTION_MUTATION=NO`;
+  `MACHINE_A_MUTATION=NO` for this design checkpoint.
+
+### Handoff / Next Action
+
+PR #264 remains Draft. The Human Owner reports N1 PASS; N2–N7, live CA/path
+review, and permanent Machine A acceptance remain blocked pending separate
+authorizations. The remote source-checkout clean gate must be explained before
+new source staging. This repository-only continuation does not repeat N0/N1,
+install Agent/Engine, alter tunnel/camera/Production state, mark the PR Ready,
+merge, or create the final immutable receipt.
+
+### Original Task 12 verification evidence
+
+- Focused Windows/Identity-Agent bundle: 74 passed, 0 failed.
+- PowerShell parser: 12 reviewed lifecycle/status scripts parsed, 0 errors.
+- Dependency reproducibility: 9 CPython 3.12 Windows x64 wheels downloaded and
+  verified from the committed transitive SHA-256 lock with `--require-hashes`
+  and binary-only resolution.
+- Full Engine/Agent: 174 tests, 172 passed, 0 failed, 2 expected native-pywin32
+  environment skips. The existing Python 3.14 Engine environment ran 165 tests; the bundled
+  Python 3.12 cryptography environment ran the remaining 9 tests.
+- Full Monitor: 140 passed, 0 failed, 3 conditional PostgreSQL skips.
+- UI/build: UI freeze 5/5; Vite production build PASS (2,076 modules).
+- Governance/security: collaboration/Vault structure 50/50; Vault validation
+  PASS with the two pre-existing owner-data canvas warnings; secret scan 21
+  paths / 0 hits; scoped review Critical 0 / Important 0 / Minor 0.
+- Browser automation: blocked because `@playwright/test` and its command are
+  absent from the existing dependency set; no install was performed to conceal
+  that environment limitation.
+- Installed Machine A runtime, Production, persistent configuration, camera,
+  tunnel, and database were not changed.
 
 ## PR #134 Machine A LOCAL runtime acceptance — 2026-09-15
 

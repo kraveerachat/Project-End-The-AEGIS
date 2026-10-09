@@ -1,0 +1,106 @@
+name: aegis-h1-capacity-probe
+
+x-aegis-capacity-policy:
+  postgres-growth-budget-bytes: ${POSTGRES_GROWTH_BUDGET_BYTES:?owner must set POSTGRES_GROWTH_BUDGET_BYTES}
+  host-ram-reserve-bytes: ${HOST_RAM_RESERVE_BYTES:?owner must set HOST_RAM_RESERVE_BYTES}
+  disk-safety-reserve-bytes: ${DISK_SAFETY_RESERVE_BYTES:?owner must set DISK_SAFETY_RESERVE_BYTES}
+  evidence-log-cap-bytes: ${EVIDENCE_LOG_CAP_BYTES:?owner must set EVIDENCE_LOG_CAP_BYTES}
+  inode-safety-reserve-count: ${INODE_SAFETY_RESERVE_COUNT:?owner must set INODE_SAFETY_RESERVE_COUNT}
+
+x-probe-service: &probe-service
+  restart: "no"
+  logging:
+    driver: json-file
+    options:
+      max-size: ${PROBE_SERVICE_LOG_MAX_SIZE:?owner must set PROBE_SERVICE_LOG_MAX_SIZE}
+      max-file: "1"
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    <<: *probe-service
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE must be an immutable digest-form reference}
+    environment:
+      POSTGRES_DB: aegis_h1_capacity_probe
+      POSTGRES_USER: monitor_probe
+      POSTGRES_PASSWORD: ${PROBE_POSTGRES_PASSWORD:?set a disposable probe-only password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitor_probe -d aegis_h1_capacity_probe"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    mem_limit: ${POSTGRES_MEMORY_CEILING_BYTES:?owner must set POSTGRES_MEMORY_CEILING_BYTES}
+    volumes:
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
+    networks:
+      - probe_backend
+
+  monitor:
+    <<: *probe-service
+    build:
+      context: ../../IDEA2-AEGIS_Monitor
+      dockerfile: Dockerfile
+      args:
+        NODE_BASE_IMAGE: ${MONITOR_BASE_IMAGE:?MONITOR_BASE_IMAGE must be an immutable digest-form reference}
+    image: ${MONITOR_CANDIDATE_IMAGE:?set a probe-only candidate image tag}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "8002"
+      DATABASE_URL: postgresql://monitor_probe:${PROBE_POSTGRES_PASSWORD:?set a disposable probe-only password}@postgres:5432/aegis_h1_capacity_probe
+      SESSION_SECRET: ${PROBE_SESSION_SECRET:?set a disposable probe-only session secret}
+      AGENT_AUTH_REQUIRED: "true"
+      AGENT_AUTH_AUDIENCE: https://idea2-h1.aegis-lab.internal:18443
+    mem_limit: ${MONITOR_MEMORY_CEILING_BYTES:?owner must set MONITOR_MEMORY_CEILING_BYTES}
+    networks:
+      - probe_ingress
+      - probe_backend
+
+  gateway:
+    <<: *probe-service
+    build:
+      context: ./h1-gateway
+      dockerfile: Dockerfile
+      args:
+        NGINX_BASE_IMAGE: ${GATEWAY_BASE_IMAGE:?GATEWAY_BASE_IMAGE must be an immutable digest-form reference}
+    image: ${GATEWAY_CANDIDATE_IMAGE:?set a probe-only candidate image tag}
+    depends_on:
+      - monitor
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,size=8m
+      - /var/run:rw,noexec,nosuid,size=1m
+    volumes:
+      - type: bind
+        source: ${PROBE_TLS_CERT_FILE:?set an owner-reviewed non-Production certificate path}
+        target: /run/aegis-h1-tls/tls.crt
+        read_only: true
+      - type: bind
+        source: ${PROBE_TLS_KEY_FILE:?set an owner-reviewed non-Production private-key path}
+        target: /run/aegis-h1-tls/tls.key
+        read_only: true
+    mem_limit: ${GATEWAY_MEMORY_CEILING_BYTES:?owner must set GATEWAY_MEMORY_CEILING_BYTES}
+    networks:
+      - probe_ingress
+
+networks:
+  probe_ingress:
+    internal: true
+    labels:
+      com.aegis.scope: h1-capacity-probe
+  probe_backend:
+    internal: true
+    labels:
+      com.aegis.scope: h1-capacity-probe
+
+volumes:
+  postgres_data:
+    name: aegis-h1-capacity-probe_postgres_data
+    labels:
+      com.aegis.scope: h1-capacity-probe

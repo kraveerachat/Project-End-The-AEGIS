@@ -247,13 +247,20 @@ def test_l7_receipt_gate_refuses_when_l7_is_already_accepted(tmp_path: Path) -> 
     assert res.returncode == 1 and "L7_ALREADY_ACCEPTED" in res.stderr
 
 
-def test_l7_receipt_gate_passes_against_the_real_repository_history() -> None:
-    """The gate must accept the actual merged L2..L6b receipts on this branch's base (proves marker/regex compatibility)."""
+def test_l7_receipt_gate_refuses_a_new_attempt_against_the_real_post_l7_repository_history() -> None:
+    """L7 #7 live acceptance is merged, so the real history must satisfy every predecessor AND refuse a new L7 attempt (one-shot)."""
     repo = ROOT.parent
     if subprocess.run(["git", "-C", str(repo), "grep", "-q", "L6B_LIVE_ACCEPTANCE", "HEAD", "--", LOGS], capture_output=True).returncode != 0:
         pytest.skip("L6b acceptance receipt not present at HEAD of this checkout")
+    if subprocess.run(["git", "-C", str(repo), "grep", "-qE", "L7_LIVE_ACCEPTANCE ?= ?`? ?PROVEN", "HEAD", "--", LOGS], capture_output=True).returncode != 0:
+        pytest.skip("L7 live acceptance receipt not present at HEAD of this checkout")
+    # 1. predecessor L2..L6b acceptance history is present and compatible with the gate's markers/regex.
+    pre = lib(f"l6b_receipt_gate '{repo}'")
+    assert pre.returncode == 0, pre.stderr
+    # 2+3+4. L7 acceptance is also merged, so the gate refuses a new L7 attempt with the one-shot reason.
     res = lib(f"l7_receipt_gate '{repo}'")
-    assert res.returncode == 0, res.stderr
+    assert res.returncode == 1 and "L7_ALREADY_ACCEPTED" in res.stderr, res.stderr
+    assert "L7_L6B_ACCEPTANCE_RECEIPT_MISSING" not in res.stderr
 
 
 # ── 4. immutable release gate ────────────────────────────────────────────────────────────────────────────────────────────
@@ -429,15 +436,27 @@ def test_l7_core_prestate_gate_issues_no_systemctl_mutation(tmp_path: Path, show
 
 # ── 6. persistent broker runtime gate ────────────────────────────────────────────────────────────────────────────────────
 
-BROKER_OK = {"ActiveState": "active", "SubState": "running", "UnitFileState": "enabled", "Result": "success", "NRestarts": "0"}
+BROKER_OK = {"ActiveState": "active", "SubState": "running", "UnitFileState": "enabled", "Result": "success", "MainPID": "20169",
+             "NRestarts": "646", "InvocationID": "3665a93ec42d4a52a3d7a48ad64295f0"}
 
 
-def broker_gate(tmp_path: Path, show: dict[str, str], listeners: str):
+def broker_gate(tmp_path: Path, show: dict[str, str] | list[dict[str, str]], listeners: str | list[str], *, extra_env: dict[str, str] | None = None):
+    """Run the gate with PATH stubs. A list of shows/listeners is consumed one entry per gate sample (the last one repeats)."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     b = tmp_path / "bbin"
-    body = "\n".join(f'  echo "{k}={v}"' for k, v in show.items())
-    stub(b, "systemctl", f'if [ "$1" = show ]; then\n{body}\nfi')
-    stub(b, "ss", f'printf "%b" {listeners!r}')
-    return lib(f"l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1", path_prefix=b)
+    shows = show if isinstance(show, list) else [show]
+    lsts = listeners if isinstance(listeners, list) else [listeners]
+    for i, sh in enumerate(shows):
+        (tmp_path / f"show.{i}").write_text("".join(f"{k}={v}\n" for k, v in sh.items()))
+    for i, ls in enumerate(lsts):
+        (tmp_path / f"ss.{i}").write_text(ls)
+    ctr = tmp_path / "ctr"
+    stub(b, "systemctl", f'if [ "$1" = show ]; then\n  n=$(cat "{tmp_path}/sctr" 2>/dev/null || echo 0); echo $((n+1)) > "{tmp_path}/sctr"\n'
+                         f'  i=$((n<{len(shows) - 1} ? n : {len(shows) - 1})); cat "{tmp_path}/show.$i"\nfi')
+    stub(b, "ss", f'n=$(cat "{tmp_path}/ctr" 2>/dev/null || echo 0); echo $((n+1)) > "{tmp_path}/ctr"\n'
+                  f'i=$((n<{len(lsts) - 1} ? n : {len(lsts) - 1})); cat "{tmp_path}/ss.$i"')
+    stub(b, "sleep", "exit 0")  # test-only: skip the real 2 s pauses
+    return lib(f"l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1", path_prefix=b, env=extra_env)
 
 
 GOOD_LISTEN = "LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*\nLISTEN 0 100 10.77.30.1:8883 0.0.0.0:*\n"
@@ -447,17 +466,102 @@ def test_l7_broker_gate_accepts_the_persistent_l6b_broker(tmp_path: Path) -> Non
     assert broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN).returncode == 0
 
 
-@pytest.mark.parametrize("prop,value", [("ActiveState", "failed"), ("SubState", "dead"), ("UnitFileState", "disabled"), ("Result", "exit-code"), ("NRestarts", "1")])
+def test_l7_broker_gate_accepts_stable_zero_restarts(tmp_path: Path) -> None:
+    assert broker_gate(tmp_path, {**BROKER_OK, "NRestarts": "0"}, GOOD_LISTEN).returncode == 0
+
+
+def test_l7_broker_gate_old_nrestarts_zero_policy_would_reject_646(tmp_path: Path) -> None:
+    """RED reference: the pre-fix predicate (NRestarts must equal 0) rejects the healthy V5-recovered broker; the new gate accepts it."""
+    old = subprocess.run(["git", "show", "21b52d5ecd5ca41a0a3c3429d93405b38dbe81b8:IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-l7-run-lib.sh"],
+                         text=True, capture_output=True, cwd=ROOT, check=False)
+    assert old.returncode == 0
+    old_lib = tmp_path / "old-lib.sh"
+    old_lib.write_text(old.stdout)
+    res_new = broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN)
+    e = os.environ.copy()
+    e.update({"SUDO": "", "PATH": f"{tmp_path / 'bbin'}:{e['PATH']}"})
+    res_old = subprocess.run(["bash", "-c", f"source '{old_lib}'; l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1"], text=True, capture_output=True, env=e, check=False)
+    assert res_old.returncode == 1 and "NRestarts=646" in res_old.stderr
+    assert res_new.returncode == 0
+
+
+@pytest.mark.parametrize("prop,value", [("ActiveState", "failed"), ("SubState", "dead"), ("UnitFileState", "disabled"), ("Result", "exit-code"),
+                                         ("MainPID", "0"), ("MainPID", "12x"), ("MainPID", ""), ("NRestarts", "many"), ("NRestarts", ""),
+                                         ("InvocationID", "")])
 def test_l7_broker_gate_rejects_an_unhealthy_broker(tmp_path: Path, prop: str, value: str) -> None:
     res = broker_gate(tmp_path, {**BROKER_OK, prop: value}, GOOD_LISTEN)
     assert res.returncode == 1 and "L7_BROKER_NOT_HEALTHY" in res.stderr
 
 
-@pytest.mark.parametrize("listeners", ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*\n", GOOD_LISTEN + "LISTEN 0 100 0.0.0.0:8883 0.0.0.0:*\n",
+@pytest.mark.parametrize("listeners", ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*\n", "LISTEN 0 100 10.77.30.1:8883 0.0.0.0:*\n",
+                                       GOOD_LISTEN + "LISTEN 0 100 0.0.0.0:8883 0.0.0.0:*\n",
                                        GOOD_LISTEN + "LISTEN 0 100 192.168.1.144:8883 0.0.0.0:*\n", ""])
 def test_l7_broker_gate_requires_exactly_loopback_plus_ap_8883(tmp_path: Path, listeners: str) -> None:
     res = broker_gate(tmp_path, BROKER_OK, listeners)
     assert res.returncode == 1 and "L7_BROKER_LISTENERS_INVALID" in res.stderr
+
+
+@pytest.mark.parametrize("change", [{"NRestarts": "647"}, {"MainPID": "20170"}, {"InvocationID": "ffffffffffffffffffffffffffffffff"}])
+def test_l7_broker_gate_rejects_identity_change_between_samples(tmp_path: Path, change: dict[str, str]) -> None:
+    res = broker_gate(tmp_path, [BROKER_OK, {**BROKER_OK, **change}], GOOD_LISTEN)
+    assert res.returncode == 1 and "L7_BROKER_UNSTABLE" in res.stderr
+
+
+@pytest.mark.parametrize("bad", [{"ActiveState": "activating", "SubState": "auto-restart", "MainPID": "0"}, {"ActiveState": "failed", "SubState": "failed", "Result": "exit-code"}])
+def test_l7_broker_gate_rejects_running_to_restart_or_failed_transition(tmp_path: Path, bad: dict[str, str]) -> None:
+    res = broker_gate(tmp_path, [BROKER_OK, {**BROKER_OK, **bad}], GOOD_LISTEN)
+    assert res.returncode == 1 and "L7_BROKER_NOT_HEALTHY" in res.stderr
+
+
+@pytest.mark.parametrize("later", ["LISTEN 0 100 127.0.0.1:8883 0.0.0.0:*\n", GOOD_LISTEN + "LISTEN 0 100 0.0.0.0:8883 0.0.0.0:*\n"])
+def test_l7_broker_gate_rejects_listener_change_after_first_sample(tmp_path: Path, later: str) -> None:
+    res = broker_gate(tmp_path, BROKER_OK, [GOOD_LISTEN, later])
+    assert res.returncode == 1 and "L7_BROKER_LISTENERS_INVALID" in res.stderr
+
+
+def test_l7_broker_gate_takes_multiple_samples_and_cannot_be_weakened_by_environment(tmp_path: Path) -> None:
+    res = broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN,
+                      extra_env={"L7_BROKER_STABILITY_SAMPLES": "1", "L7_BROKER_STABILITY_INTERVAL_S": "0"})
+    assert res.returncode == 0
+    assert int((tmp_path / "sctr").read_text()) == 3
+    # a change only visible on the last sample still fails even with the weakening variables exported
+    res = broker_gate(tmp_path / "w", [BROKER_OK, BROKER_OK, {**BROKER_OK, "NRestarts": "647"}], GOOD_LISTEN,
+                      extra_env={"L7_BROKER_STABILITY_SAMPLES": "1"})
+    assert res.returncode == 1 and "L7_BROKER_UNSTABLE" in res.stderr
+
+
+def test_l7_broker_gate_fails_closed_when_the_stability_wait_fails(tmp_path: Path) -> None:
+    """A failed/interrupted sleep must not silently collapse the observation window, even from an OR-list without set -e."""
+    broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN)  # builds the stubs
+    stub(tmp_path / "bbin", "sleep", "exit 1")
+    e = os.environ.copy()
+    e.update({"SUDO": "", "PATH": f"{tmp_path / 'bbin'}:{e['PATH']}"})
+    res = subprocess.run(["bash", "-c", f"source '{LIB}'; l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1 || echo GATE_FAILED_CLOSED; echo AFTER"],
+                         text=True, capture_output=True, env=e, check=False)
+    assert "L7_BROKER_STABILITY_WAIT_FAILED" in res.stderr and "GATE_FAILED_CLOSED" in res.stdout
+    res = subprocess.run(["bash", "-c", f"source '{LIB}'; l7_broker_runtime_gate {BROKER_UNIT} 10.77.30.1"], text=True, capture_output=True, env=e, check=False)
+    assert res.returncode == 1 and "L7_BROKER_STABILITY_WAIT_FAILED" in res.stderr
+
+
+def test_l7_broker_gate_is_read_only_and_never_repairs(tmp_path: Path) -> None:
+    body = LIB.read_text()
+    start = body.index("_l7_broker_sample()")
+    end = body.index("# l7_disk_gate")
+    section = body[start:end]
+    assert not re.search(r"\b(start|stop|restart|reload|reset-failed|enable|disable|mask|kill|daemon-reload)\b", re.sub(r"#.*", "", section))
+    broker_gate(tmp_path, BROKER_OK, GOOD_LISTEN)
+    assert "sctr" in {p.name for p in tmp_path.iterdir()}
+
+
+def test_l6c_and_l7_runners_keep_broker_pre_post_snapshot_comparison() -> None:
+    """The window protection is unchanged: BROKER_PRE is snapshotted and s10_unchanged still compares broker PID/NRestarts PRE→POST."""
+    for runner in ("run-l7-owner.sh", "run-l6c-owner.sh"):
+        text = (DEPLOY / "owner-run" / runner).read_text()
+        assert "BROKER_PRE=$(snap $BROKER_UNIT)" in text, runner
+        assert 's10_unchanged() {' in text and '[ "$(snap $BROKER_UNIT)" = "$BROKER_PRE" ]' in text, runner
+    base = subprocess.run(["git", "diff", "--stat", "21b52d5ecd5ca41a0a3c3429d93405b38dbe81b8", "--", "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/owner-run",
+                           "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/p4-compare.sh"], text=True, capture_output=True, cwd=ROOT, check=False)
+    assert base.stdout.strip() == ""
 
 
 # ── 7. disk, IDEA2 §10, D6 ───────────────────────────────────────────────────────────────────────────────────────────────

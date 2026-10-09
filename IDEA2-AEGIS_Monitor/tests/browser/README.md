@@ -30,6 +30,12 @@ keyboard selection and 360/768/1024/1440px layouts. At 1920px the suite also
 verifies three columns below the main feed. Previous/Next controls expose
 additional cameras in bounded pages of three; they also select the first camera
 on the new page and close the previous page's streams.
+For a single-camera CCTV-Operator the selector is omitted, leaving only the
+hero video. Once an Operator enters Live, that same mounted subtree and viewer
+survive internal Archive/Diagnostics/Settings navigation; logout, session loss,
+or page close still release it. SOC navigation continues to unmount Live and
+release its viewers. The test fixture checks multipart opens/closes rather than
+using source-text assertions.
 Cards use container width to reflow to two or one column on narrower layouts.
 A two-camera SOC fixture verifies that no third camera is fabricated; it is
 not a real SOC login or production RBAC test. Screenshots and failure output
@@ -70,8 +76,9 @@ After source review/merge and an approved deployment:
 4. Confirm up to three cameras in the current preview page run concurrently;
    cameras on other pages must not start. Change page and confirm the old page
    releases demand. Check the real CPU/network/recording impact of concurrency.
-5. Exit Live Canvas/close the page and verify viewer-demand release after the
-   existing engine idle timeout.
+5. For a CCTV-Operator, navigate away from and back to Live and verify the same
+   viewer remains active; logout or close the page and verify final release.
+   For SOC, leaving Live must still release its viewers.
 6. Re-enter from idle to verify cold start against the actual deployed backend.
 
 Do not change installer, tunnel/key ACL, engine runtime or database for this UI

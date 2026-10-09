@@ -77,6 +77,12 @@ export async function apiFetchBytes(path, options = {}) {
   return res ?? { ok: true, status: 200, bytes: new Uint8Array([1, 2, 3, 4]), errorKind: null }
 }
 
+/* Normal Files ZIP transport — inert in the Vault suites (they never stream Normal Files) */
+export async function apiFetchStream(path) {
+  backend()?.requests.push({ path, method: 'GET_STREAM' })
+  return { ok: false, status: 0, headers: null, body: null, errorKind: 'network' }
+}
+
 export const apiUrl = (path) => path
 export const PASSWORD_RESET_REQUIRED = 'PASSWORD_RESET_REQUIRED'
 export function registerUnauthorizedHandler() {}
@@ -272,10 +278,11 @@ export function createBufferedSink({ limitBytes = MAX_BUFFERED_PLAINTEXT_BYTES }
   }
 }
 
-export async function downloadVaultV2({ blob, sink, onProgress, signal }) {
+export async function downloadVaultV2({ dek, blob, sink, onProgress, signal }) {
   const ctl = backend()
+  ctl?.downloadEvents?.push('download')
   if (typeof ctl?.downloadImpl === 'function') {
-    return ctl.downloadImpl({ blob, sink, onProgress, signal })
+    return ctl.downloadImpl({ dek, blob, sink, onProgress, signal })
   }
   const chunkCount = Number(blob?.chunkCount ?? 1)
   let bytesWritten = 0
@@ -301,6 +308,63 @@ export async function downloadVaultV2({ blob, sink, onProgress, signal }) {
   }
   const result = await sink.close()
   return { ok: true, chunksRead: chunkCount, bytesWritten, meta: decodeMeta(blob?.metaB64), result }
+}
+
+/* ลำดับเดียวกับโมดูลจริง: ตัวเลือกไฟล์ (await แรก) → พิสูจน์ซอง → createWritable
+   (ลำดับของจริงพร้อม WebCrypto จริงถูกพิสูจน์ที่ vaultChunkedDownloadClient)
+   ctl.metaAuthFails = true จำลองซองที่พิสูจน์ไม่ผ่าน; ctl.downloadEvents บันทึกลำดับเหตุการณ์ */
+export const VAULT_DOWNLOAD_TIMING = Object.freeze({
+  CLICK: 'DOWNLOAD_CLICK_TS', PICKER_REQUEST: 'PICKER_REQUEST_TS', PICKER_RETURN: 'PICKER_RETURN_TS',
+  META_AUTH_DONE: 'META_AUTH_DONE_TS', FIRST_CHUNK_REQUEST: 'FIRST_CHUNK_REQUEST_TS',
+  FIRST_PLAINTEXT_WRITE: 'FIRST_PLAINTEXT_WRITE_TS', COMPLETE: 'DOWNLOAD_COMPLETE_TS',
+})
+export async function prepareVaultV2Download({ kek, blob, suggestedName, plainSize, signal, onTiming }) {
+  const ctl = backend()
+  const mark = (name) => onTiming?.(name, Date.now())
+  if (!kek) return { ok: false, reason: 'no-key' }
+  let handle = null
+  if (supportsStreamingFileSink()) {
+    mark(VAULT_DOWNLOAD_TIMING.PICKER_REQUEST)
+    ctl?.downloadEvents?.push('picker-request')
+    try {
+      handle = await globalThis.showSaveFilePicker({ suggestedName })
+    } catch (err) {
+      return { ok: false, reason: err?.name === 'AbortError' ? 'cancelled' : 'picker' }
+    }
+    mark(VAULT_DOWNLOAD_TIMING.PICKER_RETURN)
+  } else if (Number(plainSize) > MAX_BUFFERED_PLAINTEXT_BYTES) {
+    return { ok: false, reason: 'too-large-for-memory' }
+  }
+  if (signal?.aborted) return { ok: false, reason: 'cancelled' }
+  let dek
+  try {
+    dek = await unwrapVaultV2Dek(kek, blob)
+    await decryptVaultV2MetaWithDek(dek, blob)
+    if (ctl?.metaAuthFails) throw new Error('wrong-key')
+  } catch {
+    return { ok: false, reason: 'wrong-key' }
+  }
+  ctl?.downloadEvents?.push('meta-auth')
+  mark(VAULT_DOWNLOAD_TIMING.META_AUTH_DONE)
+  if (signal?.aborted) return { ok: false, reason: 'cancelled' }
+  if (!handle) return { ok: true, dek, sink: createBufferedSink() }
+  try {
+    const writable = await handle.createWritable()
+    ctl?.downloadEvents?.push('create-writable')
+    return { ok: true, dek, sink: createFileSystemSink(writable) }
+  } catch {
+    return { ok: false, reason: 'destination' }
+  }
+}
+
+/* multi-file streaming ZIP pre-flight: same contract as the real helper — authenticates and returns the
+   decrypted plainSize exactly, no DEK; ctl.metaAuthFails = wrong-key; ctl.downloadEvents records 'auth' */
+export async function authenticateVaultV2Entry({ kek, blob }) {
+  const ctl = backend()
+  ctl?.downloadEvents?.push('auth')
+  if (!kek || ctl?.metaAuthFails) return { ok: false, reason: 'wrong-key' }
+  const meta = decodeMeta(blob?.metaB64)
+  return { ok: true, plainSize: meta.plainSize ?? meta.size }
 }
 
 export function estimatedPlainSize(blob) {

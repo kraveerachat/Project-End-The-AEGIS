@@ -1,18 +1,97 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArchiveRestore, Clock3, File, LockKeyhole, Search, ShieldCheck, Trash2 } from 'lucide-react'
+import { ArchiveRestore, Clock3, File, LockKeyhole, Search, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   Btn, Card, Chip, EmptyState, ErrorState, Field, Modal, ModalClose,
   PillInput, PillSelect, SkeletonLoader,
 } from '../components/ui.jsx'
-import { apiFetch } from '../lib/api.js'
-import { fmtBytes } from '../lib/format.js'
+import { apiFetch, apiUrl } from '../lib/api.js'
+import { fmtBytes, fmtDateTime } from '../lib/format.js'
+import { filesPreviewCapability } from '../lib/filesView.js'
+import { previewModeOf } from '../lib/preview/registry.js'
+import { FilePreviewMedia } from '../components/preview/FilePreviewMedia.jsx'
+import { PREVIEW_LOADING_TIMEOUT_MS } from '../components/preview/PreviewModalShell.jsx'
+
+function useNarrowViewport() {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined'
+    && window.matchMedia?.('(max-width: 1023px)').matches === true)
+  useEffect(() => {
+    const query = window.matchMedia?.('(max-width: 1023px)')
+    if (!query) return undefined
+    const update = () => setNarrow(query.matches)
+    update()
+    query.addEventListener?.('change', update)
+    return () => query.removeEventListener?.('change', update)
+  }, [])
+  return narrow
+}
+
+function TrashPreviewContent({ item, t, lang, onClose, modal = false }) {
+  const [phase, setPhase] = useState('loading')
+  useEffect(() => {
+    if (phase !== 'loading') return undefined
+    const timer = setTimeout(() => setPhase('failed'), PREVIEW_LOADING_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [phase])
+  const capability = filesPreviewCapability(item)
+  const kind = previewModeOf(capability)
+  const src = apiUrl(`/api/trash/${encodeURIComponent(item.id)}/preview`)
+  const status = kind ? phase : 'unsupported'
+  return (
+    <div data-trash-preview-pane="" data-trash-preview-id={item.id}>
+      <div className="flex items-start justify-between gap-3">
+        <h2 id="trash-preview-title" className="min-w-0 break-words text-[16px] font-semibold text-ink">
+          {t('fileDetails')}
+        </h2>
+        {!modal && (
+          <button type="button" data-trash-preview-close onClick={onClose} aria-label={t('close')}
+            className="shrink-0 rounded-lg p-2 text-ink-2 hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            <X size={17} aria-hidden />
+          </button>
+        )}
+      </div>
+      <div data-trash-preview-state={status}
+        className="neo-media-frame mt-4 flex min-h-[240px] items-center justify-center overflow-hidden rounded-[var(--r-tile)] border border-line bg-sunken">
+        {kind && phase !== 'failed' ? (
+          <div className="relative flex min-h-[240px] w-full items-center justify-center">
+            {phase === 'loading' && <p role="status" className="absolute text-[13px] text-ink-2">{t('previewLoading')}</p>}
+            <FilePreviewMedia t={t} kind={kind} capability={capability} src={src}
+              fileName={item.name} phase={phase} onPhase={setPhase} maxHeight="42vh" />
+          </div>
+        ) : (
+          <div data-trash-preview-fallback className="px-5 py-8 text-center text-ink-2">
+            <File size={44} strokeWidth={1.2} className="mx-auto mb-3 text-ink-3" aria-hidden />
+            <p role={phase === 'failed' && kind ? 'alert' : 'status'} className="text-[13px]">
+              {phase === 'failed' && kind ? t('trashPreviewUnavailable') : t('trashPreviewUnsupported')}
+            </p>
+          </div>
+        )}
+      </div>
+      <p className="mt-4 break-all text-[14px] font-semibold text-ink">{item.name}</p>
+      <dl className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-[13px]">
+        {[
+          [t('type'), [item.type, item.ext ? `.${item.ext}` : null].filter(Boolean).join(' · ') || t('previewTypeUnknown')],
+          [t('size'), fmtBytes(item.size)],
+          [t('trashDeletedAt'), fmtDateTime(new Date(item.deletedAt), lang)],
+          [t('trashPurgeAt'), fmtDateTime(new Date(item.purgeAt), lang)],
+          [t('versions'), String(item.versionCount ?? 0)],
+          ['SHA-256', item.sha256Prefix ?? '—'],
+        ].map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-ink-3">{label}</dt>
+            <dd className="min-w-0 break-words text-right text-ink">{value ?? '—'}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
 
 /* แถวตัวอย่างของเปลือกหน้าจอตอนล็อก — เป็น "รูปทรง" ล้วน ๆ ไม่ใช่ข้อมูลที่ถูกเบลอ
    ตั้งใจไม่ใช้ .skeleton ที่มีอนิเมชัน เพราะ skeleton แปลว่า "ข้อมูลกำลังมา"
    แต่สถานะนี้คือ "ข้อมูลถูกกันไว้" จนกว่าจะยืนยันรหัสผ่าน */
 function LockedRow() {
   return (
-    <Card className="px-5 py-4">
+    <Card className="neo-row-card px-5 py-4">
       <div className="flex items-center gap-4">
         <span className="size-10 shrink-0 rounded-xl bg-sunken" />
         <div className="min-w-0 flex-1">
@@ -33,11 +112,14 @@ const remainingLabel = (t, purgeAt, now) => {
   return t('trashHoursLeft').replace('{n}', String(hours))
 }
 
-export function Trash({ t, user, onStorageMutationCommitted }) {
+export function Trash({ t, lang = 'en', user, onStorageMutationCommitted }) {
   const username = typeof user === 'string' ? user : (user?.username ?? '')
   const [phase, setPhase] = useState('loading')
   const [password, setPassword] = useState('')
   const [items, setItems] = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const narrow = useNarrowViewport()
+  const selectedRowRef = useRef(null)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('deleted')
   const [error, setError] = useState(null)
@@ -70,15 +152,19 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     if (!mounted.current || request !== listRequest.current) return
     if (result.status === 423) {
       setItems([])
+      setSelectedId(null)
       setPhase('locked')
       return
     }
     if (!result.ok) {
+      setSelectedId(null)
       setError(result.errorKind ?? 'server')
       setPhase('unlocked')
       return
     }
-    setItems(result.data?.items ?? [])
+    const nextItems = result.data?.items ?? []
+    setItems(nextItems)
+    setSelectedId((current) => nextItems.some((item) => item.id === current) ? current : null)
     setPhase('unlocked')
   }
 
@@ -98,6 +184,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
         if (active && authorization === authorizationVersion.current && (!result.ok || !result.data?.unlocked)) {
           ++listRequest.current
           setItems([])
+          setSelectedId(null)
           setPhase('locked')
         }
       })
@@ -122,6 +209,17 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     })
     return rows
   }, [items, query, sort])
+  const selected = phase === 'unlocked' ? items.find((item) => item.id === selectedId) : null
+  const closePreview = () => {
+    setSelectedId(null)
+    if (!narrow && selectedRowRef.current?.isConnected) selectedRowRef.current.focus()
+  }
+  useEffect(() => {
+    if (!selected || narrow) return undefined
+    const onKey = (event) => { if (event.key === 'Escape') closePreview() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId, narrow, phase])
 
   const unlock = async (event) => {
     event.preventDefault()
@@ -147,6 +245,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     ++authorizationVersion.current
     ++listRequest.current
     setItems([])
+    setSelectedId(null)
     setFeedback(null)
     setPhase('locked')
   }
@@ -209,6 +308,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
     setConfirmText('')
     setDestructivePassword('')
     setItems([])
+    setSelectedId(null)
     setFeedback(t('trashEmptied').replace('{n}', String(result.data.deletedCount)))
     setPhase('locked')
     onStorageMutationCommitted?.()
@@ -242,7 +342,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
           role="status"
           inert={unlockOpen || undefined}
           aria-hidden={unlockOpen ? 'true' : undefined}
-          className="mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3"
+          className="neo-lock-banner mb-5 flex flex-wrap items-center gap-3 rounded-[var(--r-card)] border border-line bg-card px-4 py-3"
           style={{ boxShadow: 'var(--elev-1)' }}
         >
           <Chip tone="warn"><LockKeyhole size={12} />{t('trashLockedBadge')}</Chip>
@@ -341,8 +441,8 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-        <div className="flex items-center gap-2.5">
+      <div className="neo-policy-strip flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Chip tone="warn"><Clock3 size={12} />{t('trashRetention')}</Chip>
           <span className="text-[12.5px] text-ink-3">{t('trashRetentionBody')}</span>
         </div>
@@ -356,7 +456,7 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
 
       {feedback && <div role="status" className="mb-4 rounded-xl border border-line bg-card px-4 py-3 text-[13px] font-medium text-ink">{feedback}</div>}
 
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+      <div className="neo-toolbar flex items-center gap-2.5 mb-5 flex-wrap">
         <form role="search" onSubmit={(event) => event.preventDefault()} className="relative flex-1 min-w-[220px] max-w-md">
           <label className="relative block w-full">
             <span className="sr-only">{t('trashSearch')}</span>
@@ -385,33 +485,58 @@ export function Trash({ t, user, onStorageMutationCommitted }) {
         </div>
       </div>
 
-      {error ? <Card><ErrorState t={t} kind={error} onRetry={loadItems} /></Card> : visible.length === 0 ? (
-        <Card><EmptyState icon={ArchiveRestore} title={query ? t('trashNoMatches') : t('trashEmptyTitle')} hint={query ? undefined : t('trashEmptyBody')} /></Card>
-      ) : (
-        <div className="grid gap-3">
-          {visible.map((item) => (
-            <Card key={item.id} className="px-5 py-4">
-              <div className="flex items-center gap-4 max-md:items-start">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sunken text-ink-3"><File size={18} strokeWidth={1.5} /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] font-semibold text-ink">{item.name}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    <span>{fmtBytes(item.size)}</span>
-                    <span>{t('trashVersions').replace('{n}', String(item.versionCount))}</span>
-                    <span className="font-mono">SHA-256 {item.sha256Prefix ?? '—'}</span>
+      <div className={selected && !narrow ? 'flex items-start gap-4' : ''}>
+        <div className="min-w-0 flex-1">
+          {error ? <Card><ErrorState t={t} kind={error} onRetry={loadItems} /></Card> : visible.length === 0 ? (
+            <Card><EmptyState icon={ArchiveRestore} title={query ? t('trashNoMatches') : t('trashEmptyTitle')} hint={query ? undefined : t('trashEmptyBody')} /></Card>
+          ) : (
+            <div className="grid gap-3">
+              {visible.map((item) => (
+                <Card key={item.id}
+                  className={`neo-row-card px-5 py-4 ${selectedId === item.id ? 'border-accent bg-accent-soft/30' : ''}`}
+                  data-selected={selectedId === item.id ? 'true' : undefined}>
+                  <div data-trash-row={item.id} className="flex items-center gap-4 max-md:items-start">
+                    <button type="button" data-trash-select={item.id}
+                      aria-label={`${t('fileDetails')}: ${item.name}`}
+                      aria-pressed={selectedId === item.id}
+                      onClick={(event) => { selectedRowRef.current = event.currentTarget; setSelectedId(item.id) }}
+                      className="flex min-w-0 flex-1 items-center gap-4 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+                      <span className="neo-row-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-sunken text-ink-3"><File size={18} strokeWidth={1.5} aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span data-trash-name className="block truncate text-[14px] font-semibold text-ink">{item.name}</span>
+                        <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-3" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          <span>{fmtBytes(item.size)}</span>
+                          <span>{t('trashVersions').replace('{n}', String(item.versionCount))}</span>
+                          <span className="font-mono">SHA-256 {item.sha256Prefix ?? '—'}</span>
+                        </span>
+                      </span>
+                    </button>
+                    <div className="flex items-center gap-2 max-md:flex-col max-md:items-end">
+                      <Chip tone="warn">{remainingLabel(t, item.purgeAt, now)}</Chip>
+                      <div className="flex items-center gap-1">
+                        <Btn data-trash-restore size="sm" variant="outline" onClick={() => { setModalError(false); setRestore({ ...item, originalName: item.name }) }}><ArchiveRestore size={14} />{t('trashRestore')}</Btn>
+                        <Btn data-trash-delete size="sm" variant="dangerSoft" onClick={() => { setModalError(false); setPurge(item); setDestructivePassword('') }}><Trash2 size={14} />{t('trashDeleteForever')}</Btn>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 max-md:flex-col max-md:items-end">
-                  <Chip tone="warn">{remainingLabel(t, item.purgeAt, now)}</Chip>
-                  <div className="flex items-center gap-1">
-                    <Btn size="sm" variant="outline" onClick={() => { setModalError(false); setRestore({ ...item, originalName: item.name }) }}><ArchiveRestore size={14} />{t('trashRestore')}</Btn>
-                    <Btn size="sm" variant="dangerSoft" onClick={() => { setModalError(false); setPurge(item); setDestructivePassword('') }}><Trash2 size={14} />{t('trashDeleteForever')}</Btn>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          ))}
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
+        {selected && !narrow && (
+          <aside aria-labelledby="trash-preview-title"
+            className="neo-side-panel sticky top-4 w-[min(32vw,400px)] min-w-[300px] shrink-0 rounded-[var(--r-card)] border border-line bg-card p-5">
+            <TrashPreviewContent key={selected.id} item={selected} t={t} lang={lang} onClose={closePreview} />
+          </aside>
+        )}
+      </div>
+
+      {selected && narrow && (
+        <Modal open onClose={closePreview} width={560} labelledBy="trash-preview-title">
+          <ModalClose onClose={closePreview} label={t('close')} />
+          <TrashPreviewContent key={selected.id} item={selected} t={t} lang={lang} onClose={closePreview} modal />
+        </Modal>
       )}
 
       <Modal open={Boolean(restore)} onClose={() => setRestore(null)} width={460} labelledBy="trash-restore-title">

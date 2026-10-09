@@ -41,6 +41,8 @@ export function vaultTreeFolderOptions(index, rootId, excludeIds) {
 }
 
 const refKeyOf = (r) => `${r?.formatVersion ?? 1}:${String(r?.id ?? '')}`
+/** D-1 D.2: unnamed (authenticated name '') or undecryptable blobs are recoverable only under an explicit user name */
+const needsExplicitName = (orphan) => Boolean(orphan?.undecryptable) || typeof orphan?.name !== 'string' || orphan.name.trim() === ''
 
 export function VaultRecoveryPanel({
   t, kek, session, tree, unlockedState = null, apiNamespace = treeApi, bothBad = false, onRepaired,
@@ -82,12 +84,15 @@ export function VaultRecoveryPanel({
     setRepairBusy(false)
   }
 
-  /** กู้หนึ่งรายการ — คืน true เมื่อผูกสำเร็จ; ไม่สำเร็จ = คงอยู่ในรายการพร้อมเหตุผล (ไม่ลบ ciphertext) */
+  /** กู้หนึ่งรายการ — คืน true เมื่อผูกสำเร็จ; ไม่สำเร็จ = คงอยู่ในรายการพร้อมเหตุผล (ไม่ลบ ciphertext)
+   *  D-1 D.2: an unnamed or undecryptable blob is never given an invented name — without a user-confirmed name it stays
+   *  listed with NAME_REQUIRED and nothing is committed (fail closed). */
   const attachOne = async (orphan, destinationNodeId, signal = null, confirmedName = null) => {
-    const name = confirmedName ?? orphan.name ?? `orphan-${String(orphan.blobRef.id).slice(0, 8)}`
+    const name = confirmedName ?? (needsExplicitName(orphan) ? null : orphan.name)
     const key = refKeyOf(orphan.blobRef)
     let reason = null
-    try {
+    if (!name) reason = 'NAME_REQUIRED'
+    else try {
       const res = await recoverOrphan({
         session, blobRef: orphan.blobRef, parentNodeId: destinationNodeId,
         name, mediaType: orphan.mediaType ?? '', plainSize: orphan.plainSize, signal,
@@ -207,7 +212,7 @@ export function VaultRecoveryPanel({
                 size="sm"
                 variant="primary"
                 data-testid="vault-tree-orphan-recover-all"
-                disabled={tree.keyDegraded || Boolean(bulk)}
+                disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                 aria-busy={bulk ? true : undefined}
                 onClick={() => void recoverAll()}
               >
@@ -228,7 +233,7 @@ export function VaultRecoveryPanel({
               return (
                 <div key={key} data-testid="vault-tree-orphan-row" className="flex items-center gap-3 py-1.5">
                   <div className="min-w-0 flex-1">
-                    <span className="block text-[12.5px] text-ink truncate">{o.name ?? t('vaultTreeOrphanUndecryptable')}</span>
+                    <span className="block text-[12.5px] text-ink truncate">{o.name || t('vaultTreeOrphanUndecryptable')}</span>
                     {reason && (
                       <span data-testid="vault-tree-orphan-reason" className="block text-[11.5px] mt-0.5" style={{ color: 'var(--warn)' }}>
                         {reason === 'COLLISION' ? t('vaultTreeOrphanPendingCollision') : t('vaultTreeOrphanPendingFailed', { code: reason })}
@@ -240,7 +245,7 @@ export function VaultRecoveryPanel({
                       size="sm"
                       variant="primary"
                       data-testid="vault-tree-orphan-recover-rename"
-                      disabled={tree.keyDegraded || Boolean(bulk)}
+                      disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                       onClick={() => openRename(o, entry.destinationNodeId)}
                     >
                       {t('vaultTreeOrphanRecoverRename')}
@@ -250,7 +255,7 @@ export function VaultRecoveryPanel({
                     size="sm"
                     variant="outline"
                     data-testid="vault-tree-orphan-recover"
-                    disabled={tree.keyDegraded || Boolean(bulk)}
+                    disabled={Boolean(tree.mutationLock ?? tree.keyDegraded) || Boolean(bulk)}
                     onClick={() => setChooser(o)}
                   >
                     {t('vaultTreeOrphanRecover')}
@@ -270,11 +275,13 @@ export function VaultRecoveryPanel({
           open
           onClose={() => setChooser(null)}
           folders={folderOptions}
-          movingNames={[chooser.name ?? t('vaultTreeOrphanUndecryptable')]}
+          movingNames={[chooser.name || t('vaultTreeOrphanUndecryptable')]}
           onMove={(dest) => {
             const chosen = chooser
             setChooser(null)
-            void recover(chosen, dest)
+            // D.2: no readable name → ask for one (empty, no default); nothing is committed until the Human confirms
+            if (needsExplicitName(chosen)) setRenaming({ orphan: chosen, destinationNodeId: dest, name: '' })
+            else void recover(chosen, dest)
           }}
           unlockedState={unlockedState}
         />

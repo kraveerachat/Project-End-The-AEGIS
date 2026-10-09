@@ -68,6 +68,12 @@ class DetectionEngine:
 
         self._stop = threading.Event()
         self._metrics = MetricsRegistry()
+        self._metrics.on_inference_status({
+            "gpu_required": self._cfg.gpu_required,
+            "requested_inference_device": self._cfg.inference_device,
+        })
+        if recognizer is not None and hasattr(recognizer, "inference_status"):
+            self._metrics.on_inference_status(recognizer.inference_status())
         self._hub = EventHub()
         context = EngineContext(
             config=self._cfg,
@@ -101,6 +107,7 @@ class DetectionEngine:
         from .alert_manager import AlertManager
         from .face_detector import FaceDetectorProcessor
         from .heartbeat_worker import HeartbeatWorker
+        from .identity_agent_client import IdentityAgentClient
         from .local_api import LocalEventAPI
         from .monitor_client import MonitorClient
         from .nas_sync import NASSyncWorker
@@ -117,10 +124,23 @@ class DetectionEngine:
         capture_demand = threading.Event() if cfg.capture_on_demand else None
 
         # Monitor owns persistence. The edge runtime never receives a DB credential.
+        identity_agent = (
+            IdentityAgentClient(
+                pipe_name=cfg.identity_agent_pipe_name,
+                timeout_s=cfg.identity_agent_timeout_s,
+                response_timeout_s=cfg.identity_agent_response_timeout_s,
+            )
+            if cfg.monitor_ingest_mode == "identity_agent" else None
+        )
         monitor = MonitorClient(
             base_url=cfg.monitor_api_base,
-            api_key=cfg.detection_engine_api_key,
+            api_key=(
+                cfg.detection_engine_api_key
+                if cfg.monitor_ingest_mode == "legacy_shared_key" else None
+            ),
             timeout_s=cfg.monitor_http_timeout_s,
+            identity_agent_client=identity_agent,
+            ingest_mode=cfg.monitor_ingest_mode,
         )
         stream = (
             StreamHub(
@@ -239,6 +259,8 @@ class DetectionEngine:
             pass
         finally:
             self.stop()
+        if self._metrics.snapshot()["accelerator_failure"]:
+            raise RuntimeError("GPU-required inference failed; Engine stopped")
 
     def _install_signal_handlers(self) -> None:
         def _handler(signum, _frame):
