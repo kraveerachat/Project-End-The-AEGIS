@@ -173,6 +173,7 @@ def test_stop_reaches_a_real_control_server_over_loopback(tmp_path, monkeypatch)
         host="127.0.0.1",
         port=0,
         token="live-control-token",
+        evidence_token="live-evidence-token",
         core_status=lambda: {"status": "UNKNOWN"},
         launcher_status=lambda: {"status": "RUNNING"},
         request_stop=lambda: stopped.append(True),
@@ -203,6 +204,7 @@ def test_stop_is_refused_when_the_control_token_is_wrong(tmp_path, monkeypatch):
         host="127.0.0.1",
         port=0,
         token="real-token",
+        evidence_token="real-evidence-token",
         core_status=lambda: {"status": "UNKNOWN"},
         launcher_status=lambda: {"status": "RUNNING"},
         request_stop=lambda: stopped.append(True),
@@ -255,6 +257,7 @@ def test_child_environment_uses_external_paths_and_excludes_control_token(tmp_pa
     environment = settings.child_environment(
         {"PATH": "operator-path", "AEGIS_CONTROL_TOKEN": "must-not-cross"},
         core_status_url="http://127.0.0.1:8004/v1/core-evidence",
+        evidence_token="dedicated-evidence-token",
     )
 
     assert environment["NODE_ENV"] == "production"
@@ -267,6 +270,8 @@ def test_child_environment_uses_external_paths_and_excludes_control_token(tmp_pa
     assert environment["AEGIS_WEB_BASE_PATH"] == "/security"
     assert environment["AEGIS_WEB_STATIC_DIR"] == str(settings.static_dir)
     assert environment["AEGIS_IDEA3_RUNTIME_STATUS_URL"].endswith("/v1/core-evidence")
+    assert environment["AEGIS_IDEA3_RUNTIME_TOKEN"] == "dedicated-evidence-token"
+    assert environment["AEGIS_IDEA3_RUNTIME_TOKEN"] != "must-not-cross"
     assert "AEGIS_CONTROL_TOKEN" not in environment
 
 
@@ -290,6 +295,7 @@ def test_control_server_exposes_safe_status_and_requires_stop_token():
         host="127.0.0.1",
         port=0,
         token="runtime-control-token",
+        evidence_token="runtime-evidence-token",
         core_status=lambda: {
             "schemaVersion": 1,
             "status": "UNKNOWN",
@@ -333,6 +339,7 @@ def test_control_server_exposes_safe_status_and_requires_stop_token():
 def test_control_server_requires_launcher_token_for_core_evidence():
     server = ControlServer(
         host="127.0.0.1", port=0, token="runtime-control-token",
+        evidence_token="runtime-evidence-token",
         core_status=dict, core_evidence=lambda: {"schemaVersion": 1, "evidence": {"incidents": []}},
         launcher_status=dict, request_stop=lambda: None,
     )
@@ -341,7 +348,7 @@ def test_control_server_requires_launcher_token_for_core_evidence():
         denied, _, denied_body = _json_request(f"{server.base_url}/v1/core-evidence")
         accepted, _, accepted_body = _json_request(
             f"{server.base_url}/v1/core-evidence",
-            headers={"X-AEGIS-Control-Token": "runtime-control-token"},
+            headers={"X-AEGIS-Evidence-Token": "runtime-evidence-token"},
         )
     finally:
         server.close()
@@ -349,11 +356,70 @@ def test_control_server_requires_launcher_token_for_core_evidence():
     assert accepted == 200 and accepted_body["evidence"]["incidents"] == []
 
 
+def test_control_server_requires_a_distinct_evidence_token():
+    with pytest.raises(ValueError, match="dedicated evidence token"):
+        ControlServer(
+            host="127.0.0.1", port=0, token="runtime-control-token",
+            core_status=dict, core_evidence=dict, launcher_status=dict,
+            request_stop=lambda: None,
+        )
+    with pytest.raises(ValueError, match="independent"):
+        ControlServer(
+            host="127.0.0.1", port=0, token="runtime-control-token",
+            evidence_token="runtime-control-token", core_status=dict,
+            core_evidence=dict, launcher_status=dict, request_stop=lambda: None,
+        )
+
+
+def test_real_python_server_and_node_client_use_evidence_header(tmp_path):
+    server = ControlServer(
+        host="127.0.0.1", port=0, token="runtime-control-token",
+        evidence_token="dedicated-evidence-token",
+        core_status=dict,
+        core_evidence=lambda: {"schemaVersion": 1, "evidence": {"incidents": [{"id": "incident-1"}]}},
+        launcher_status=dict, request_stop=lambda: None,
+    )
+    server.start()
+    client = Path(__file__).resolve().parent.parent / "web" / "server" / "providers" / "httpJsonClient.js"
+    script = """
+const { fetchJsonDocument } = await import(process.env.CLIENT_MODULE)
+const result = await fetchJsonDocument(process.env.TARGET_URL, {
+  timeoutMs: 2000,
+  token: process.env.CLIENT_TOKEN || null,
+  tokenHeader: 'X-AEGIS-Evidence-Token',
+})
+process.stdout.write(JSON.stringify(result))
+"""
+
+    def node(token):
+        environment = dict(os.environ)
+        environment.update({
+            "CLIENT_MODULE": client.as_uri(),
+            "TARGET_URL": f"{server.base_url}/v1/core-evidence",
+            "CLIENT_TOKEN": token,
+        })
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            capture_output=True, text=True, check=False, env=environment, timeout=10,
+        )
+        assert completed.returncode == 0, completed.stderr
+        return json.loads(completed.stdout)
+
+    try:
+        assert node("dedicated-evidence-token")["ok"] is True
+        assert node("") == {"ok": False, "code": "ADAPTER_RESPONSE_REJECTED", "data": None}
+        assert node("wrong-evidence-token") == {"ok": False, "code": "ADAPTER_RESPONSE_REJECTED", "data": None}
+        assert node("runtime-control-token") == {"ok": False, "code": "ADAPTER_RESPONSE_REJECTED", "data": None}
+    finally:
+        server.close()
+
+
 def test_control_server_rejects_stop_request_bodies():
     server = ControlServer(
         host="127.0.0.1",
         port=0,
         token="runtime-control-token",
+        evidence_token="runtime-evidence-token",
         core_status=dict,
         launcher_status=dict,
         request_stop=lambda: None,

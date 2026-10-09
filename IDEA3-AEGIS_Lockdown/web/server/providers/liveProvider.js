@@ -126,7 +126,12 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
       const [idea1Feed, idea2Feed, runtimeDocument] = await Promise.all([
         fetchIdea1Events({ config, fetchImpl, clock }),
         fetchIdea2Events({ config, fetchImpl, clock }),
-        fetchJsonDocument(config.adapters.runtimeUrl, { fetchImpl, timeoutMs: config.adapterTimeoutMs, token: config.adapters.runtimeToken }),
+        fetchJsonDocument(config.adapters.runtimeUrl, {
+          fetchImpl,
+          timeoutMs: config.adapterTimeoutMs,
+          token: config.adapters.runtimeToken,
+          tokenHeader: 'X-AEGIS-Evidence-Token',
+        }),
       ])
       const runtimeResult = runtimeDocumentState(runtimeDocument)
 

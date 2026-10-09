@@ -12,7 +12,7 @@ const coreIncidentSchema = z.object({
   coreIncidentId: z.number().int().positive(),
   source: z.literal('IDEA3'),
   state: z.enum(['OPEN', 'CONTAINED', 'CLOSED', 'UNKNOWN']),
-  openedAt: timestampSchema,
+  openedAt: timestampSchema.nullable(),
   closedAt: timestampSchema.nullable(),
   sourceIp: z.string().ip().nullable(),
   severity: z.literal('UNKNOWN'),
@@ -21,7 +21,7 @@ const coreIncidentSchema = z.object({
 const coreAuditSchema = z.object({
   counts: z.record(z.string().regex(/^[A-Z_]{1,40}$/), z.number().int().min(0).max(1_000_000)),
   latestAt: timestampSchema.nullable(),
-  freshness: z.enum(['FRESH', 'UNKNOWN']),
+  freshness: z.enum(['FRESH', 'STALE', 'UNKNOWN']),
   provenance: z.literal('CORE_SQLITE'),
 }).strict()
 const coreDeviceSchema = z.object({
@@ -32,7 +32,7 @@ const coreDeviceSchema = z.object({
   dispatch: z.enum(['DISABLED', 'ACTIVE', 'PAUSED_CREDENTIAL', 'UNAVAILABLE', 'UNKNOWN']),
   lastAuthenticatedStatusAt: timestampSchema.nullable(),
   physicalRelayState: z.literal('NOT_VERIFIED'),
-  evidenceFreshness: z.enum(['FRESH', 'UNKNOWN']),
+  evidenceFreshness: z.enum(['FRESH', 'STALE', 'UNKNOWN']),
 }).strict()
 const coreEvidenceSchema = z.object({
   incidents: z.array(coreIncidentSchema).max(100),

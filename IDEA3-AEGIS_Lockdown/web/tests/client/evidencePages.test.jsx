@@ -62,4 +62,27 @@ describe('response ledgers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ขอส่งออกแบบจำกัด' }))
     expect(onExport).toHaveBeenCalledTimes(1)
   })
+
+  it('shows allowlisted IDEA3 Core audit aggregates on the existing audit path', () => {
+    const liveSnapshot = {
+      ...snapshot,
+      integration: {
+        ...(snapshot.integration ?? {}),
+        idea3: {
+          ...(snapshot.integration?.idea3 ?? {}),
+          audit: {
+            counts: { DEVICE_STATUS: 1900, INCIDENT_BOUND: 2 },
+            latestAt: null,
+            freshness: 'UNKNOWN',
+            provenance: 'CORE_SQLITE',
+          },
+        },
+      },
+    }
+    render(<AuditPage snapshot={liveSnapshot} />)
+    expect(screen.getByText('IDEA3 Core audit aggregates')).toBeVisible()
+    expect(screen.getByText('DEVICE_STATUS')).toBeVisible()
+    expect(screen.getByText('1,900')).toBeVisible()
+    expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0)
+  })
 })

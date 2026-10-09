@@ -72,7 +72,7 @@ class LauncherSettings:
         base_environment: Mapping[str, str],
         *,
         core_status_url: str,
-        runtime_token: str | None = None,
+        evidence_token: str | None = None,
     ) -> dict[str, str]:
         environment = dict(base_environment)
         environment.pop("AEGIS_CONTROL_TOKEN", None)
@@ -90,7 +90,7 @@ class LauncherSettings:
             "AEGIS_WEB_STATIC_DIR": str(self.static_dir),
             "AEGIS_BIND_HOST": self.bind_host,
             "AEGIS_IDEA3_RUNTIME_STATUS_URL": core_status_url,
-            "AEGIS_IDEA3_RUNTIME_TOKEN": runtime_token or "",
+            "AEGIS_IDEA3_RUNTIME_TOKEN": evidence_token or "",
         })
         return environment
 
@@ -137,7 +137,11 @@ class ControlServer:
         self.token = token
         self.core_status = core_status
         self.core_evidence = core_evidence or core_status
-        self.evidence_token = evidence_token or token
+        if not evidence_token:
+            raise ValueError("a dedicated evidence token is required")
+        if hmac.compare_digest(evidence_token, token):
+            raise ValueError("control and evidence tokens must be independent")
+        self.evidence_token = evidence_token
         self.launcher_status = launcher_status
         self.request_stop = request_stop
         self._server: ThreadingHTTPServer | None = None
@@ -180,7 +184,7 @@ class ControlServer:
                 if route == "/v1/core-status":
                     self._respond(200, boundary.core_status())
                 elif route == "/v1/core-evidence":
-                    supplied = self.headers.get("X-AEGIS-Control-Token", "")
+                    supplied = self.headers.get("X-AEGIS-Evidence-Token", "")
                     if not hmac.compare_digest(supplied, boundary.evidence_token):
                         self._respond(403, {"error": {"code": "CONTROL_DENIED"}})
                         return
@@ -248,11 +252,13 @@ class LauncherRuntime:
         popen_factory=subprocess.Popen,
         control_server_factory=ControlServer,
         token_factory=lambda: secrets.token_urlsafe(48),
+        evidence_token_factory=lambda: secrets.token_urlsafe(48),
     ) -> None:
         self.settings = settings
         self.popen_factory = popen_factory
         self.control_server_factory = control_server_factory
         self.token_factory = token_factory
+        self.evidence_token_factory = evidence_token_factory
         self.children: dict[str, subprocess.Popen] = {}
         self.stop_event = threading.Event()
         self._output_handle = None
@@ -330,13 +336,13 @@ class LauncherRuntime:
             json.dumps(document, indent=2, sort_keys=True) + "\n",
         )
 
-    def _start_children(self, control_url: str, control_token: str) -> None:
+    def _start_children(self, control_url: str, evidence_token: str) -> None:
         environment = dict(os.environ)
         load_dotenv(self.settings.paths.config_file, environment)
         environment = self.settings.child_environment(
             environment,
             core_status_url=f"{control_url}/v1/core-evidence",
-            runtime_token=control_token,
+            evidence_token=evidence_token,
         )
         self.settings.paths.log_dir.mkdir(parents=True, exist_ok=True)
         self._output_handle = (self.settings.paths.log_dir / "aegis-components.log").open(
@@ -383,7 +389,9 @@ class LauncherRuntime:
             lock.acquire()
             acquired = True
             token = self.token_factory()
-            evidence_token = secrets.token_urlsafe(48)
+            evidence_token = self.evidence_token_factory()
+            if not evidence_token or hmac.compare_digest(token, evidence_token):
+                raise RuntimeError("control and evidence tokens must be independently generated")
             self._atomic_write(token_path, f"{token}\n")
             token_owned = True
             try:

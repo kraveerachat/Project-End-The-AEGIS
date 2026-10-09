@@ -46,8 +46,35 @@ def test_safe_evidence_projection_contains_bounded_real_core_records(tmp_path, m
     assert projection["evidence"]["incidents"][0]["sourceIp"] == "10.20.30.40"
     assert projection["evidence"]["incidents"][0]["severity"] == "UNKNOWN"
     assert projection["evidence"]["audit"]["counts"]["INCIDENT_BOUND"] == 1
+    assert projection["evidence"]["audit"]["freshness"] == "UNKNOWN"
+    assert projection["evidence"]["audit"]["latestAt"] is None
+    assert projection["evidence"]["device"]["id"] == "UNKNOWN"
+    assert projection["evidence"]["device"]["lastAuthenticatedStatusAt"] is None
+    assert projection["evidence"]["device"]["evidenceFreshness"] == "UNKNOWN"
+    assert all(not value.endswith("Z") for value in str(projection).split() if value.endswith("Z"))
     assert "UNSAFE_RAW_EVENT" not in str(projection)
     assert "secret details" not in str(projection)
+
+
+def test_safe_evidence_projection_uses_only_configured_identity_and_authenticated_status(tmp_path, monkeypatch):
+    db_path = tmp_path / "core.sqlite3"
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE incidents (id INTEGER PRIMARY KEY, opened_at TEXT, closed_at TEXT, state TEXT, attacker_ip TEXT, summary TEXT);
+        CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, timestamp TEXT, level TEXT, event_type TEXT, details TEXT, incident_id INTEGER, hash TEXT);
+        INSERT INTO audit_logs VALUES (1, '2026-10-09 10:00:00', 'INFO', 'DEVICE_STATUS', 'LOCKDOWN (LEGACY)', NULL, 'hash');
+        INSERT INTO audit_logs VALUES (2, '2026-10-09 10:00:01', 'INFO', 'STATUS_AUTHENTICATED', 'device_id=esp32-auth-01 state=LOCKDOWN', NULL, 'hash');
+    """)
+    conn.commit(); conn.close()
+    monkeypatch.setattr(config, "P1_DEVICE_ID", "esp32-auth-01")
+
+    projection = safe_evidence_projection({"state": "RUNNING", "dry_run": False}, db_path=db_path)
+    device = projection["evidence"]["device"]
+
+    assert device["id"] == "esp32-auth-01"
+    assert device["lastAuthenticatedStatusAt"] is None
+    assert device["evidenceFreshness"] == "UNKNOWN"
 
 
 def test_safe_evidence_projection_fails_closed_when_database_is_unavailable(tmp_path):

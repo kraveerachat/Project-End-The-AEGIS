@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -447,13 +448,34 @@ _EVIDENCE_STATES = frozenset({"OPEN", "CONTAINED", "CLOSED"})
 
 
 def _evidence_timestamp(value: object) -> str | None:
-    if not isinstance(value, str) or len(value) != 19:
+    if not isinstance(value, str):
         return None
     try:
-        time.strptime(value, "%Y-%m-%d %H:%M:%S")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return value.replace(" ", "T") + ".000Z"
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _evidence_freshness(timestamp: str | None, *, max_age_sec: float = 120.0) -> str:
+    if timestamp is None:
+        return "UNKNOWN"
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return "UNKNOWN"
+    if age.total_seconds() < 0:
+        return "UNKNOWN"
+    return "FRESH" if age.total_seconds() <= max_age_sec else "STALE"
+
+
+def _authoritative_device_id() -> str:
+    from .protocol_v1 import valid_device_id
+
+    candidate = getattr(config, "P1_DEVICE_ID", "")
+    return candidate if valid_device_id(candidate) else "UNKNOWN"
 
 
 def safe_evidence_projection(
@@ -474,7 +496,7 @@ def safe_evidence_projection(
         "incidents": [],
         "audit": {"counts": {}, "latestAt": None, "freshness": "UNKNOWN", "provenance": "CORE_SQLITE"},
         "device": {
-            "id": "ESP32-LOCK-01",
+            "id": _authoritative_device_id(),
             "broker": projection["components"].get("broker", "UNKNOWN"),
             "status": projection["components"].get("device", "UNKNOWN"),
             "uplink": projection["components"].get("uplink", "UNKNOWN"),
@@ -527,13 +549,14 @@ def safe_evidence_projection(
                 if stamp and (latest is None or stamp > latest):
                     latest = stamp
             evidence["audit"]["latestAt"] = latest
-            evidence["audit"]["freshness"] = "FRESH"
-            status_rows = connection.execute(
-                "SELECT MAX(timestamp) FROM audit_logs WHERE event_type IN (?, ?)",
-                ("DEVICE_STATUS", "STATUS_AUTHENTICATED"),
+            evidence["audit"]["freshness"] = _evidence_freshness(latest)
+            status_row = connection.execute(
+                "SELECT timestamp, details FROM audit_logs WHERE event_type = ? ORDER BY id DESC LIMIT 1",
+                ("STATUS_AUTHENTICATED",),
             ).fetchone()
-            evidence["device"]["lastAuthenticatedStatusAt"] = _evidence_timestamp(status_rows[0])
-            evidence["device"]["evidenceFreshness"] = "FRESH"
+            authenticated_stamp = _evidence_timestamp(status_row[0]) if status_row else None
+            evidence["device"]["lastAuthenticatedStatusAt"] = authenticated_stamp
+            evidence["device"]["evidenceFreshness"] = _evidence_freshness(authenticated_stamp)
         finally:
             connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

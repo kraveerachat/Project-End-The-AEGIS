@@ -75,7 +75,8 @@ describe('live integration provider failure and freshness semantics', () => {
     const snapshot = await provider.getSnapshot()
     const runtimeCall = fetchImpl.mock.calls.find(([url]) => url === liveConfig.adapters.runtimeUrl)
 
-    expect(runtimeCall[1].headers.authorization).toBe('Bearer runtime-token-secret')
+    expect(runtimeCall[1].headers['X-AEGIS-Evidence-Token']).toBe('runtime-token-secret')
+    expect(runtimeCall[1].headers.authorization).toBeUndefined()
     expect(snapshot.incidents).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'idea3-core-2', source: 'IDEA3', state: 'OPEN', sourceIp: '10.20.30.40', severity: 'UNKNOWN' }),
     ]))
