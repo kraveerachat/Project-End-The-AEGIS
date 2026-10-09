@@ -46,7 +46,7 @@ export function DevicesPage({ snapshot }) {
 
       {device && <section className="device-detail-grid">
         <Panel title="Relay evidence separation" description="คำขอไม่เท่ากับหลักฐานทางกายภาพ">
-          <div className="evidence-comparison"><article><p>REQUESTED STATE</p><strong>คำขอ: {device.requestedRelayState}</strong><StatusBadge status="HEALTHY" compact /></article><div className="comparison-divider">≠</div><article><p>PHYSICAL EVIDENCE</p><strong>หลักฐานทางกายภาพ: {device.physicalRelayState}</strong><StatusBadge status={device.physicalRelayState} compact /></article></div>
+          <div className="evidence-comparison"><article><p>REQUESTED STATE</p><strong>คำขอ: {device.requestedRelayState || 'UNKNOWN'}</strong><StatusBadge status={device.requestedRelayState || 'UNKNOWN'} compact /></article><div className="comparison-divider">≠</div><article><p>OBSERVED UPLINK</p><strong>อุปกรณ์รายงาน: {device.observedUplinkState || 'UNKNOWN'}</strong><StatusBadge status={device.observedUplinkState === 'LOCKDOWN' ? 'DEGRADED' : device.observedUplinkState === 'NORMAL' ? 'HEALTHY' : 'UNKNOWN'} compact /></article><div className="comparison-divider">≠</div><article><p>PHYSICAL EVIDENCE</p><strong>หลักฐานทางกายภาพ: {device.physicalRelayState || 'UNKNOWN'}</strong><StatusBadge status={device.physicalRelayState || 'UNKNOWN'} compact /></article></div>
         </Panel>
         <Panel title="Device evidence timeline" description={formatEvidenceAge(device.evidenceAgeMs)}>
           <Timeline items={snapshot.runtime.timeline} />

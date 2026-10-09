@@ -301,6 +301,7 @@ export function loadConfig(env = process.env) {
       idea1Url: env.AEGIS_IDEA1_STATUS_URL || null,
       idea2Url: env.AEGIS_IDEA2_STATUS_URL || null,
       runtimeUrl: env.AEGIS_IDEA3_RUNTIME_STATUS_URL || null,
+      runtimeToken: integrationCredential(env.AEGIS_IDEA3_RUNTIME_TOKEN),
       idea1Token: integrationCredential(env.AEGIS_IDEA1_INTEGRATION_TOKEN),
       idea2Token: integrationCredential(env.AEGIS_IDEA2_INTEGRATION_TOKEN),
     }),

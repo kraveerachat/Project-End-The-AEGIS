@@ -234,6 +234,7 @@ class MQTTManager:
                 print(f"Authenticated status hook failed: {type(error).__name__}")
         if self.status_callback:
             self.status_callback(state, rssi, heap, command_nonce)
+        db.log_event("STATUS_AUTHENTICATED", f"device_id={device_id} state={state}", level)
         db.log_event("DEVICE_STATUS", f"{state} ({reason})", level)
         self._notify_uplink_transition(state, reason, rssi, heap)
 
