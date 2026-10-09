@@ -25,7 +25,7 @@ unchanged. The original dirty PYTHONUI worktree and its backup remain untouched.
 - Task: Purple Python Desktop offline demo and live read-only observer PR delivery
 - Branch: `feat/idea3-purple-desktop-final`
 - Owner: `music`
-- PR: pending publication
+- PR: #422 Draft — https://github.com/kraveerachat/Project-End-The-AEGIS/pull/422
 - Current state: LOCAL VERIFIED / REVIEW PENDING; live hardware acceptance BLOCKED
 - Production mutation allowed: NO
 
@@ -33,7 +33,7 @@ unchanged. The original dirty PYTHONUI worktree and its backup remain untouched.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PURPLE-1 | Isolate accepted UI, offline demo, bounded live observer, tests | PASS | 29/29 focused Tk tests; 26/26 Desktop regressions; source backup hashes pass | `f32fdab807674435ecaf3c9b70a9462b990f05d4` | LOCAL VERIFIED | PR checks and independent review | publish Draft PR |
+| PURPLE-1 | Isolate accepted UI, offline demo, bounded live observer, tests | PASS | 29/29 focused Tk tests; 26/26 Desktop regressions; source backup hashes pass; PR #422 collaboration guardrails pass | `f32fdab807674435ecaf3c9b70a9462b990f05d4` | LOCAL VERIFIED | independent security/integration review and packaged visual check | human review |
 
 ### Durable boundary
 
@@ -58,7 +58,7 @@ unchanged. The original dirty PYTHONUI worktree and its backup remain untouched.
 
 ### Handoff
 
-Review the focused PR and its checks. Keep Production CUT/RESTORE disabled;
+Review Draft PR #422 and its passing collaboration guardrails check. Keep Production CUT/RESTORE disabled;
 separate Core interface and Recovery governance decisions are required before
 any live command acceptance. Human reviewers alone decide merge and any later
 deployment.
