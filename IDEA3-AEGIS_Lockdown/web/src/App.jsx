@@ -139,7 +139,7 @@ export default function App() {
   }
 
   if (!session) return <div className="boot-screen"><span className="aegis-hatch" /><p>กำลังยืนยัน Security Center…</p></div>
-  if (!session.authenticated) return <LoginPage onLogin={login} />
+  if (!session.authenticated) return <LoginPage onLogin={login} theme={theme} onThemeChange={changeTheme} />
 
   const dashboardLanguage = route === 'dashboard' ? language : 'th'
 
