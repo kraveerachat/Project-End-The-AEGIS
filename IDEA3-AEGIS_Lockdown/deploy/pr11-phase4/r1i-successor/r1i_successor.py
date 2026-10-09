@@ -30,6 +30,7 @@ LIVE_AUTHORIZATION = LIVE_CANONICAL_DIR / "authorization.txt"
 LIVE_STATE_DIR = LIVE_CANONICAL_DIR / "state"
 GITHUB_MAIN_URL = "https://api.github.com/repos/kraveerachat/Project-End-The-AEGIS/git/ref/heads/main"
 TRUSTED_CURL = Path("/usr/bin/curl")
+LIVE_GITHUB_TOKEN = Path("/etc/aegis-idea3/github-token")
 LIVE_RUNNER = LIVE_REPO_ROOT / "IDEA3-AEGIS_Lockdown/deploy/pr11-phase4/r1i-successor/r1i_successor.py"
 TRUSTED_GIT = Path("/usr/bin/git")
 TRUSTED_NFT = Path("/usr/bin/nft")
@@ -56,6 +57,8 @@ class Context:
     nft: Path
     remote_main: Callable[[], str] | None = None
     test_mode: bool = False
+    token_path: Path = LIVE_GITHUB_TOKEN
+    curl_executor: Callable[[list[str], str, dict[str, str]], tuple[int, str, str]] | None = None
 
 Executor = Callable[[list[str]], tuple[int, str]]
 
@@ -83,7 +86,7 @@ def trusted_path(path: Path, *, directory: bool = False, test_mode: bool = False
     elif not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise RunnerError("R1I_TRUSTED_PATH_INVALID")
 
-def read_trusted_bytes(path: Path, reason: str, *, test_mode: bool = False) -> bytes:
+def read_trusted_bytes(path: Path, reason: str, *, test_mode: bool = False, exact_mode: int | None = None) -> bytes:
     try:
         trusted_path(path, test_mode=test_mode)
     except RunnerError as exc:
@@ -94,6 +97,8 @@ def read_trusted_bytes(path: Path, reason: str, *, test_mode: bool = False) -> b
         try:
             opened = os.fstat(fd)
             if (before.st_dev, before.st_ino, before.st_nlink) != (opened.st_dev, opened.st_ino, opened.st_nlink):
+                raise RunnerError(reason)
+            if exact_mode is not None and stat.S_IMODE(opened.st_mode) != exact_mode:
                 raise RunnerError(reason)
             data = os.read(fd, before.st_size + 1)
             after = os.fstat(fd)
@@ -184,24 +189,41 @@ def remote_main_sha(context: Context) -> str:
         if not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
         return sha
-    token = os.environ.get("AEGIS_GITHUB_TOKEN", "")
-    if not token or any(char.isspace() for char in token):
+    raw_token = read_trusted_bytes(context.token_path, "R1I_MAIN_AUTHORITY_UNVERIFIED", test_mode=context.test_mode, exact_mode=0o600)
+    if raw_token.endswith(b"\n"):
+        raw_token = raw_token[:-1]
+    if not raw_token or any(byte < 0x21 or byte == 0x7F for byte in raw_token):
         raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
-    trusted_path(TRUSTED_CURL)
+    try:
+        token = raw_token.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED") from exc
+    if any(char in token for char in ('"', "\\", "\r", "\n")):
+        raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
+    if context.curl_executor is None:
+        trusted_path(TRUSTED_CURL)
     clean_env = {
         "PATH": "/usr/bin:/bin",
         "HOME": "/",
-        "GITHUB_TOKEN": token,
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_CONFIG_SYSTEM": "/dev/null",
     }
-    args = [str(TRUSTED_CURL), "--config", "/dev/null", "--noproxy", "*", "--fail", "--silent", "--show-error", "--location", "--max-redirs", "0", "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "10", "--max-time", "20", "-H", "Accept: application/vnd.github+json", "-H", f"Authorization: Bearer {token}", GITHUB_MAIN_URL]
+    curl_config = f'url = "{GITHUB_MAIN_URL}"\nheader = "Accept: application/vnd.github+json"\nheader = "Authorization: Bearer {token}"\n'
+    args = [str(TRUSTED_CURL), "--config", "-", "--noproxy", "*", "--fail", "--silent", "--show-error", "--location", "--max-redirs", "0", "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "10", "--max-time", "20", "--max-filesize", "65536"]
     try:
-        result = subprocess.run(args, env=clean_env, text=True, capture_output=True, check=False)
-        if result.returncode:
+        if context.curl_executor is not None:
+            return_code, stdout, _stderr = context.curl_executor(args, curl_config, clean_env)
+            if return_code:
+                raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
+        else:
+            result = subprocess.run(args, input=curl_config, env=clean_env, text=True, capture_output=True, check=False)
+            if result.returncode:
+                raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
+            stdout = result.stdout
+        if len(stdout.encode("utf-8")) > 65536:
             raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
-        payload = json.loads(result.stdout)
+        payload = json.loads(stdout)
         sha = payload.get("object", {}).get("sha")
         if payload.get("ref") != "refs/heads/main" or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise RunnerError("R1I_MAIN_AUTHORITY_UNVERIFIED")
@@ -370,7 +392,10 @@ def apply(context: Context, executor: Executor | None = None) -> None:
     atomic_write(context.state_dir / "pre-ruleset.sha256", (hashlib.sha256(canonical_json(immediate).encode()).hexdigest() + "\n").encode(), test_mode=context.test_mode)
     atomic_write(context.state_dir / "binding.json", json.dumps({"successor_id": SUCCESSOR_ID, "attempt_id": auth["attempt_id"]}, sort_keys=True).encode(), test_mode=context.test_mode)
     consume_marker(context, auth["attempt_id"])
-    load_and_check_authority(context)
+    try:
+        load_and_check_authority(context)
+    except RunnerError as exc:
+        raise RunnerError(f"R1I_POST_MARKER_AUTHORITY_FAILED:{exc}") from exc
     if _mutate(context, ["-f", str(context.contract)], executor):
         try:
             current = snapshot_ruleset(context, executor)

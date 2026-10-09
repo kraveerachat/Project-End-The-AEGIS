@@ -12,8 +12,10 @@ R1I runner.
 - A fresh authorization file binds R1I-SUCCESSOR-20261009, a new attempt ID,
   the exact trusted main SHA, the runner SHA-256, and the exact nft contract
   SHA-256. The runner independently queries the fixed official GitHub main ref
-  over authenticated HTTPS using a fixed trusted curl executable; local HEAD
-  alone is never accepted as remote-main authority.
+  over authenticated HTTPS using a fixed trusted curl executable. The token is
+  read from the fixed root-owned mode-0600 credential path and supplied only
+  through curl stdin config; local HEAD alone is never accepted as remote-main
+  authority.
 - A canonical successor marker is created exclusively before nft mutation and
   is never removed or rewritten. Historical R1I markers remain untouched.
 - Live canonical/state/source/Git/nft paths are fixed; there is no
@@ -30,6 +32,8 @@ R1I runner.
 - Apply, verify, and rollback require current trusted authorization, exact
   successor/attempt marker binding, trusted state ownership, and snapshot hash
   integrity. Marker and state writes are atomic and durable.
+- A failed authority recheck after marker creation is a terminal consumed
+  attempt with no nft mutation; the marker is preserved and never retried.
 - Rollback deletes only the exact owned table after a fresh proof that both the
   surrounding ruleset and owned table are unchanged; any ambiguity stops.
 

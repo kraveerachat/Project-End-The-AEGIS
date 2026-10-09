@@ -7,6 +7,7 @@ import os
 import stat
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,22 @@ def invoke(fn, *args):
         return 1, str(exc)
     return 0, ""
 
+def credential_context(tmp_path, token="synthetic-token", curl_result=None):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    context, fake = setup(tmp_path)
+    token_path = tmp_path / "github-token"
+    token_path.write_text(token + "\n")
+    token_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    calls = {}
+    def curl(args, config, env):
+        calls["args"] = args
+        calls["config"] = config
+        calls["env"] = env
+        if curl_result is not None:
+            return curl_result
+        return 0, json.dumps({"ref": "refs/heads/main", "object": {"sha": VERIFIED_MAIN}}), ""
+    return replace(context, remote_main=None, token_path=token_path, curl_executor=curl), fake, calls
+
 def test_exact_successor_contract_is_reviewed_input_rule():
     text = CONTRACT.read_text()
     assert text == "create table inet aegis_idea3_r1i\nadd chain inet aegis_idea3_r1i input { type filter hook input priority -10; policy accept; }\nadd rule inet aegis_idea3_r1i input meta nfproto ipv4 ct state new tcp flags & (syn | ack) == syn limit rate 50/second burst 60 packets log prefix \"AEGIS_NEWCONN \" level info\n"
@@ -151,6 +168,69 @@ def test_remote_sha_mismatch_is_rejected(tmp_path):
     context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, context.git, context.nft, lambda: "0" * 40, True)
     rc, error = invoke(runner.apply, context, fake)
     assert rc == 1 and "R1I_MAIN_AUTHORITY_MISMATCH" in error
+
+def test_synthetic_token_is_stdin_only_and_not_in_argv_or_environment(tmp_path):
+    token = "synthetic-token-123"
+    context, _fake, calls = credential_context(tmp_path, token)
+    assert runner.remote_main_sha(context) == VERIFIED_MAIN
+    assert token not in " ".join(calls["args"])
+    assert all(token not in value for value in calls["env"].values())
+    assert token in calls["config"]
+    assert calls["args"][1:3] == ["--config", "-"]
+
+def test_credential_failure_does_not_disclose_token(tmp_path):
+    token = "synthetic-error-token"
+    context, _fake, _calls = credential_context(tmp_path, token, (22, "", f"Authorization: Bearer {token}"))
+    rc, error = invoke(runner.remote_main_sha, context)
+    assert rc == 1 and token not in error
+
+@pytest.mark.parametrize("mutator", ["missing", "symlink", "hardlink", "permissions", "invalid"])
+def test_credential_source_failures_are_closed(tmp_path, mutator):
+    context, _fake, _calls = credential_context(tmp_path)
+    if mutator == "missing":
+        context.token_path.unlink()
+    elif mutator == "symlink":
+        context.token_path.unlink()
+        context.token_path.symlink_to(tmp_path / "other-token")
+    elif mutator == "hardlink":
+        hard = tmp_path / "hard-token"
+        os.link(context.token_path, hard)
+    elif mutator == "permissions":
+        context.token_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP)
+    elif mutator == "invalid":
+        context.token_path.write_bytes(b"bad\nheader\n")
+    rc, error = invoke(runner.remote_main_sha, context)
+    assert rc == 1 and "R1I_MAIN_AUTHORITY_UNVERIFIED" in error
+
+def test_response_and_request_failures_are_closed(tmp_path):
+    malformed, _fake, _calls = credential_context(tmp_path / "malformed", curl_result=(0, "not-json", ""))
+    assert "R1I_MAIN_AUTHORITY_UNVERIFIED" in invoke(runner.remote_main_sha, malformed)[1]
+    failed, _fake, _calls = credential_context(tmp_path / "failed", curl_result=(28, "", "timeout"))
+    assert "R1I_MAIN_AUTHORITY_UNVERIFIED" in invoke(runner.remote_main_sha, failed)[1]
+
+def test_second_authority_failure_consumes_marker_without_nft_mutation(tmp_path):
+    context, fake = setup(tmp_path, post=post_ruleset())
+    responses = iter([VERIFIED_MAIN, "0" * 40])
+    context = replace(context, remote_main=lambda: next(responses))
+    rc, error = invoke(runner.apply, context, fake)
+    assert rc == 1 and "R1I_POST_MARKER_AUTHORITY_FAILED" in error
+    assert (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
+    assert not any(call == ["-f", str(CONTRACT)] for call in fake.calls)
+
+def test_second_authority_unavailable_is_terminal_after_marker(tmp_path):
+    context, fake = setup(tmp_path, post=post_ruleset())
+    calls = 0
+    def changing_authority():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return VERIFIED_MAIN
+        raise RuntimeError("remote unavailable")
+    context = replace(context, remote_main=changing_authority)
+    rc, error = invoke(runner.apply, context, fake)
+    assert rc == 1 and "R1I_POST_MARKER_AUTHORITY_FAILED" in error
+    assert (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
+    assert not any(call == ["-f", str(CONTRACT)] for call in fake.calls)
 
 def test_untrusted_git_executable_is_rejected(tmp_path):
     context, fake = setup(tmp_path)

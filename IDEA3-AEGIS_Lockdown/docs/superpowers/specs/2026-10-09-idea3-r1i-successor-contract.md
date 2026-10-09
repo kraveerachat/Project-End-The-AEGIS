@@ -31,15 +31,18 @@ file containing exactly:
     authorized=YES
 
 The runner verifies the current checkout HEAD, its own bytes, and the contract
-bytes against those values. It also obtains the official GitHub main ref over
-authenticated HTTPS through fixed `/usr/bin/curl` with redirects, proxy, curl
-configuration, and environment-controlled executable resolution disabled. An
-arbitrary local checkout, remote configuration, caller-provided SHA, or local
-authority file is insufficient. It refuses unavailable, stale, malformed,
-duplicated, or replayed authorization. It also refuses if the canonical
-successor marker already exists. The historical R1I-GLOBAL-ATTEMPT-CONSUMED
-marker is read only by surrounding governance and is never changed by this
-runner.
+bytes against those values. It obtains the official GitHub main ref over
+authenticated HTTPS through fixed `/usr/bin/curl`; the owner-provisioned token
+is read only from the fixed root-owned mode-0600 path
+`/etc/aegis-idea3/github-token` and delivered through curl's protected stdin
+config, never argv or ordinary environment. Redirects, proxy, curl
+configuration, and environment-controlled executable resolution are disabled.
+An arbitrary local checkout, remote configuration, caller-provided SHA, or
+local authority file is insufficient. It refuses unavailable, stale,
+malformed, duplicated, or replayed authorization. It also refuses if the
+canonical successor marker already exists. The historical
+R1I-GLOBAL-ATTEMPT-CONSUMED marker is read only by surrounding governance and
+is never changed by this runner.
 
 The live path additionally requires root, fixed canonical/state/source/Git/nft
 paths, and the explicit runtime setting AEGIS_R1I_SUCCESSOR_LIVE_AUTHORIZED=YES.
@@ -53,7 +56,11 @@ Before nft mutation the runner captures the complete JSON ruleset, rejects any
 existing R1I table/rule/log material, including structured AEGIS_NEWCONN log
 objects in foreign tables, and captures again immediately before
 mutation, and stops on any difference. It then atomically consumes the fresh
-successor marker and applies only the contract file.
+successor marker, revalidates remote authority immediately before mutation,
+and applies only the contract file. If that post-marker check fails, the
+attempt remains durably consumed, no nft mutation occurs, and the terminal
+error requires a separate governed decision; the marker is never removed or
+retried automatically.
 
 After mutation it captures the complete ruleset and the stateless dedicated
 table. Comparison removes every table, chain, rule, set, or other object whose
