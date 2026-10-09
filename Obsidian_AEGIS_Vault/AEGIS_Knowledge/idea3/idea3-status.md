@@ -11,6 +11,35 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 Security Center Web final UI/UX — repository-only UI preserved after PR #421 integration — 2026-10-10
+
+> [!important] PR #258's approved Security Center Web UI/UX remains preserved in the reconciled branch. The current `main` merge adds read-only IDEA3 Core incidents, Audit aggregates, and ESP32 evidence; it does not redesign the twelve-page layout, change the Web API contract, or enable Production/Recovery/hardware mutation.
+> `WEB_FINAL_UIUX = PRESERVED`, `PR421_CORE_EVIDENCE = PRESERVED`, `PRODUCTION_MUTATION = NO`, `PR258_RECEIPT = EXISTING_AND_IMMUTABLE`
+
+### Current Task
+
+Task: PR #258 final UI integration after PR #421 merge
+Branch: `feat/idea3-web-final-uiux-parallel`
+Owner: `music`
+PR: #258 Draft
+Current state: reconciled repository implementation; independent exact-head review pending
+Started: 2026-10-10
+Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR258-INT-1 | Merge current `main` after PR #421 into the existing PR #258 UI branch; preserve UI and Core evidence | IN PROGRESS | focused Web tests, build, collaboration and Vault validation pending | merge commit | pending | exact-head independent review; human review/merge only | run verification, update Draft PR |
+
+### Durable facts
+
+- Audit keeps PR #258's provenance and fail-closed tamper wording while displaying PR #421's allowlisted Core aggregate counts with one global `latestAt` timestamp.
+- Devices keeps requested relay state, observed authenticated uplink state, and physical relay evidence distinct; ACK never proves physical relay state.
+- The existing immutable receipt remains `90-Status/logs/2026-09-30_010735_music_idea3-web-final-security-center-uiux.md`; no second receipt is created for this integration session.
+
+---
+
 ## IDEA3 H0 shared-document reconciliation — owner-reported evidence — 2026-10-09
 
 The original PR408 H0 baseline remains preserved as a 2026-10-08-period claim:
