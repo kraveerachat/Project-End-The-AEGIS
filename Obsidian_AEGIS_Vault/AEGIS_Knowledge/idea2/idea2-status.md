@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-09
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,45 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## Machine C existing-sender Telegram — current source task (2026-10-09)
+
+Owner: Pub. Branch: `fix/idea2-machine-c-telegram-sender`. Base: PR #348 at
+`db263207f355678315e1a85fcfbc73df0e9be2dc`; stacked publication required.
+State: SOURCE IMPLEMENTED / LOCAL VERIFIED; runtime ACCEPTANCE PENDING.
+Production mutation allowed: NO. PR remains Draft against PR #348.
+
+Plan: optional caption-only Node display, opt-in ambiguous-delivery suppression,
+bounded duplicate-job protection, mocked tests and independent source review.
+Reuse the existing Engine AlertManager/sendPhoto sender and existing bot/group;
+do not introduce a server sender. Machine A defaults must retain current behavior.
+Canonical Node/camera/generation attribution, cooldown and authority remain unchanged.
+No devices, real messages, credentials, runtime edits, PR #410/#418 edits or deployment.
+
+| Session | Scope | State | Evidence | Checkpoint | Remaining / next |
+|---|---|---|---|---|---|
+| S1 | Approved existing-sender implementation and offline review | CLOSED | Initial RED: 9 tests, 6 failures, 3 pass; final focused 26/26, Engine/Agent 423/423, governance 59/59; independent source review: no open findings | `61ef23341e9f0ada44a78e16317f5cfafd0eb53f` | Human review, dependency acceptance, separately approved runtime configuration/delivery |
+
+Implemented: optional caption display and opt-in safe delivery via the existing
+AlertManager/sendPhoto sender. Defaults preserve Machine A's exact caption and
+three-attempt backoff. The canonical Node, camera alias and producer generation
+stay unchanged. Machine C's approved label is `Machine C (mr-tk-01)`.
+Ambiguous timeout/response is unconfirmed, not automatically resent.
+Process-local duplicate protection is bounded, not durable exactly-once delivery;
+at ledger capacity, Telegram is suppressed but new API/Monitor alerts are retained.
+
+Independent review caught and closed that capacity-edge alert-loss defect with
+RED/GREEN evidence. Vault, Python syntax, secret-pattern scan and diff checks pass.
+Sandbox-only test runs encountered temporary-fixture permission failures; the
+Engine sandbox run was interrupted, not counted as PASS. Approved offline reruns
+outside that sandbox passed. No hardware, real messages or installed services were used.
+
+Handoff: source checkpoint above; one final source-task receipt at
+`90-Status/logs/2026-10-09_202201_pub_machine-c-telegram-existing-sender.md`.
+PR #344/#348 dependency acceptance remains pending. No change to PR #410/#418,
+Monitor, authority, camera/recording lifecycle, audio, GPU, or Production.
+Runtime configuration and real Machine C delivery remain separately owner-gated;
+source tests do not prove the existing bot credentials/group are configured on C.
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 
