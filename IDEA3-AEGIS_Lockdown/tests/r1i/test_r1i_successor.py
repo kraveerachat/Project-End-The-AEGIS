@@ -138,6 +138,14 @@ def test_matching_local_head_without_independent_remote_proof_is_rejected(tmp_pa
     assert rc == 1 and "R1I_MAIN_AUTHORITY_UNVERIFIED" in error
     assert not (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
 
+def test_forged_local_authority_file_cannot_replace_remote_proof(tmp_path):
+    context, fake = setup(tmp_path)
+    (tmp_path / "trusted-main-authority").write_text("main_sha=" + VERIFIED_MAIN + "\n")
+    context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, context.git, context.nft, lambda: (_ for _ in ()).throw(RuntimeError("unavailable")), True)
+    rc, error = invoke(runner.apply, context, fake)
+    assert rc == 1 and "R1I_MAIN_AUTHORITY_UNVERIFIED" in error
+    assert not (context.canonical_dir / runner.ATTEMPT_MARKER).exists()
+
 def test_remote_sha_mismatch_is_rejected(tmp_path):
     context, fake = setup(tmp_path)
     context = runner.Context(context.repo_root, context.canonical_dir, context.authorization, context.state_dir, context.runner, context.contract, context.git, context.nft, lambda: "0" * 40, True)
