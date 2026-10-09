@@ -11,6 +11,58 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## Accepted purple Python Desktop — local software verified, Production control blocked — 2026-10-10
+
+The owner accepted the uncommitted purple `AegisAdminGUI` and its Login →
+Dashboard → Logout visual flow. Branch `feat/idea3-purple-desktop-final` packages
+exact copies of the accepted `gui.py`, `theme.py`, `login_view.py`,
+`design_tokens.py`, and `i18n.py` in a preview-only source overlay. The
+operational `aegis_soc/gui.py` and `server_admin.py` on current `main` are
+unchanged. The original dirty PYTHONUI worktree and its backup remain untouched.
+
+### Current Task
+
+- Task: Purple Python Desktop offline demo and live read-only observer PR delivery
+- Branch: `feat/idea3-purple-desktop-final`
+- Owner: `music`
+- PR: pending publication
+- Current state: LOCAL VERIFIED / REVIEW PENDING; live hardware acceptance BLOCKED
+- Production mutation allowed: NO
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PURPLE-1 | Isolate accepted UI, offline demo, bounded live observer, tests | PASS | 29/29 focused Tk tests; 26/26 Desktop regressions; source backup hashes pass | `f32fdab807674435ecaf3c9b70a9462b990f05d4` | LOCAL VERIFIED | PR checks and independent review | publish Draft PR |
+
+### Durable boundary
+
+- The live observer reads only `/run/aegis-idea3/status.json` through the
+  allowlisted fail-closed reader; it creates no operational MQTT/controller,
+  heartbeat, detector, Telegram, Recovery, serial, relay, or firewall runtime.
+- Live CUT and RESTORE are visibly disabled. Manual CUT has no approved
+  Core-owned request interface; RESTORE remains subject to owner-only D4 and
+  Recovery successor authorization. `DISPATCH=DISABLED` and
+  `AUTO_CONTAIN=False` were historical Production observations, not settings
+  changed by this task.
+- The separate offline demo uses synthetic data and an in-memory controller;
+  its CUT button requires an explicit simulated confirmation and RESTORE
+  requires simulated Recovery approval. No offline result proves hardware
+  behavior, Production command outcome, or governed Recovery readiness.
+- The broad IDEA3 suite is not green in this workspace: with a spacious
+  user-owned temp directory, its R1A real-root-namespace tests expected a
+  different trusted ancestor and stopped at `2 failed, 142 passed` under
+  `--maxfail=2`. The earlier unrestricted run was interrupted at 3% after the
+  same two failures. These are outside the changed Desktop paths; they are
+  reported as failures, not passes or skips.
+
+### Handoff
+
+Review the focused PR and its checks. Keep Production CUT/RESTORE disabled;
+separate Core interface and Recovery governance decisions are required before
+any live command acceptance. Human reviewers alone decide merge and any later
+deployment.
+
 ## IDEA3 Security Center Web final UI/UX — repository-only UI preserved after PR #421 integration — 2026-10-10
 
 > [!important] PR #258's approved Security Center Web UI/UX remains preserved in the reconciled branch. The current `main` merge adds read-only IDEA3 Core incidents, Audit aggregates, and ESP32 evidence; it does not redesign the twelve-page layout, change the Web API contract, or enable Production/Recovery/hardware mutation.
