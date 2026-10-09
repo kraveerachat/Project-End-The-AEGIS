@@ -147,6 +147,9 @@ class EngineConfig:
     # --- Alerts (AlertManager / Telegram) --------------------------------
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    # Presentation only; never changes canonical Node/event authority.
+    telegram_node_display_name: str = ""
+    telegram_no_ambiguous_retry: bool = False
     alert_cooldown_s: float = 30.0  # min seconds between alerts for same status
     alert_snapshot_dir: str = "./snapshots"
     alert_http_timeout_s: float = 10.0
@@ -284,6 +287,12 @@ class EngineConfig:
             segment_extension=_env_str("AEGIS_SEGMENT_EXTENSION", cls.segment_extension),
             telegram_bot_token=_env_opt("AEGIS_TELEGRAM_BOT_TOKEN"),
             telegram_chat_id=_env_opt("AEGIS_TELEGRAM_CHAT_ID"),
+            telegram_node_display_name=_env_str(
+                "AEGIS_TELEGRAM_NODE_DISPLAY_NAME", cls.telegram_node_display_name
+            ),
+            telegram_no_ambiguous_retry=_env_bool(
+                "AEGIS_TELEGRAM_NO_AMBIGUOUS_RETRY", cls.telegram_no_ambiguous_retry
+            ),
             alert_cooldown_s=_env_float("AEGIS_ALERT_COOLDOWN_S", cls.alert_cooldown_s),
             alert_snapshot_dir=_env_str("AEGIS_ALERT_SNAPSHOT_DIR", cls.alert_snapshot_dir),
             alert_http_timeout_s=_env_float(
@@ -351,6 +360,10 @@ class EngineConfig:
 
     def validate(self) -> "EngineConfig":
         """Fail fast on nonsensical configuration. Returns self for chaining."""
+        if len(self.telegram_node_display_name) > 64 or any(
+            not char.isprintable() for char in self.telegram_node_display_name
+        ):
+            raise ValueError("AEGIS_TELEGRAM_NODE_DISPLAY_NAME must be printable and <=64 characters")
         if self.target_fps <= 0:
             raise ValueError("AEGIS_TARGET_FPS must be > 0")
         if self.segment_seconds <= 0:
@@ -476,7 +489,7 @@ class EngineConfig:
     def redacted(self) -> dict:
         """Config as a dict with secrets masked — safe to log at startup."""
         out = {}
-        secret = {"telegram_bot_token", "detection_engine_api_key", "nas_ssh_key"}
+        secret = {"telegram_bot_token", "telegram_chat_id", "detection_engine_api_key", "nas_ssh_key"}
         for f in fields(self):
             val = getattr(self, f.name)
             if f.name in secret and val:
