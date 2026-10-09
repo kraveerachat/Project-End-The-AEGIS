@@ -44,8 +44,8 @@ test('missing DB timestamps, late commit, expired lease and unknown clock fail c
     assert.throws(() => grant.mintDemandGrant({ handle: { ...handle, ...changed },
       boot: machineABoot, secret, nowMs: now + 40, nowMonoMs: 1_040, action: 'attach' }))
   }
-  for (const badBoot of [undefined, { ...machineABoot, offsetLowerMs: -1_001 },
-    { ...machineABoot, offsetUpperMs: 1_001 }]) {
+  for (const badBoot of [undefined, { ...machineABoot, offsetLowerMs: -901 },
+    { ...machineABoot, offsetUpperMs: 901 }]) {
     assert.throws(() => grant.mintDemandGrant({ handle, bootId: boot, secret,
       boot: badBoot, nowMs: now + 40, nowMonoMs: 1_040, action: 'attach' }))
   }
@@ -164,6 +164,23 @@ test('signed Machine C boot proof accepts bounded +559ms offset without relaxing
     startMonoMs: 1_000, endMonoMs: 1_501 }))
 })
 
+test('signed Machine C +811ms offset is accepted within the shared 900ms bound', () => {
+  const nonce = 'i'.repeat(64)
+  const signedBoot = grant.verifyBootClock({
+    token: clockToken({ engineBootId: boot, nodeId: 'edge-node-01', nonce,
+      engineNowMs: now + 811 }),
+    secret, nonce, nodeId: 'edge-node-01', startMs: now, endMs: now + 170,
+    startMonoMs: 1_000, endMonoMs: 1_170,
+  })
+  assert.equal(signedBoot.offsetLowerMs, 641)
+  assert.equal(signedBoot.offsetUpperMs, 811)
+  const token = grant.mintDemandGrant({
+    handle, boot: signedBoot, secret, action: 'attach',
+    nowMs: now + 210, nowMonoMs: 1_210,
+  })
+  assert.ok(decode(token).expiresAtMs <= handle.leaseExpiresAtMs + 641 - 500 - 150)
+})
+
 test('signed opposite-direction and exact skew boundaries are conservative', () => {
   const nonce = 'd'.repeat(64)
   const verify = (engineNowMs, startMs = now, endMs = now + 170) =>
@@ -172,10 +189,10 @@ test('signed opposite-direction and exact skew boundaries are conservative', () 
     nodeId: 'edge-node-01', startMs, endMs,
     startMonoMs: 1_000, endMonoMs: 1_170 })
   assert.equal(verify(now - 559).offsetLowerMs, -729)
-  assert.equal(verify(now + 1_000).offsetUpperMs, 1_000)
-  assert.equal(verify(now - 830).offsetLowerMs, -1_000)
-  assert.throws(() => verify(now + 1_001))
-  assert.throws(() => verify(now - 831))
+  assert.equal(verify(now + 900).offsetUpperMs, 900)
+  assert.equal(verify(now - 730).offsetLowerMs, -900)
+  assert.throws(() => verify(now + 901))
+  assert.throws(() => verify(now - 731))
 })
 
 test('Monitor wall discontinuity within probe and before mint fails closed', () => {
