@@ -11,6 +11,7 @@ const liveConfig = Object.freeze({
     idea1Url: 'https://idea1.internal/api/integration/events',
     idea2Url: 'https://idea2.internal/api/integration/events',
     runtimeUrl: 'https://idea3.internal/api/runtime/status',
+    runtimeToken: 'runtime-token-secret',
     idea1Token: 'idea1-integration-credential',
     idea2Token: 'idea2-integration-credential',
   }),
@@ -59,6 +60,46 @@ function sourceById(snapshot, id) {
 }
 
 describe('live integration provider failure and freshness semantics', () => {
+  it('projects authenticated Core incidents and device evidence into the live snapshot', async () => {
+    const { provider, fetchImpl } = providerWith({
+      idea1: () => jsonResponse(feed([])),
+      idea2: () => jsonResponse(feed([])),
+      runtime: () => jsonResponse({ ...healthyRuntimeRaw, generatedAt: NOW.toISOString(), evidence: {
+        incidents: [{ id: 'idea3-core-2', coreIncidentId: 2, source: 'IDEA3', state: 'OPEN', openedAt: '2026-10-06T11:07:17.000Z', closedAt: null, sourceIp: '10.20.30.40', severity: 'UNKNOWN', provenance: 'CORE_SQLITE' }],
+        audit: { counts: { DEVICE_STATUS: 1900, ALERT_REFUSED: 5, ALERT_ACCEPTED: 3, INCIDENT_BOUND: 2 }, latestAt: NOW.toISOString(), freshness: 'FRESH', provenance: 'CORE_SQLITE' },
+        device: { id: 'ESP32-LOCK-01', broker: 'CONNECTED', status: 'ONLINE', uplink: 'LOCKDOWN', dispatch: 'DISABLED', lastAuthenticatedStatusAt: NOW.toISOString(), physicalRelayState: 'NOT_VERIFIED', evidenceFreshness: 'FRESH' },
+        provenance: 'CORE_SQLITE_READ_ONLY',
+      } }),
+    })
+
+    const snapshot = await provider.getSnapshot()
+    const runtimeCall = fetchImpl.mock.calls.find(([url]) => url === liveConfig.adapters.runtimeUrl)
+
+    expect(runtimeCall[1].headers.authorization).toBe('Bearer runtime-token-secret')
+    expect(snapshot.incidents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'idea3-core-2', source: 'IDEA3', state: 'OPEN', sourceIp: '10.20.30.40', severity: 'UNKNOWN' }),
+    ]))
+    expect(snapshot.devices).toEqual([expect.objectContaining({ id: 'ESP32-LOCK-01', status: 'HEALTHY', relay: 'UNKNOWN', physicalRelayState: 'NOT_VERIFIED' })])
+    expect(snapshot.integration.idea3.audit.counts.DEVICE_STATUS).toBe(1900)
+    expect(snapshot.integration.idea3.audit.counts.INCIDENT_BOUND).toBe(2)
+  })
+
+  it('rejects malformed or duplicate Core incidents without affecting IDEA1/IDEA2 evidence', async () => {
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([rawEvent('IDEA1')])),
+      idea2: () => jsonResponse(feed([])),
+      runtime: () => jsonResponse({ ...healthyRuntimeRaw, generatedAt: NOW.toISOString(), evidence: {
+        incidents: [
+          { id: 'idea3-core-2', coreIncidentId: 2, source: 'IDEA2', state: 'OPEN', openedAt: 'bad', sourceIp: 'not-ip', severity: 'CRITICAL', provenance: 'OTHER' },
+          { id: 'idea3-core-2', coreIncidentId: 2, source: 'IDEA3', state: 'OPEN', openedAt: '2026-10-06T11:07:17.000Z', sourceIp: '10.20.30.40', severity: 'UNKNOWN', provenance: 'CORE_SQLITE' },
+        ], audit: { counts: {}, latestAt: null, freshness: 'FRESH', provenance: 'CORE_SQLITE' }, device: {}, provenance: 'CORE_SQLITE_READ_ONLY',
+      } }),
+    })
+    const snapshot = await provider.getSnapshot()
+    expect(snapshot.integration.events).toHaveLength(1)
+    expect(snapshot.incidents).toEqual([])
+  })
+
   it('reports fresh upstream evidence only when the envelope itself is fresh', async () => {
     const { provider } = providerWith({
       idea1: () => jsonResponse(feed([rawEvent('IDEA1')])),

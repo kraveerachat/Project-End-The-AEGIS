@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -436,3 +437,106 @@ def safe_status_projection(status: RuntimeStatus | dict | None) -> dict:
         "issues": sorted(issues),
         "evidenceSource": "RUNTIME_STATUS_FILE",
     }
+
+
+_EVIDENCE_AUDIT_TYPES = frozenset({
+    "SECURITY_ALERT", "ALERT_ACCEPTED", "ALERT_REFUSED", "INCIDENT_BOUND",
+    "INCIDENT_CLOSED", "DEVICE_STATUS", "STATUS_AUTHENTICATED",
+})
+_EVIDENCE_STATES = frozenset({"OPEN", "CONTAINED", "CLOSED"})
+
+
+def _evidence_timestamp(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) != 19:
+        return None
+    try:
+        time.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return value.replace(" ", "T") + ".000Z"
+
+
+def safe_evidence_projection(
+    status: RuntimeStatus | dict | None,
+    *,
+    db_path: str | Path | None = None,
+    max_incidents: int = 100,
+) -> dict:
+    """Extend the safe runtime projection with bounded, read-only Core evidence.
+
+    The database is opened read-only and only allowlisted fields leave the Core.
+    Audit details, hashes, summaries, and arbitrary event types are deliberately
+    excluded. Failure to read the database returns an explicit UNKNOWN evidence
+    state; it never fabricates incidents or device confirmation.
+    """
+    projection = safe_status_projection(status)
+    evidence = {
+        "incidents": [],
+        "audit": {"counts": {}, "latestAt": None, "freshness": "UNKNOWN", "provenance": "CORE_SQLITE"},
+        "device": {
+            "id": "ESP32-LOCK-01",
+            "broker": projection["components"].get("broker", "UNKNOWN"),
+            "status": projection["components"].get("device", "UNKNOWN"),
+            "uplink": projection["components"].get("uplink", "UNKNOWN"),
+            "dispatch": projection.get("dispatch", "UNKNOWN"),
+            "lastAuthenticatedStatusAt": None,
+            "physicalRelayState": "NOT_VERIFIED",
+            "evidenceFreshness": "UNKNOWN",
+        },
+        "provenance": "CORE_SQLITE_READ_ONLY",
+    }
+    path = Path(db_path) if db_path is not None else Path(config.DB_PATH)
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                "SELECT id, opened_at, closed_at, state, attacker_ip "
+                "FROM incidents ORDER BY id DESC LIMIT ?", (max(1, min(int(max_incidents), 100)),)
+            ).fetchall()
+            for row in rows:
+                state = row["state"] if row["state"] in _EVIDENCE_STATES else "UNKNOWN"
+                source_ip = None
+                try:
+                    candidate = ipaddress.ip_address(row["attacker_ip"])
+                    source_ip = str(candidate)
+                except ValueError:
+                    pass
+                evidence["incidents"].append({
+                    "id": f"idea3-core-{row['id']}",
+                    "coreIncidentId": int(row["id"]),
+                    "source": "IDEA3",
+                    "state": state,
+                    "openedAt": _evidence_timestamp(row["opened_at"]),
+                    "closedAt": _evidence_timestamp(row["closed_at"]),
+                    "sourceIp": source_ip,
+                    "severity": "UNKNOWN",
+                    "provenance": "CORE_SQLITE",
+                })
+            audit_rows = connection.execute(
+                "SELECT event_type, COUNT(*) AS count, MAX(timestamp) AS latest "
+                "FROM audit_logs WHERE event_type IN ({}) GROUP BY event_type".format(
+                    ",".join("?" for _ in _EVIDENCE_AUDIT_TYPES)
+                ), tuple(sorted(_EVIDENCE_AUDIT_TYPES))
+            ).fetchall()
+            latest = None
+            for row in audit_rows:
+                count = min(max(int(row["count"]), 0), 1_000_000)
+                evidence["audit"]["counts"][row["event_type"]] = count
+                stamp = _evidence_timestamp(row["latest"])
+                if stamp and (latest is None or stamp > latest):
+                    latest = stamp
+            evidence["audit"]["latestAt"] = latest
+            evidence["audit"]["freshness"] = "FRESH"
+            status_rows = connection.execute(
+                "SELECT MAX(timestamp) FROM audit_logs WHERE event_type IN (?, ?)",
+                ("DEVICE_STATUS", "STATUS_AUTHENTICATED"),
+            ).fetchone()
+            evidence["device"]["lastAuthenticatedStatusAt"] = _evidence_timestamp(status_rows[0])
+            evidence["device"]["evidenceFreshness"] = "FRESH"
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        pass
+    projection["evidence"] = evidence
+    return projection

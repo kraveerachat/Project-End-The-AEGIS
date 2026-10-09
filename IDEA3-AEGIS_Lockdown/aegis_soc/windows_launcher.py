@@ -72,6 +72,7 @@ class LauncherSettings:
         base_environment: Mapping[str, str],
         *,
         core_status_url: str,
+        runtime_token: str | None = None,
     ) -> dict[str, str]:
         environment = dict(base_environment)
         environment.pop("AEGIS_CONTROL_TOKEN", None)
@@ -89,6 +90,7 @@ class LauncherSettings:
             "AEGIS_WEB_STATIC_DIR": str(self.static_dir),
             "AEGIS_BIND_HOST": self.bind_host,
             "AEGIS_IDEA3_RUNTIME_STATUS_URL": core_status_url,
+            "AEGIS_IDEA3_RUNTIME_TOKEN": runtime_token or "",
         })
         return environment
 
@@ -123,6 +125,8 @@ class ControlServer:
         port: int,
         token: str,
         core_status: Callable[[], dict],
+        core_evidence: Callable[[], dict] | None = None,
+        evidence_token: str | None = None,
         launcher_status: Callable[[], dict],
         request_stop: Callable[[], None],
     ) -> None:
@@ -132,6 +136,8 @@ class ControlServer:
         self.port = port
         self.token = token
         self.core_status = core_status
+        self.core_evidence = core_evidence or core_status
+        self.evidence_token = evidence_token or token
         self.launcher_status = launcher_status
         self.request_stop = request_stop
         self._server: ThreadingHTTPServer | None = None
@@ -173,6 +179,12 @@ class ControlServer:
                 route = urlsplit(self.path).path
                 if route == "/v1/core-status":
                     self._respond(200, boundary.core_status())
+                elif route == "/v1/core-evidence":
+                    supplied = self.headers.get("X-AEGIS-Control-Token", "")
+                    if not hmac.compare_digest(supplied, boundary.evidence_token):
+                        self._respond(403, {"error": {"code": "CONTROL_DENIED"}})
+                        return
+                    self._respond(200, boundary.core_evidence())
                 elif route == "/v1/launcher-status":
                     self._respond(200, boundary.launcher_status())
                 else:
@@ -281,6 +293,14 @@ class LauncherRuntime:
 
         return safe_status_projection(read_status(self.settings.paths.runtime_dir / "status.json"))
 
+    def _core_evidence(self) -> dict:
+        from .runtime import read_status, safe_evidence_projection
+
+        return safe_evidence_projection(
+            read_status(self.settings.paths.runtime_dir / "status.json"),
+            db_path=self.settings.paths.core_db,
+        )
+
     @staticmethod
     def _atomic_write(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,12 +330,13 @@ class LauncherRuntime:
             json.dumps(document, indent=2, sort_keys=True) + "\n",
         )
 
-    def _start_children(self, control_url: str) -> None:
+    def _start_children(self, control_url: str, control_token: str) -> None:
         environment = dict(os.environ)
         load_dotenv(self.settings.paths.config_file, environment)
         environment = self.settings.child_environment(
             environment,
-            core_status_url=f"{control_url}/v1/core-status",
+            core_status_url=f"{control_url}/v1/core-evidence",
+            runtime_token=control_token,
         )
         self.settings.paths.log_dir.mkdir(parents=True, exist_ok=True)
         self._output_handle = (self.settings.paths.log_dir / "aegis-components.log").open(
@@ -362,6 +383,7 @@ class LauncherRuntime:
             lock.acquire()
             acquired = True
             token = self.token_factory()
+            evidence_token = secrets.token_urlsafe(48)
             self._atomic_write(token_path, f"{token}\n")
             token_owned = True
             try:
@@ -373,11 +395,13 @@ class LauncherRuntime:
                 port=self.settings.control_port,
                 token=token,
                 core_status=self._core_status,
+                core_evidence=self._core_evidence,
+                evidence_token=evidence_token,
                 launcher_status=self.snapshot,
                 request_stop=self.request_stop,
             )
             control_server.start()
-            self._start_children(control_server.base_url)
+            self._start_children(control_server.base_url, evidence_token)
             self._write_status()
             while True:
                 if any(process.poll() is not None for process in self.children.values()):

@@ -7,6 +7,39 @@ import { OPERATIONAL_ERROR_CODES, createOperationalError } from './operationalEr
 const timestampSchema = z.string().datetime({ offset: true })
 const boundedText = z.string().trim().min(1).max(80)
 const severitySchema = z.enum(['INFO', 'WARNING', 'HIGH', 'CRITICAL'])
+const coreIncidentSchema = z.object({
+  id: z.string().regex(/^idea3-core-[1-9][0-9]*$/),
+  coreIncidentId: z.number().int().positive(),
+  source: z.literal('IDEA3'),
+  state: z.enum(['OPEN', 'CONTAINED', 'CLOSED', 'UNKNOWN']),
+  openedAt: timestampSchema,
+  closedAt: timestampSchema.nullable(),
+  sourceIp: z.string().ip().nullable(),
+  severity: z.literal('UNKNOWN'),
+  provenance: z.literal('CORE_SQLITE'),
+}).strict()
+const coreAuditSchema = z.object({
+  counts: z.record(z.string().regex(/^[A-Z_]{1,40}$/), z.number().int().min(0).max(1_000_000)),
+  latestAt: timestampSchema.nullable(),
+  freshness: z.enum(['FRESH', 'UNKNOWN']),
+  provenance: z.literal('CORE_SQLITE'),
+}).strict()
+const coreDeviceSchema = z.object({
+  id: z.string().min(1).max(80),
+  broker: z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']),
+  status: z.enum(['ONLINE', 'OFFLINE', 'UNKNOWN']),
+  uplink: z.enum(['NORMAL', 'LOCKDOWN', 'UNKNOWN']),
+  dispatch: z.enum(['DISABLED', 'ACTIVE', 'PAUSED_CREDENTIAL', 'UNAVAILABLE', 'UNKNOWN']),
+  lastAuthenticatedStatusAt: timestampSchema.nullable(),
+  physicalRelayState: z.literal('NOT_VERIFIED'),
+  evidenceFreshness: z.enum(['FRESH', 'UNKNOWN']),
+}).strict()
+const coreEvidenceSchema = z.object({
+  incidents: z.array(coreIncidentSchema).max(100),
+  audit: coreAuditSchema,
+  device: coreDeviceSchema,
+  provenance: z.literal('CORE_SQLITE_READ_ONLY'),
+}).strict()
 
 const idea1Schema = z.object({
   timestamp: timestampSchema,
@@ -164,6 +197,47 @@ function adaptCoreProjection(raw) {
   return { ...raw, components, modes, issues }
 }
 
+function normalizeCoreEvidence(raw, { forceUnknown }) {
+  const parsed = coreEvidenceSchema.safeParse(raw)
+  if (!parsed.success || forceUnknown) return { incidents: [], audit: null, device: null, provenance: 'unavailable' }
+  const { incidents, audit, device } = parsed.data
+  const normalizedIncidents = incidents.map((incident) => ({
+    ...incident,
+    firstSeen: incident.openedAt,
+    lastSeen: incident.closedAt || incident.openedAt,
+    sourceIp: incident.sourceIp || 'UNKNOWN',
+    title: `IDEA3 Core incident #${incident.coreIncidentId}`,
+    summary: `Authoritative IDEA3 Core incident ${incident.state}`,
+    responseState: incident.state === 'CLOSED' ? 'CLOSED' : 'NOT_REQUESTED',
+    idea1Count: 0,
+    idea2Count: 0,
+    evidenceStages: [
+      { stage: 'CORE INCIDENT', timestamp: incident.openedAt, status: incident.state === 'CLOSED' ? 'HEALTHY' : 'DEGRADED' },
+      { stage: 'PHYSICAL STATE', timestamp: incident.closedAt || incident.openedAt, status: 'UNKNOWN' },
+    ],
+  }))
+  return {
+    incidents: [...new Map(normalizedIncidents.map((incident) => [incident.id, incident])).values()],
+    audit,
+    device: {
+      id: device.id,
+      type: 'ESP32 / Relay Controller',
+      status: device.status === 'ONLINE' ? 'HEALTHY' : device.status === 'OFFLINE' ? 'FAILED' : 'UNKNOWN',
+      lastSeen: device.lastAuthenticatedStatusAt,
+      heartbeat: 'UNKNOWN',
+      ack: 'UNKNOWN',
+      relay: 'UNKNOWN',
+      requestedRelayState: device.uplink,
+      physicalRelayState: device.physicalRelayState,
+      firmwareVersion: 'UNKNOWN',
+      evidenceAgeMs: null,
+      broker: device.broker,
+      dispatch: device.dispatch,
+    },
+    provenance: 'CORE_SQLITE_READ_ONLY',
+  }
+}
+
 export function normalizeRuntimeStatus(rawInput, { now = new Date(), maxAgeMs = 120_000 } = {}) {
   if (malformedRuntime(rawInput)) {
     return unknownRuntime('MALFORMED', [createOperationalError('MALFORMED_RUNTIME_STATUS', { occurredAt: now.toISOString() })])
@@ -207,6 +281,7 @@ export function normalizeRuntimeStatus(rawInput, { now = new Date(), maxAgeMs = 
     evidenceSource: typeof raw.evidenceSource === 'string'
       ? raw.evidenceSource.slice(0, 80)
       : 'unknown',
+    coreEvidence: normalizeCoreEvidence(raw.evidence, { forceUnknown }),
   }
 }
 
@@ -222,6 +297,7 @@ export function unknownRuntime(freshness = 'ABSENT', operationalErrors = []) {
     issues: [],
     operationalErrors,
     evidenceSource: 'unavailable',
+    coreEvidence: { incidents: [], audit: null, device: null, provenance: 'unavailable' },
   }
 }
 

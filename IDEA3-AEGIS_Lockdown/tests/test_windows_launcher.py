@@ -254,7 +254,7 @@ def test_child_environment_uses_external_paths_and_excludes_control_token(tmp_pa
 
     environment = settings.child_environment(
         {"PATH": "operator-path", "AEGIS_CONTROL_TOKEN": "must-not-cross"},
-        core_status_url="http://127.0.0.1:8004/v1/core-status",
+        core_status_url="http://127.0.0.1:8004/v1/core-evidence",
     )
 
     assert environment["NODE_ENV"] == "production"
@@ -266,7 +266,7 @@ def test_child_environment_uses_external_paths_and_excludes_control_token(tmp_pa
     assert environment["AEGIS_RUNTIME_LOG_DIR"] == str(settings.paths.log_dir)
     assert environment["AEGIS_WEB_BASE_PATH"] == "/security"
     assert environment["AEGIS_WEB_STATIC_DIR"] == str(settings.static_dir)
-    assert environment["AEGIS_IDEA3_RUNTIME_STATUS_URL"].endswith("/v1/core-status")
+    assert environment["AEGIS_IDEA3_RUNTIME_STATUS_URL"].endswith("/v1/core-evidence")
     assert "AEGIS_CONTROL_TOKEN" not in environment
 
 
@@ -300,6 +300,7 @@ def test_control_server_exposes_safe_status_and_requires_stop_token():
             "components": {"core": "RUNNING", "web": "FAILED"},
         },
         request_stop=lambda: stop_requests.append("stop"),
+        core_evidence=lambda: {"schemaVersion": 1, "evidence": {"incidents": []}},
     )
     server.start()
     try:
@@ -327,6 +328,25 @@ def test_control_server_exposes_safe_status_and_requires_stop_token():
     assert accepted == 202
     assert accepted_body == {"accepted": True}
     assert stop_requests == ["stop"]
+
+
+def test_control_server_requires_launcher_token_for_core_evidence():
+    server = ControlServer(
+        host="127.0.0.1", port=0, token="runtime-control-token",
+        core_status=dict, core_evidence=lambda: {"schemaVersion": 1, "evidence": {"incidents": []}},
+        launcher_status=dict, request_stop=lambda: None,
+    )
+    server.start()
+    try:
+        denied, _, denied_body = _json_request(f"{server.base_url}/v1/core-evidence")
+        accepted, _, accepted_body = _json_request(
+            f"{server.base_url}/v1/core-evidence",
+            headers={"X-AEGIS-Control-Token": "runtime-control-token"},
+        )
+    finally:
+        server.close()
+    assert denied == 403 and denied_body == {"error": {"code": "CONTROL_DENIED"}}
+    assert accepted == 200 and accepted_body["evidence"]["incidents"] == []
 
 
 def test_control_server_rejects_stop_request_bodies():
