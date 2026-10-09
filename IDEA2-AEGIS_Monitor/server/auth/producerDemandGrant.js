@@ -1,6 +1,7 @@
 // Server-only: inputs are committed lifecycle handles, never browser claims.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { CameraAccessError } from './cameraAccess.js'
+import { monitorBootTiming } from './bootTimingDiagnostic.js'
 
 const fail = () => new CameraAccessError(503, 'PRODUCER_AUTHORITY_UNAVAILABLE')
 
@@ -130,19 +131,24 @@ export async function readEngineBoot({ url, nodeId, secret, signal, fetchImpl = 
   const nonce = randomBytes(32).toString('hex')
   const startMs = wallClock()
   const startMonoMs = monoClock()
+  const timing = monitorBootTiming.begin()
   let response
   try {
     response = await fetchImpl(new URL('/producer/boot', url), {
       redirect: 'error', signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(500)]) : AbortSignal.timeout(500),
-      headers: { 'X-Detection-Engine-Key': secret, 'X-Aegis-Clock-Nonce': nonce },
+      headers: { 'X-Detection-Engine-Key': secret, 'X-Aegis-Clock-Nonce': nonce,
+        ...(timing.id ? { 'X-Aegis-Boot-Diagnostic-Id': timing.id } : {}) },
     })
+    timing.mark('headers')
   } catch {
+    timing.finish('transport_failure')
     // Transport failure or the bounded 500ms probe timeout may be transient.
     // The caller still has to revalidate DB authority before retrying.
     throw syncFail(true)
   }
 
   if (!response.ok) {
+    timing.finish('http_rejection')
     // Engine-side 4xx is an authority rejection and must not be retried.
     // Only a server-side 5xx may be treated as transient.
     throw syncFail(Number(response.status) >= 500)
@@ -151,16 +157,23 @@ export async function readEngineBoot({ url, nodeId, secret, signal, fetchImpl = 
   let token
   try {
     token = await response.text()
+    timing.mark('body')
   } catch {
+    timing.finish('body_failure')
     throw syncFail(true)
   }
 
   try {
     const endMonoMs = monoClock()
     const endMs = wallClock()
-    return verifyBootClock({ token, secret, nonce, nodeId, startMs, endMs,
+    const boot = verifyBootClock({ token, secret, nonce, nodeId, startMs, endMs,
       startMonoMs, endMonoMs })
+    timing.mark('validation')
+    timing.finish('accepted')
+    return boot
   } catch {
+    timing.mark('validation')
+    timing.finish('proof_rejection')
     // Invalid signature/node/nonce/clock evidence is never accepted via retry.
     throw syncFail(false)
   }

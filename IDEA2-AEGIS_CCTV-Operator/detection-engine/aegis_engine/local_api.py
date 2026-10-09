@@ -51,6 +51,7 @@ except Exception as exc:  # pragma: no cover
 
 from .stream_hub import StaleProducerGenerationError, StreamHub
 from .demand_grant import DemandGrantError, verify_grant, sign_payload
+from .boot_timing_diagnostic import engine_boot_timing
 
 log = get_logger("LocalEventAPI")
 
@@ -61,6 +62,23 @@ _PRODUCER_GENERATION_HEADER = b"x-aegis-producer-generation"
 _LOGICAL_CAMERA_ID_HEADER = b"x-aegis-logical-camera-id"
 _MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807
 _MJPEG_BOUNDARY = "aegisframe"
+
+
+class _BootTimingResponse(Response):
+    """Observe ASGI submission, not receipt by Monitor or a browser."""
+    def __init__(self, *args, timing, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timing = timing
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        except BaseException:
+            self.timing.mark('response_submission')
+            self.timing.finish('response_failure')
+            raise
+        self.timing.mark('response_submission')
+        self.timing.finish('submitted')
 
 
 class _DisconnectAwareStreamingResponse(StreamingResponse):
@@ -366,19 +384,33 @@ class LocalEventAPI:
 
         @app.get("/producer/boot")
         async def producer_boot(request: "Request"):
+            # Capture handler entry monotonically without logging untrusted input.
+            from time import monotonic
+            entry_ms = monotonic() * 1000
             denied = _authorized(request)
             if denied is not None:
                 return denied
+            timing = engine_boot_timing.begin(request.scope.get('headers', ()))
+            if timing.controller:
+                timing.start = entry_ms
+            timing.mark('authentication')
             values = [value for name, value in request.scope.get("headers", ())
                       if name.lower() == b"x-aegis-clock-nonce"]
             if stream_hub is None or len(values) != 1 or re.fullmatch(rb"[0-9a-f]{64}", values[0]) is None:
+                timing.finish('request_rejection')
                 return Response(status_code=403)
-            payload = {"engineBootId": stream_hub.producer_boot_id,
-                       "nodeId": cfg.node_id, "nonce": values[0].decode(),
-                       "engineNowMs": int(stream_hub.authority_now_ms())}
-            return Response(content=sign_payload(payload, cfg.detection_engine_api_key,
-                            b"aegis-producer-clock-v1\n"), media_type="text/plain",
-                            headers={"Cache-Control": "no-store"})
+            try:
+                payload = {"engineBootId": stream_hub.producer_boot_id,
+                           "nodeId": cfg.node_id, "nonce": values[0].decode(),
+                           "engineNowMs": int(stream_hub.authority_now_ms())}
+                timing.mark('authority_clock')
+                content = sign_payload(payload, cfg.detection_engine_api_key, b"aegis-producer-clock-v1\n")
+                timing.mark('signing')
+                return _BootTimingResponse(content=content, media_type="text/plain", timing=timing,
+                                           headers={"Cache-Control": "no-store"})
+            except BaseException:
+                timing.finish('handler_failure')
+                raise
 
         @app.post("/producer/control")
         async def producer_control(request: "Request"):
