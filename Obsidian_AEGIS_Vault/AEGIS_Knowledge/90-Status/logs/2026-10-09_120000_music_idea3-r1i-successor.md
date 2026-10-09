@@ -40,14 +40,14 @@ edit_policy: append-by-new-file
 
 ## Verification evidence
 
-- Final implementation/evidence checkpoint: 0133c9d6 (the receipt-bearing
+- Final implementation/evidence checkpoint: 6781840d (the receipt-bearing
   commit follows this checkpoint, per the development-session workflow).
 - Historical evidence correction: the original receipt recorded 13 focused
   passes at the earlier checkpoint. The corrected PR #416 head independently
   reproduced 18 passes before this final bounded remediation; the final
   remediation adds trusted-main and foreign-log regressions, superseding that
   count below without rewriting the historical claim.
-- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` — pass: 24 passed.
+- \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i/test_r1i_successor.py\` — pass: 25 passed.
 - \`PYTHONDONTWRITEBYTECODE=1 pytest -q IDEA3-AEGIS_Lockdown/tests/r1i -rs\` — fail:
   49 passed, 1 pre-existing historical stage-registry assertion failed, 7
   skipped because private user/network namespace tests require unavailable
