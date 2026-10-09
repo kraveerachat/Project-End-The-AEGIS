@@ -18,6 +18,11 @@ R1I runner.
   authority.
 - A canonical successor marker is created exclusively before nft mutation and
   is never removed or rewritten. Historical R1I markers remain untouched.
+- The live authorization and state root is the isolated
+  `/var/lib/aegis-idea3-r1i-successor` directory, not the service-owned
+  `/var/lib/aegis-idea3` tree. Its derived paths are `authorization.txt` and
+  `state/`; future G6 provisioning must establish root ownership, trusted
+  ancestry, no symlinks, and no group/world write bits before validation.
 - Live canonical/state/source/Git/nft paths are fixed; there is no
   production-reachable fixture option. Hermetic tests inject a fake executor
   in-process and cannot resolve Production nft from PATH.
