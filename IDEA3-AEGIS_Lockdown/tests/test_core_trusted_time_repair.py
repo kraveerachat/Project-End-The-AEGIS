@@ -232,7 +232,7 @@ def test_ctu_rollback_never_targets_predecessor_dropin_directory() -> None:
 
 def test_ctu_is_registered_and_has_all_handlers() -> None:
     lib = (P4 / "p4-lib.sh").read_text()
-    assert " RRu CTu CTv Recovery " in lib
+    assert " RRu CTu CTv ICu Recovery " in lib
     assert "    CTu) echo none ;;" in lib
     for name in ("apply.sh", "verify.sh", "rollback.sh", "allow-keys.txt", "allow-listeners.txt"):
         assert (CTU / name).is_file(), name

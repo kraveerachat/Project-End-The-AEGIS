@@ -35,7 +35,7 @@ readonly P4_WINDOW_TZ=Asia/Bangkok
 # immutable release, switch current OLD -> NEW, restart the Core EXACTLY ONCE without touching the running detector, prove the Core runs from the NEW release). L6c keeps its original position and its
 # historical PRE-L7 meaning: its verifier requires the L7 material absent and the Core unit not-found, which is false by design on the post-L7 host (a maintenance reuse
 # of L6c failed closed for exactly that reason), so L6c is never reused post-L7 and is not changed.
-readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu CTv Recovery L8 L9"
+readonly P4_STAGES="L0 L1 L2 L3 L4 L5 L6a L6b L6c L7 L7u L8p F1i F1r F1 F1u R1I R1A R1Du R1D R1Dv R1B R1Bv RRu CTu CTv ICu Recovery L8 L9"
 
 p4_stage_known() { [[ " $P4_STAGES " == *" $1 "* ]] && [ -n "$1" ]; }
 
@@ -89,6 +89,7 @@ p4_stage_gaps() {
     # CTv is a new one-attempt successor after the immutable consumed CTu
     # APPLY failure; it never retries or rewrites CTu.
     CTv) echo none ;;
+    ICu) echo none ;;
     Recovery) echo none ;;
     # R1D is the one Core-mediated historical-incident disposition (evidence-preserving, irreversible, one attempt); it owns no reversible Production change.
     R1D) echo none ;;
@@ -116,6 +117,7 @@ p4_stage_auth_extra() {
     # CTu records bind the actual frozen attempt, not only stage/date.
     CTu) echo expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id ;;
     CTv) echo expected_main frozen_runner_sha256 runner_template_sha256 bundle_manifest_sha256 control_manifest_sha256 unit_sha256 operator_user operator_uid device_id ;;
+    ICu) echo expected_main frozen_runner_sha256 runner_template_sha256 unit_snapshot_sha256 operator_user operator_uid old_release_id new_release_id new_release_source_main new_sums_sha256 new_manifest_sha256 ;;
   esac
 }
 

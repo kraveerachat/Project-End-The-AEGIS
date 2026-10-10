@@ -1,0 +1,6 @@
+# Only current pointer, release catalog addition and Core process identity may change.
+# Detector state and every other preserved service are required to compare equal.
+host.symlink./opt/aegis-idea3/current.target
+host.aegis_idea3.release_catalog
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp
