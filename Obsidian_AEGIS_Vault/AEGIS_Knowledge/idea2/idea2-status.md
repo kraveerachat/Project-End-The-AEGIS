@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-10
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,87 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## PR #348 functional-prototype handoff — 2026-10-10
+
+The functional owner declared the accepted IDEA2 Functional Prototype scope
+CLOSED on 2026-10-10. This scoped product decision does not close unverified
+operational/security/performance acceptance or replace independent human review.
+PR #348 remains Draft, stacked on PR #344; MERGE_AUTHORIZED=NO.
+
+### Owner-observed integrated Machine C evidence
+
+The owner reports MR-TK / authenticated Node `mr-tk-01` / Physical Camera ID2 /
+logical alias CAM-01. Existing Supervisor recovery succeeded without Windows
+reboot. Post-restart Engine was ONLINE/idle, NAS idle with pending0/synced0/failed0.
+NAS was subsequently enabled by the owner; this documentation task performs no
+runtime operation.
+
+A real authenticated CAM-01 viewing session ended; Engine returned idle,
+recorder had no active segment, and one segment entered NAS pending. Automatic
+sync completed: NAS_STATUS=ok, pending0, synced1, failed0,
+FINAL_RESULT=NAS_SYNC_SUCCESS. Independent of that status counter, the owner
+provided DB clip75: CAM-01, physical_camera_id2, started
+`2026-10-10 05:44:39.569+00`, duration150s, stored_on_nas=true.
+Filename `CAM-01_936_20261010_054439_736e2c406024d55be48f9d62c660596a.mp4`
+was present under `/opt/aegis/data/monitor-clips/` and appeared in real Archival
+Footage UI. CLIP_STORAGE_INGEST_VERIFIED=YES for this observed flow only; a
+separate physical remote NAS appliance is not independently established.
+
+This proves owner-observed integrated recording -> automatic verified transfer
+-> Monitor registration -> PostgreSQL -> Archive visibility for Machine C /
+Physical2 / CAM-01. Deployed component hashes are not pinned to this exact PR
+head. It does not prove all Nodes, CAM-02, SOC permission, audio playback,
+Download, seeking, or exhaustive negative authorization acceptance.
+
+### Separate evidence and bounded security claims
+
+Machine C direct Telegram API message/photo delivery used the existing bot and
+group and passed in the owner's evidence. Automatic Unknown Face-triggered
+delivery is NOT PROVEN. PR #419 remains separate and out of scope.
+
+Machine A (NARUEBET) only: RTX2050, yolo-sface-admin, GPU_REQUIRED=True,
+requested/actual YOLO device cuda:0, GPU_INFERENCE_SAMPLES=295,
+ACCELERATOR_ACTIVE=True, ACCELERATOR_FAILURE=False; YuNet and SFace opencv-cpu.
+This is observed Machine A YOLO CUDA inference, not Machine C GPU acceptance,
+full-GPU inference or measured performance acceptance.
+
+HISTORICAL_DEMAND_ASSOCIATION=PROVEN and PHYSICAL_PROVENANCE=PROVEN are bounded
+relational provenance claims; PER_FRAME_HISTORICAL_AUTHORIZATION=NOT_CLAIMED.
+Exact source still uses `-an` in NAS conversion and does not capture microphone
+audio. It requires acknowledged Monitor publication before local source deletion,
+but increments the NAS success metric before acknowledgement; NAS_STATUS=ok
+alone is not publication proof. Existing old clips/rows remain untouched.
+
+### Fresh handoff verification and pending integration
+
+Unchanged source checkpoint: `db263207f355678315e1a85fcfbc73df0e9be2dc`.
+Isolated offline Engine NAS tests:7 PASS; viewer-demand tests:15 PASS.
+Focused Monitor Archive/provenance tests:9 PASS /1 FAIL /50 conditional PostgreSQL
+SKIP. The pre-existing assertion in archiveRecordingContract expects
+`recorder.submit_detection(result, frame)`, while current source uses
+`annotate_detection_frame` then `recorder.submit_annotated(annotated)`.
+No source/test fix is made here. Skips are not PASS; no DB test was run.
+Governance:61 PASS /0 FAIL; Vault validation passes with two existing owner-canvas
+warnings. Full suites/browser/build are not rerun for documentation-only changes;
+earlier results remain historical checkpoint evidence.
+
+Observed main: `dbf00185331474053f46486fcefa795a46f5b821`.
+PR #344 documentation handoff head: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+PR #348 comparison merge-base remains `37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`;
+the newer #344 documentation commit is deliberately NOT merged here.
+Both branches change this canonical note; human post-#344 reconciliation must
+preserve both evidence sections and rerun checks. Current GitHub mergeability
+is false; no automatic reconciliation or retarget occurs.
+
+Independent human functional/integration approval, branch-protection requirements
+(integration read denied403), conflict disposition, the Archive assertion failure,
+real DB skipped gates and remaining operational acceptance require human review
+before Ready/merge. PR #344 must be reviewed/merged first, then separately
+authorize #348 reconciliation and revalidation. PRODUCTION_MUTATION=NO;
+MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO for this handoff.
+
+## Historical task checkpoints — 2026-10-07 and earlier
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 
