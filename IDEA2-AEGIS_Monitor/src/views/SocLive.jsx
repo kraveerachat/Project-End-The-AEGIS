@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { ListTree, Maximize2, ShieldCheck } from 'lucide-react'
-import { BBox, EmptyState, FeedChrome } from '../components/ui.jsx'
+import { EmptyState, FeedChrome } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
-import { bboxesFor, eventText, fmtDate, fmtTime, hasUnk, ini } from '../data.js'
+import LatestDetectionPeople from '../components/LatestDetectionPeople.jsx'
+import { eventText, fmtDate, fmtTime, hasUnk, ini } from '../data.js'
 import { useApi } from '../lib/hooks.js'
 
 function SelectedPassiveView({ view, now, views, onSelect }) {
@@ -13,7 +14,6 @@ function SelectedPassiveView({ view, now, views, onSelect }) {
     { refreshMs: 5000 })
   const detections = detectionsApi.data?.detections ?? []
   const heroFrame = detections[0] ?? null
-  const heroBoxes = bboxesFor(heroFrame)
   const grant = heroFrame && !hasUnk(heroFrame) ? heroFrame : null
   const grantPerson = grant?.people?.[0]
   const toggleFullscreen = () => {
@@ -40,7 +40,7 @@ function SelectedPassiveView({ view, now, views, onSelect }) {
             <Maximize2 aria-hidden="true" />
           </button>
         </div>
-        {heroBoxes.map((box, index) => <BBox key={`${box.label}-${index}`} {...box} kind={box.kind} />)}
+        {/* Genuine face boxes/labels remain in the unchanged Engine frame. */}
         <span className="herots mono">{fmtDate(now)} {fmtTime(now)}</span>
       </div>
       <section className="camera-selector" aria-labelledby="active-view-heading">
@@ -74,10 +74,16 @@ function SelectedPassiveView({ view, now, views, onSelect }) {
           <div className="acid"><div className="acav" aria-hidden="true">{ini(grantPerson.name)}</div>
             <div><div className="acname">{grantPerson.name}</div><div className="acrole">Authorized · Staff</div></div>
           </div>
+          {Number.isFinite(grantPerson.conf) && grantPerson.conf >= 0 && grantPerson.conf <= 100 &&
+            <div className="acstats"><div className="acstat">
+              <div className="acslab">Match score · latest detection</div>
+              <div className="acsval mono teal">{grantPerson.conf}%</div>
+            </div></div>}
           <p className="sub">{fmtDate(grant.at)} {fmtTime(grant.at)}</p>
         </div> : <p className="sub" style={{ margin: 0 }}>
           {heroFrame ? 'No authorization in the latest detection.' : 'No recent detection for this live view'}
         </p>}
+        <LatestDetectionPeople people={grantPerson ? heroFrame.people.slice(1) : heroFrame?.people} />
       </section>
       <section className="panel glass streampanel">
         <div className="ptitle"><span className="fx ac gap9"><ListTree aria-hidden="true" />Event stream</span></div>

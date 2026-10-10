@@ -124,23 +124,23 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
     hidden: {},
     show: {
       transition: {
-        staggerChildren: 0.08,
+        staggerChildren: 0,
       },
     },
   }
 
   const cardVariants = {
-    hidden: { opacity: 0, y: 16 },
+    hidden: { opacity: 1, y: 0 },
     show: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+      transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] },
     },
   }
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 1, y: 0 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: 'easeOut' }}
     >
@@ -155,6 +155,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             className="saved-toast"
+            role="status"
           >
             <Check className="w-4 h-4 text-emerald-400" />
             <span>{t('saveSuccess')}</span>
@@ -172,7 +173,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Monitor className="w-5 h-5 text-cyan-400 shrink-0" />
@@ -191,6 +191,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'th' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'th'}
                 onClick={() => handleLangChange('th')}
               >
                 ไทย
@@ -198,6 +199,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'en' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'en'}
                 onClick={() => handleLangChange('en')}
               >
                 English
@@ -205,6 +207,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'zh' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'zh'}
                 onClick={() => handleLangChange('zh')}
               >
                 中文
@@ -230,6 +233,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={theme === 'dark' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={theme === 'dark'}
                 onClick={() => handleThemeChange('dark')}
               >
                 <Moon className="w-3.5 h-3.5 mr-1.5 inline shrink-0" />
@@ -238,6 +242,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={theme === 'light' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={theme === 'light'}
                 onClick={() => handleThemeChange('light')}
               >
                 <Sun className="w-3.5 h-3.5 mr-1.5 inline shrink-0" />
@@ -251,7 +256,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Bell className="w-5 h-5 text-amber-400 shrink-0" />
@@ -272,6 +276,8 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <button
               type="button"
               className={inAppSound ? 'switch-toggle active' : 'switch-toggle'}
+              role="switch"
+              aria-checked={inAppSound}
               onClick={() => {
                 setInAppSound(!inAppSound)
                 triggerSavedNotice()
@@ -296,6 +302,8 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <button
               type="button"
               className={desktopAlerts ? 'switch-toggle active' : 'switch-toggle'}
+              role="switch"
+              aria-checked={desktopAlerts}
               onClick={() => {
                 setDesktopAlerts(!desktopAlerts)
                 triggerSavedNotice()
@@ -317,6 +325,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === 'off' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === 'off'}
                 onClick={() => {
                   setSnooze('off')
                   triggerSavedNotice()
@@ -327,6 +336,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === '15m' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === '15m'}
                 onClick={() => {
                   setSnooze('15m')
                   triggerSavedNotice()
@@ -337,6 +347,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === '1h' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === '1h'}
                 onClick={() => {
                   setSnooze('1h')
                   triggerSavedNotice()
@@ -347,6 +358,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === 'until' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === 'until'}
                 onClick={() => {
                   setSnooze('until')
                   triggerSavedNotice()
@@ -367,7 +379,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <User className="w-5 h-5 text-purple-400 shrink-0" />
@@ -419,7 +430,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Shield className="w-5 h-5 text-cyan-400 shrink-0" />

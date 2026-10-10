@@ -2,12 +2,13 @@ import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
-  bboxesFor, eventText,
+  eventText,
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
-import { BBox, EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
+import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
 import CameraSelector from '../components/CameraSelector.jsx'
+import LatestDetectionPeople from '../components/LatestDetectionPeople.jsx'
 import { selectedCamera, cameraDetections, cameraHeartbeat } from '../lib/liveCamera.js'
 
 // ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
@@ -54,10 +55,9 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
   // All camera-context panels derive from the same authorized selection.
   const scoped = cameraDetections(detections, cam.id)
 
-  // overlay = detection "ล่าสุดจริง" ของกล้องที่กำลังโฟกัส (ไม่มี = ไม่วาดอะไรเลย)
-  // เดิมบรรทัดนี้คือ HERO_SCENES[cam.id] ซึ่งเป็นฉากที่แต่งไว้ตายตัวต่อ camera id
+  // Recent metadata (including measured confidence) drives the panels only.
+  // Genuine exact-frame geometry and labels remain in the unchanged MJPEG.
   const heroFrame = scoped[0] ?? null
-  const heroBoxes = bboxesFor(heroFrame)
   const subjects = heroFrame?.people?.length ?? 0
   const hasUnknownNow = Boolean(heroFrame && hasUnk(heroFrame))
 
@@ -114,9 +114,8 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
           >
-            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วางภาพที่
-                inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
-                อ้างอิงกรอบใบเดิมไม่เปลี่ยน (ดูคอมเมนต์ .feedimg ใน index.css) */}
+            {/* Keep the original full-frame stream; do not invent geometry
+                from asynchronous detection metadata or mask camera pixels. */}
             <LiveFeed
               cameraId={cam.id}
               cameraName={cam.name}
@@ -159,7 +158,6 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
                   <Maximize2 aria-hidden="true" />
                 </motion.button>
               </div>
-            {!lost && heroBoxes.map((b, i) => <BBox key={`${b.label}-${i}`} {...b} kind={b.kind} />)}
             {/* ⚠️ เดิมประกาศชื่อรุ่นโมเดล "FACE_RECOGNITION V1.3" ที่ไม่มีอยู่จริง
                 (engine ยังรัน PlaceholderRecognizer) และนับ subject จากฉากที่แต่งไว้
                 ตอนนี้นับจากคนในเฟรม detection จริง และไม่เอ่ยชื่อโมเดลใด ๆ */}
@@ -235,6 +233,7 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
               <p className="sub" style={{ margin: 0 }}>{heroFrame
                 ? 'No authorization in the latest detection.' : 'No recent detection'}</p>
             )}
+            <LatestDetectionPeople people={grantPerson ? heroFrame.people.slice(1) : heroFrame?.people} />
           </section>
           <section className="panel glass streampanel">
             <div className="ptitle" style={{ justifyContent: 'space-between' }}>
