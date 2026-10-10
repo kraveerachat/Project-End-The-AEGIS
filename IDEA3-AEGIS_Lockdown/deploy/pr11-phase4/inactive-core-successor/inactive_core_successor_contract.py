@@ -395,3 +395,147 @@ def evaluate_pinned_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
         "physical_containment": "NOT_PROVEN",
         "blockers": blockers,
     }
+
+
+ICU_PRESERVED_SERVICES = set(PRESERVED_SERVICES) | {"ctu_ctv_markers"}
+
+
+def evaluate_icu_readiness(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate an offline ICu evidence package without granting execution.
+
+    The package is untrusted input. This evaluator performs no host reads,
+    marker/journal writes, authorization, or Production actions. Even a fully
+    matching package cannot enable the absent frozen ICu executor.
+    """
+    if not isinstance(evidence, Mapping) or evidence.get("schema") != "idea3-icu-readiness-evidence-v1":
+        return {
+            "checks": {}, "systemd_restart_effect": "NOT_PROVEN",
+            "live_executor": "BLOCKED", "attempt_marker_may_be_consumed": False,
+            "production_mutation_allowed": False,
+            "blockers": ["ICU_EVIDENCE_SCHEMA_INVALID", "ICU_EXECUTOR_NOT_IMPLEMENTED"],
+        }
+
+    old = _mapping(evidence, "old_release")
+    new = _mapping(evidence, "new_release")
+    installed = _mapping(evidence, "installed")
+    restart = _mapping(evidence, "restart_effect")
+    authority = _mapping(evidence, "authority")
+    attempt = _mapping(evidence, "attempt")
+    rollback = _mapping(evidence, "rollback")
+    preservation = _mapping(evidence, "preservation")
+
+    release_ok = bool(
+        old and new
+        and old.get("release_id") == OLD_RELEASE
+        and old.get("sums_sha256") == "9b2faeb4f44225bcf38ba6df5b5403e014998c7310e7c04a77c30c03f2d177df"
+        and old.get("manifest_sha256") == "732d6af5afb0451e51655078abd8c6dc04a72ed258fb04e79c806210f2002a18"
+        and old.get("tree_sha256") == old.get("sums_sha256")
+        and old.get("guard") == "PASS"
+        and old.get("rollback_approval") == "DESIGN_ONLY"
+        and new.get("release_id") == NEW_RELEASE
+        and new.get("sums_sha256") == "0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749"
+        and new.get("manifest_sha256") == "b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf"
+        and new.get("source_main_sha") == CURRENT_MAIN
+        and new.get("guard") in {"PASS", "OWNER_REPORTED_PASS"}
+    )
+    unit_ok = bool(
+        installed
+        and installed.get("current_release_id") == OLD_RELEASE
+        and installed.get("core_active_state") == "active"
+        and all(_sha(installed.get(key), SHA64) for key in (
+            "core_unit_sha256", "detector_unit_sha256"
+        ))
+        and isinstance(installed.get("core_dropins_sha256"), list)
+        and all(_sha(value, SHA64) for value in installed["core_dropins_sha256"])
+        and isinstance(installed.get("detector_dropins_sha256"), list)
+        and all(_sha(value, SHA64) for value in installed["detector_dropins_sha256"])
+        and installed.get("detector_requires_core") is True
+        and installed.get("detector_after_core") is True
+        and installed.get("detector_restart") == "no"
+    )
+    inactive_ok = bool(
+        installed
+        and installed.get("detector_load_state") == "loaded"
+        and installed.get("detector_active_state") == "inactive"
+        and installed.get("detector_sub_state") == "dead"
+        and installed.get("detector_unit_file_state") == "disabled"
+        and installed.get("detector_pid") == 0
+        and installed.get("detector_process_count") == 0
+    )
+    # A PASS from a synthetic or offline systemd experiment is never accepted as
+    # proof of the installed Production units' restart consequence.
+    restart_proven = bool(
+        restart
+        and restart.get("result") == "PASS"
+        and restart.get("evidence_class") == "ACTUAL_INSTALLED_UNIT_RESTART_OBSERVATION"
+        and restart.get("core_restart_argv") == ["systemctl", "restart", "aegis-idea3-core.service"]
+        and restart.get("detector_pre") == "inactive/dead/disabled/pid0/process0"
+        and restart.get("detector_post") == "inactive/dead/disabled/pid0/process0"
+        and restart.get("detector_lifecycle_events") == 0
+    )
+    authority_ok = bool(
+        authority
+        and authority.get("stage") == "ICu"
+        and authority.get("exact_main") == CURRENT_MAIN
+        and authority.get("independent_review") is True
+        and authority.get("owner_execution_approval") is True
+        and authority.get("core_upgrade_authorized") is True
+        and authority.get("rollback_live_authorized") is True
+        and authority.get("recovery_authorized") is False
+    )
+    attempt_ok = bool(
+        attempt
+        and attempt.get("marker") == "ABSENT"
+        and attempt.get("journal") == "ABSENT"
+        and attempt.get("attempt_count") == 0
+        and attempt.get("marker_mechanism") == "ROOT_OWNED_EXCLUSIVE_CREATE_FSYNC"
+        and attempt.get("journal_mechanism") == "ROOT_OWNED_WRITE_AHEAD_ATOMIC_FSYNC"
+    )
+    rollback_ok = bool(
+        rollback
+        and rollback.get("release_id") == OLD_RELEASE
+        and rollback.get("mode") == "EXACT_RELEASE"
+        and rollback.get("preflight_required") is True
+        and rollback.get("max_restart_invocations") == 1
+    )
+    preservation_pre = _mapping(preservation or {}, "pre")
+    preservation_post = _mapping(preservation or {}, "post")
+    preservation_ok = bool(
+        preservation_pre and preservation_post
+        and set(preservation_pre) == ICU_PRESERVED_SERVICES
+        and set(preservation_post) == ICU_PRESERVED_SERVICES
+        and all(isinstance(value, (str, int, bool)) for value in preservation_pre.values())
+        and all(isinstance(value, (str, int, bool)) for value in preservation_post.values())
+        and preservation_pre == preservation_post
+    )
+    effects_ok = evidence.get("effects") == [] and evidence.get("detector_commands") == []
+    checks = {
+        "release_pins": "CONSISTENT" if release_ok else "REJECTED",
+        "installed_units": "CONSISTENT" if unit_ok else "REJECTED",
+        "inactive_detector": "CONSISTENT" if inactive_ok else "REJECTED",
+        "systemd_restart_effect": "OBSERVATION_RECORDED" if restart_proven else "NOT_PROVEN",
+        "authority": "CONSISTENT" if authority_ok else "REJECTED",
+        "one_attempt_journal": "CONSISTENT" if attempt_ok else "REJECTED",
+        "rollback": "CONSISTENT" if rollback_ok else "REJECTED",
+        "preservation": "CONSISTENT" if preservation_ok else "REJECTED",
+        "prohibited_effects": "ABSENT" if effects_ok else "REJECTED",
+    }
+    blockers = ["ICU_EXECUTOR_NOT_IMPLEMENTED", "ICU_STAGE_NOT_REGISTERED"]
+    if not restart_proven:
+        blockers.append("ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN")
+    if not authority_ok:
+        blockers.append("SEPARATE_ICU_AND_ROLLBACK_LIVE_AUTHORITY_MISSING")
+    if not attempt_ok:
+        blockers.append("ONE_ATTEMPT_MARKER_OR_JOURNAL_STATE_INVALID")
+    if not all((release_ok, unit_ok, inactive_ok, rollback_ok, preservation_ok, effects_ok)):
+        blockers.append("ICU_PREMARKER_EVIDENCE_INCOMPLETE_OR_DRIFTED")
+    return {
+        "checks": checks,
+        "systemd_restart_effect": "OBSERVATION_RECORDED_NOT_INDEPENDENTLY_AUTHENTICATED" if restart_proven else "NOT_PROVEN",
+        "live_executor": "BLOCKED",
+        "attempt_marker_may_be_consumed": False,
+        "production_mutation_allowed": False,
+        "recovery_authorized": "NO",
+        "ctu_ctv_history": "FAIL_IMMUTABLE_CONSUMED",
+        "blockers": sorted(set(blockers)),
+    }
