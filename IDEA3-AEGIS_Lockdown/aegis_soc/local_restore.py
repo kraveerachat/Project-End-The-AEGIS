@@ -274,7 +274,7 @@ def _response(ok: bool, code: str, detail: str, *, msg_id=None, seq=None, eviden
     return response
 
 
-def restore_evidence_ladder(supervisor, msg_id: str):
+def restore_evidence_ladder(supervisor, msg_id: str, *, action: str = RESTORE_UPLINK):
     """The protocol-evidence ladder for one local RESTORE command, or None when no such command exists.
 
     Shared by the D4 evidence operation and the Core Recovery observer so both report exactly the same
@@ -283,7 +283,7 @@ def restore_evidence_ladder(supervisor, msg_id: str):
     """
     context = supervisor.protocol
     row = context.store.command(msg_id) if context is not None else None
-    if row is None or row["action"] != RESTORE_UPLINK:
+    if row is None or row["action"] != action:
         return None
     state = row["state"]
     if state == "NOT_PUBLISHED":

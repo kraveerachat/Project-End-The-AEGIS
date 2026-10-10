@@ -252,6 +252,39 @@ def test_a_read_back_that_does_not_confirm_the_block_is_not_verified(tmp_path, m
         instance.core.close()
 
 
+@pytest.mark.parametrize(
+    "read_back",
+    [
+        {"ok": True, "operation": "list", "ip": IP, "present": True},
+        {"ok": True, "operation": "contains", "ip": OTHER_IP, "present": True},
+        {"ok": True, "ip": IP, "present": True},
+        {"ok": True, "operation": "contains", "present": True},
+        {"ok": True, "operation": "contains", "ip": IP, "present": "yes"},
+        None,
+    ],
+    ids=["wrong-operation", "wrong-ip", "missing-operation", "missing-ip", "malformed-present", "malformed-response"],
+)
+def test_mismatched_or_malformed_read_back_identity_fails_closed(tmp_path, monkeypatch, credential, read_back):
+    class ReadBackContainment(FakeContainment):
+        def contains(self, ip):
+            self.calls.append(("contains", ip))
+            return read_back
+
+    instance = make_env(tmp_path, monkeypatch, credential, containment=ReadBackContainment())
+    try:
+        instance.service.bind_incident(IP)
+        response = op(instance, rp.OP_ISOLATE)
+        assert response["ok"] is False and response["code"] == "R3_FAILED"
+        assert instance.containment.calls == [("block", IP), ("contains", IP)]
+        assert gates(op(instance, rp.OP_STATUS))[rp.R3]["status"] == rp.FAILED
+        result = db.fetch_incident_events(
+            db.get_open_incident()["id"], ("RECOVERY_R3_RESULT",)
+        )
+        assert result and result[0]["details"].startswith(f"result=FAILED ip={IP} ")
+    finally:
+        instance.core.close()
+
+
 def test_an_unconfirmed_block_never_reaches_the_read_back(tmp_path, monkeypatch, credential):
     instance = make_env(tmp_path, monkeypatch, credential, containment=FakeContainment(block_ok=False))
     try:
