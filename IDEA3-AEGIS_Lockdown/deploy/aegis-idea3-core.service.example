@@ -41,7 +41,10 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
 ProtectControlGroups=true
-ProtectClock=true
+# TrustedClock performs a read-only adjtimex(2) probe.  ProtectClock must be
+# disabled for that read path; clock mutation remains unavailable because this
+# non-root service has NoNewPrivileges and empty bounding/ambient capabilities.
+ProtectClock=false
 ProtectHostname=true
 ProtectProc=invisible
 ProcSubset=pid

@@ -1,0 +1,743 @@
+/* ─────────────────────────────────────────────────────────────────
+   Shared interaction language — geometry and timing only
+
+   Both authenticated styles read the same structure from this file:
+   - motion timing tokens (--ix-*), so a hover/press/pop has one duration
+     vocabulary across the product;
+   - the hover/focus preview panel (components/HoverPreview.jsx);
+   - the Secure Shares Active links table (screens/Shares.jsx);
+   - focus and entrance hooks for interactive data rows (.ix-row).
+
+   Materials live with each style: Classic in theme-classic.css §8, Neo in
+   the Neo block at the end of this file (every Neo rule is rooted at
+   :root[data-ui-style="neo"], so none of it can reach Classic).
+
+   Idle is still: nothing here loops. Motion happens on entrance, hover,
+   focus, press and value change, and all of it collapses under
+   prefers-reduced-motion.
+   ───────────────────────────────────────────────────────────────── */
+
+:root[data-ui-style] {
+  --ix-fast: 150ms;
+  --ix-press: 100ms;
+  --ix-lift: 210ms;
+  --ix-pop: 180ms;
+  --ix-enter: 320ms;
+  --ix-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Hover / focus preview ──────────────────────────────────────── */
+.hover-preview {
+  position: fixed;
+  z-index: var(--z-tooltip, 70);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 188px;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 10px 12px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: auto;
+  transform-origin: var(--preview-arrow-x, 50%) 100%;
+  animation: hover-preview-in var(--ix-pop, 180ms) var(--ix-ease, ease-out) both;
+}
+
+.hover-preview[data-placement="bottom"] {
+  transform-origin: var(--preview-arrow-x, 50%) 0%;
+  animation-name: hover-preview-in-below;
+}
+
+.hover-preview__head {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hover-preview__eyebrow {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.hover-preview__title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.hover-preview__status {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 9px 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hover-preview__status-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.hover-preview__status[data-tone="ok"] { color: var(--ok); background: var(--ok-soft, transparent); }
+.hover-preview__status[data-tone="warn"] { color: var(--warn); background: var(--warn-soft, transparent); }
+.hover-preview__status[data-tone="danger"] { color: var(--danger); background: var(--danger-soft, transparent); }
+.hover-preview__status[data-tone="accent"] { color: var(--accent-ink); background: var(--accent-soft, transparent); }
+.hover-preview__status[data-tone="neutral"] { color: var(--ink-2); background: var(--card-sunken, transparent); }
+
+.hover-preview__rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.hover-preview__row {
+  display: contents;
+}
+
+.hover-preview__row dt {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.hover-preview__row dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.hover-preview__row dd[data-mono="true"] {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+}
+
+.hover-preview__arrow {
+  position: absolute;
+  left: calc(var(--preview-arrow-x, 50%) - 5px);
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.hover-preview[data-placement="bottom"] .hover-preview__arrow {
+  top: -5px;
+  bottom: auto;
+  transform: rotate(225deg);
+}
+
+@keyframes hover-preview-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes hover-preview-in-below {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Interactive data rows ──────────────────────────────────────── */
+.ix-row,
+.ix-tile {
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ix-row:focus-visible,
+.ix-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* One-shot entrance for rows the list just rendered (keyed rows do not
+   replay on refresh, so this is "new row" motion, not a loop). */
+.dashboard-login-list > .ix-row,
+.login-row.ix-row,
+.recent-file-row.ix-row,
+.dashboard-share-row.ix-row {
+  animation: ix-row-in var(--ix-enter) var(--ix-ease) both;
+  animation-delay: calc(var(--ix-i, 0) * 40ms + 120ms);
+}
+
+@keyframes ix-row-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Scope indicator on the Dashboard share rows — tone matches the Secure
+   Shares badge; the label itself is in the row's sr-only text + title. */
+.dashboard-share-scope {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.dashboard-share-scope[data-tone="accent"] { background: var(--accent); }
+.dashboard-share-scope[data-tone="warn"] { background: var(--warn); }
+.dashboard-share-scope[data-tone="danger"] { background: var(--danger); }
+
+.dashboard-share-row[data-expiring="true"] .dashboard-share-expiry {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.chart-tooltip-date {
+  margin-left: 8px;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.activity-legend-item {
+  cursor: default;
+  transition: opacity var(--ix-fast) var(--ix-ease), color var(--ix-fast) var(--ix-ease);
+}
+
+.activity-legend[data-series] .activity-legend-item:not([data-active]) {
+  opacity: 0.45;
+}
+
+.activity-legend .activity-legend-item[data-active] {
+  color: var(--ink);
+}
+
+/* ── Secure Shares · Active links table ─────────────────────────────
+   One column template shared by the header and every row. Scope owns a
+   dedicated track with room for real TH/EN/ZH labels. The badge itself is
+   constrained to that track, so it cannot spill into Auth. Below the width
+   that holds all six tracks with breathing room (container query, not
+   viewport), the same cells reflow into a two-line row instead of squeezing. */
+.share-table {
+  /* The former 688px threshold equalled the tracks' exact minimum, leaving
+     no reserve for font, language, or theme differences in the Scope badge.
+     Keep File flexible and reflow before the security labels become cramped. */
+  --share-cols: minmax(160px, 1fr) 176px 104px 72px 52px 88px;
+  --share-gap: 12px;
+  --share-pad: 16px;
+  container: share-table / inline-size;
+}
+
+.share-table-head,
+.share-row {
+  display: grid;
+  grid-template-columns: var(--share-cols);
+  column-gap: var(--share-gap);
+  align-items: center;
+  padding-inline: var(--share-pad);
+}
+
+.share-table-head {
+  min-height: 38px;
+  padding-block: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.share-table-head > * {
+  min-width: 0;
+}
+
+.share-row-meta {
+  display: contents;
+}
+
+.share-row-shell {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--dur-slow, 420ms) var(--ease, ease),
+    opacity var(--dur-slow, 420ms) var(--ease, ease);
+}
+
+.share-row-shell[data-revoking="true"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.share-row-shell[data-revoking="true"] .share-row {
+  filter: saturate(0);
+}
+
+.share-row-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.share-row {
+  min-height: 60px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  transition: background-color var(--ix-fast) var(--ix-ease);
+}
+
+.share-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.share-cell--file {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.share-cell--scope {
+  overflow: hidden;
+}
+
+.share-file-name,
+.share-file-owner,
+.share-auth-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-file-name {
+  color: var(--ink);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.share-file-owner {
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.share-auth-value {
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.share-expires-value {
+  color: var(--ink-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.share-row[data-expiring="true"] .share-expires-value {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.share-hits-value {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.share-table-head .share-cell--hits,
+.share-cell--hits {
+  justify-content: center;
+  text-align: center;
+}
+
+.share-table-head .share-cell--action,
+.share-cell--action {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.share-scope-badge {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  height: 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  transition: filter var(--ix-fast) var(--ix-ease), box-shadow var(--ix-fast) var(--ix-ease);
+}
+
+.share-scope-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-block: 2px;
+  text-overflow: ellipsis;
+}
+
+.share-scope-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.share-scope-badge[data-tone="accent"] { color: var(--accent-ink); }
+.share-scope-badge[data-tone="warn"] { color: var(--warn); }
+.share-scope-badge[data-tone="danger"] { color: var(--danger); }
+
+.share-revoke {
+  min-width: 84px;
+  height: 34px;
+  justify-content: center;
+  transition:
+    background-color var(--ix-fast) var(--ix-ease),
+    box-shadow var(--ix-fast) var(--ix-ease),
+    transform var(--ix-press) var(--ix-ease);
+}
+
+.share-revoke:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: 2px;
+}
+
+.share-revoke:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* Filters: same height/radius (NeoSelect trigger), width follows the label
+   so "Expires within · All" is never clipped; long labels ellipsize with the
+   trigger's own title tooltip. */
+.share-filter {
+  flex: 0 1 auto;
+  min-width: 168px;
+  max-width: 100%;
+}
+
+@container share-table (max-width: 743px) {
+  .share-table-head {
+    display: none;
+  }
+
+  .share-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "file action"
+      "meta meta";
+    row-gap: 8px;
+    padding-block: 12px;
+  }
+
+  .share-cell--file { grid-area: file; }
+  .share-cell--action { grid-area: action; }
+
+  .share-row-meta {
+    display: flex;
+    grid-area: meta;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+  }
+
+  .share-row-meta .share-cell {
+    gap: 6px;
+  }
+
+  .share-row-meta .share-cell::before {
+    content: attr(data-label);
+    color: var(--ink-3);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .share-cell--hits {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .share-table {
+    --share-pad: 16px;
+  }
+
+  .share-filter {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   Neo materials — luminous, layered, glass where it earns it.
+   ═════════════════════════════════════════════════════════════════ */
+:root[data-ui-style="neo"] {
+  /* Preview: compact glass popover. Blur is bounded to this small panel. */
+  .hover-preview {
+    border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+    background: color-mix(in srgb, var(--card) 86%, transparent);
+    box-shadow:
+      0 18px 40px -20px rgba(8, 12, 30, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+      0 0 22px -12px color-mix(in srgb, var(--accent) 70%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  .hover-preview__arrow {
+    border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  }
+
+  .hover-preview__status-dot {
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  /* Secure Shares: translucent semantic chip with a restrained edge light. */
+  .share-scope-badge {
+    border-color: color-mix(in srgb, currentColor 34%, transparent);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+  }
+
+  .share-scope-dot {
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  .share-row:hover .share-scope-badge,
+  .share-row:focus-within .share-scope-badge {
+    box-shadow: 0 0 12px -4px currentColor;
+  }
+
+  .share-row:hover {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+
+  .share-revoke:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 40%, transparent), 0 0 14px -6px var(--danger);
+  }
+
+  .share-revoke:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  /* Rows: glass highlight + light edge, also while the preview is open. */
+  .ix-row {
+    transition:
+      background-color var(--ix-fast) var(--ix-ease),
+      box-shadow var(--ix-fast) var(--ix-ease);
+  }
+
+  .ix-row:is(:hover, [data-preview-open="true"]) {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+
+  .ix-row .ix-row-icon {
+    transition: transform var(--ix-fast) var(--ix-ease), color var(--ix-fast) var(--ix-ease), filter var(--ix-fast) var(--ix-ease);
+  }
+
+  .ix-row:is(:hover, :focus-visible) .ix-row-icon {
+    color: var(--accent);
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent));
+    transform: translateX(1px);
+  }
+
+  .dashboard-share-scope {
+    box-shadow: 0 0 6px currentColor;
+    color: inherit;
+  }
+
+  /* KPI: icon bloom on hover (lift + pointer light come from useDashboardMotion). */
+  .dashboard-stat-card .metric-icon {
+    transition: transform var(--ix-lift) var(--ix-ease), box-shadow var(--ix-lift) var(--ix-ease);
+  }
+
+  .dashboard-stat-card:is(:hover, [data-preview-open="true"]) .metric-icon {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent), 0 0 18px -4px color-mix(in srgb, var(--accent) 70%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .dashboard-stat-meter > span {
+    transform-origin: left center;
+    animation: ix-meter-in 620ms var(--ix-ease) 240ms backwards;
+    transition: width 600ms var(--ix-ease);
+  }
+
+  /* Telemetry: surface response + icon radiance; state changes cross-fade. */
+  .dashboard-telemetry-tile {
+    transition:
+      transform var(--ix-lift) var(--ix-ease),
+      border-color var(--ix-lift) var(--ix-ease),
+      background-color var(--ix-lift) var(--ix-ease);
+  }
+
+  .dashboard-telemetry-tile:is(:hover, [data-preview-open="true"]) {
+    border-color: color-mix(in srgb, var(--meter-to, var(--accent)) 38%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .dashboard-telemetry-tile:is(:hover, [data-preview-open="true"]) > div:first-child > span:first-child {
+    filter: drop-shadow(0 0 8px color-mix(in srgb, var(--meter-to, var(--accent)) 60%, transparent));
+  }
+
+  .dashboard-telemetry-tile .ui-chip {
+    transition: background-color var(--ix-lift) var(--ix-ease), color var(--ix-lift) var(--ix-ease);
+  }
+
+  /* Storage: the hovered/focused category stays bright, the rest recede. */
+  .dashboard-storage-category {
+    border-radius: 10px;
+    transition: opacity var(--ix-fast) var(--ix-ease);
+  }
+
+  .dashboard-storage-category-list[data-linked] .dashboard-storage-category:not([data-active]) {
+    opacity: 0.5;
+  }
+
+  .dashboard-storage-category[data-active] .dashboard-storage-category-track > span {
+    filter: brightness(1.12) drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent));
+  }
+
+  .dashboard-storage-category-track > span {
+    transition: filter var(--ix-fast) var(--ix-ease);
+  }
+
+  .dashboard-storage-radial {
+    transition: filter var(--ix-lift) var(--ix-ease);
+  }
+
+  .dashboard-storage-radial[data-preview-open="true"],
+  .dashboard-storage-radial:hover {
+    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 38%, transparent));
+  }
+
+  /* Activity: the day under the pointer glows, everything else recedes. */
+  .activity-bar {
+    transition: opacity var(--ix-fast) var(--ix-ease), filter var(--ix-fast) var(--ix-ease);
+  }
+
+  .activity-bar.is-dim {
+    opacity: 0.32;
+  }
+
+  .activity-bar.is-active {
+    filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 65%, transparent));
+  }
+
+  .dashboard-activity-plot .recharts-cartesian-grid line {
+    transition: stroke-opacity var(--ix-fast) var(--ix-ease);
+  }
+
+  .dashboard-activity-plot[data-hovering] .recharts-cartesian-grid line {
+    stroke-opacity: 0.55;
+  }
+
+  .chart-tooltip {
+    animation: hover-preview-in var(--ix-pop) var(--ix-ease) both;
+  }
+}
+
+@keyframes ix-meter-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Coarse pointers never get hover lift or glow; taps keep their meaning. */
+@media (hover: none), (pointer: coarse) {
+  :root[data-ui-style="neo"] :is(.dashboard-telemetry-tile, .dashboard-stat-card .metric-icon):hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hover-preview,
+  .chart-tooltip,
+  .dashboard-login-list > .ix-row,
+  .login-row.ix-row,
+  .recent-file-row.ix-row,
+  .dashboard-share-row.ix-row,
+  .dashboard-stat-meter > span {
+    animation: none !important;
+  }
+
+  .share-row-shell,
+  .share-row,
+  .share-revoke,
+  .share-scope-badge,
+  .activity-legend-item,
+  :root[data-ui-style] .ix-row,
+  :root[data-ui-style] .ix-row .ix-row-icon,
+  :root[data-ui-style] .activity-bar,
+  :root[data-ui-style] .dashboard-telemetry-tile,
+  :root[data-ui-style] .dashboard-stat-card .metric-icon,
+  :root[data-ui-style] .dashboard-storage-category {
+    transition: none !important;
+  }
+
+  :root[data-ui-style] .ix-row:hover .ix-row-icon,
+  :root[data-ui-style] .dashboard-telemetry-tile:hover,
+  :root[data-ui-style] .dashboard-stat-card:hover .metric-icon,
+  .share-revoke:active {
+    transform: none !important;
+  }
+}
+
+/* Security KPI with real DENIED/BLOCKED events: the danger border and value
+   stay; the edge pulses twice on arrival and then rests. A card that pulses
+   forever trains people to stop looking at it. */
+.alarm-attention {
+  animation: border-pulse 2.4s var(--ease, ease) 2;
+}
+
+.rise-in.alarm-attention {
+  animation:
+    rise-in var(--dur-base, 240ms) var(--ease, ease) both,
+    border-pulse 2.4s var(--ease, ease) 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alarm-attention,
+  .rise-in.alarm-attention {
+    animation: none;
+  }
+}

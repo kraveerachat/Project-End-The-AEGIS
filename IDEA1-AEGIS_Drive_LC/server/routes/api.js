@@ -226,6 +226,8 @@ apiRouter.patch('/preferences', requireAuth, async (req, res, next) => {
       language: req.body?.language,
       density: req.body?.density,
       interfaceStyle: req.body?.interfaceStyle,
+      // Older clients omit this field; retain the signed-in account placement.
+      navigationPosition: req.body?.navigationPosition ?? req.user.preferences?.navigationPosition ?? 'left',
     })
     if (!preferences) return res.status(400).json({ error: 'Invalid input' })
 

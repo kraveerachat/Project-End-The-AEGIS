@@ -13,7 +13,7 @@ test('Dashboard quick actions live in the page header instead of a full-width co
   const quickActionsPath = path.join(rootDir, 'src/components/DashboardQuickActions.jsx')
 
   assert.equal(fs.existsSync(quickActionsPath), true, 'compact header actions component must exist')
-  assert.match(app, /screen === 'dashboard' && <DashboardQuickActions/)
+  assert.match(app, /activeScreen === 'dashboard' && <DashboardQuickActions/)
   assert.doesNotMatch(dashboard, /quick-action-rail/)
 })
 

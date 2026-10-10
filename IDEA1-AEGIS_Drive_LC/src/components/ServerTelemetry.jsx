@@ -1,8 +1,13 @@
+import { useLayoutEffect, useRef } from 'react'
+import { gsap } from 'gsap'
 import {
-  Activity, Cpu, Gauge, HardDrive, MemoryStick, Network, Thermometer,
+  Activity, Cpu, HardDrive, MemoryStick, Network, Thermometer,
 } from 'lucide-react'
 import { Card, CardTitle, Chip } from './ui.jsx'
 import { fmtBytes, fmtCountdown } from '../lib/format.js'
+import { useReducedMotion } from '../lib/hooks.js'
+import { HoverPreview } from './HoverPreview.jsx'
+import { telemetryPreview } from '../lib/previewContent.js'
 
 // Renders the /api/telemetry contract (see server/telemetry/index.js).
 //
@@ -41,6 +46,12 @@ const METRICS = [
   { id: 'network', labelKey: 'telemetryNetwork', icon: Network },
   { id: 'uptime', labelKey: 'telemetryUptime', icon: Activity },
   { id: 'temperature', labelKey: 'telemetryTemperature', icon: Thermometer },
+]
+
+// Presentation grouping of the same six tiles, order unchanged.
+const TELEMETRY_GROUPS = [
+  { id: 'usage', labelKey: 'telemetryGroupUsage', ids: ['cpu', 'memory', 'disk'] },
+  { id: 'state', labelKey: 'telemetryGroupState', ids: ['network', 'uptime', 'temperature'] },
 ]
 
 const STATE_META = {
@@ -123,22 +134,24 @@ function metricState(id, metric, loading = false) {
   return 'available'
 }
 
-function MiniGauge({ value, label }) {
+function MetricProgress({ value, label, state }) {
+  const barRef = useRef(null)
+  const revealed = useRef(false)
+  const reduced = useReducedMotion()
+  useLayoutEffect(() => {
+    if (reduced || revealed.current || !barRef.current) return undefined
+    revealed.current = true
+    const tween = gsap.fromTo(barRef.current, { scaleX: 0 }, { scaleX: 1, duration: 0.56, ease: 'power3.out' })
+    return () => tween.kill()
+  }, [reduced, value])
   if (!number(value)) return null
   const normalized = Math.min(100, Math.max(0, value))
   return (
-    <div className="flex items-center gap-2.5" aria-label={`${label} ${Math.round(normalized)}%`}>
-      <span className="relative size-9 rounded-full grid place-items-center bg-sunken" aria-hidden>
-        <span
-          className="absolute inset-0 rounded-full"
-          style={{ background: `conic-gradient(var(--accent) ${normalized}%, var(--line) 0)` }}
-        />
-        <span className="absolute inset-[4px] rounded-full bg-card" />
-        <Gauge size={13} strokeWidth={1.6} className="relative text-ink-3" />
-      </span>
-      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {Math.round(normalized)}%
-      </strong>
+    <div className="dashboard-telemetry-progress" data-state={state}>
+      <strong className="font-mono text-[20px] font-semibold text-ink" style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(normalized)}%</strong>
+      <div role="progressbar" aria-label={label} aria-valuenow={normalized} aria-valuemin={0} aria-valuemax={100}>
+        <span ref={barRef} style={{ width: `${normalized}%` }} />
+      </div>
     </div>
   )
 }
@@ -155,11 +168,11 @@ function Labelled({ t, label, value }) {
   return <span>{`${label} ${value ?? t('telemetryValueUnavailable')}`}</span>
 }
 
-function MetricRows({ t, id, metric }) {
+function MetricRows({ t, id, metric, state }) {
   if (id === 'cpu') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <span>{number(metric.windowSeconds) ? `${metric.windowSeconds}s` : t('telemetryValueUnavailable')}</span>
       </>
     )
@@ -168,7 +181,7 @@ function MetricRows({ t, id, metric }) {
   if (id === 'memory') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
       </>
     )
@@ -177,7 +190,7 @@ function MetricRows({ t, id, metric }) {
   if (id === 'disk') {
     return (
       <>
-        <MiniGauge value={metric.percent} label={t('telemetryUsage')} />
+        <MetricProgress value={metric.percent} label={t('telemetryUsage')} state={state} />
         <UsedOfTotal t={t} used={metric.usedBytes} total={metric.totalBytes} />
         {/* SMART/RAID need raw device access this container does not have, so
             physical drive health stays explicitly unknown rather than green. */}
@@ -240,8 +253,13 @@ function TelemetryTile({ t, definition, value, loading }) {
   const isEmpty = state in EMPTY_COPY
 
   return (
-    <article
-      className={`min-w-0 rounded-[var(--r-tile)] border border-line bg-card p-4 ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}
+    <HoverPreview
+      as="article"
+      preview={telemetryPreview(t, { id: definition.id, label: t(definition.labelKey), metric: value, stateLabel: t(meta.labelKey), tone: meta.tone })}
+      tabIndex={0}
+      data-metric={definition.id}
+      data-state={state}
+      className="dashboard-telemetry-tile ix-tile min-w-0 rounded-[var(--r-tile)] p-4"
       aria-label={`${t(definition.labelKey)} · ${t(meta.labelKey)}`}
       aria-busy={state === 'loading' ? 'true' : undefined}
     >
@@ -253,18 +271,19 @@ function TelemetryTile({ t, definition, value, loading }) {
         <Chip tone={meta.tone} className="ml-auto">{t(meta.labelKey)}</Chip>
       </div>
       {isEmpty ? (
-        <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">
-          {emptyKey ? t(emptyKey) : ' '}
-        </p>
+        <div className={`dashboard-telemetry-empty ${state === 'unavailable' ? 'hatch hatch-ink3' : ''}`}>
+          {['cpu', 'memory', 'disk'].includes(definition.id) && <span className="dashboard-telemetry-empty-track" aria-hidden />}
+          <p className="mt-4 text-[12.5px] text-ink-2 leading-relaxed max-w-[32ch]">{emptyKey ? t(emptyKey) : ' '}</p>
+        </div>
       ) : (
         <div
           className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-ink-2 font-mono"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          <MetricRows t={t} id={definition.id} metric={metric} />
+          <MetricRows t={t} id={definition.id} metric={metric} state={state} />
         </div>
       )}
-    </article>
+    </HoverPreview>
   )
 }
 
@@ -281,17 +300,27 @@ function TelemetryTile({ t, definition, value, loading }) {
 export function ServerTelemetry({ t, data, loading = false }) {
   const metrics = data?.metrics ?? null
   return (
-    <Card className="p-5">
-      <CardTitle sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {METRICS.map((definition) => (
-          <TelemetryTile
-            key={definition.id}
-            t={t}
-            definition={definition}
-            value={metrics?.[definition.id]}
-            loading={loading}
-          />
+    <Card className="dashboard-telemetry-card dashboard-motion-card p-5">
+      <CardTitle icon={Cpu} sub={t('serverTelemetrySub')}>{t('serverTelemetry')}</CardTitle>
+      {/* Two groups, same six tiles in the same order: consumption metrics
+          (a real percentage drawn as a meter) and runtime/environment state
+          (values without a bar). Grouping is presentation only. */}
+      <div className="dashboard-telemetry-groups">
+        {TELEMETRY_GROUPS.map((group) => (
+          <section key={group.id} className="dashboard-telemetry-group" data-group={group.id}>
+            <h3 className="dashboard-telemetry-group-title">{t(group.labelKey)}</h3>
+            <div className="dashboard-telemetry-grid">
+              {group.ids.map((id) => METRICS.find((definition) => definition.id === id)).map((definition) => (
+                <TelemetryTile
+                  key={definition.id}
+                  t={t}
+                  definition={definition}
+                  value={metrics?.[definition.id]}
+                  loading={loading}
+                />
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </Card>
