@@ -1,10 +1,10 @@
 # IDEA3 inactive-detector Core upgrade successor — repository-only design
 
-Status: **PINNED DESIGN AND OFFLINE EVIDENCE CONTRACT ONLY. LIVE EXECUTOR BLOCKED.** This document records owner-supplied evidence and grants no execution authority, consumes no attempt, and makes no Production or physical-effect claim.
+Status: **PINNED OFFLINE ICu READINESS CONTRACT. LIVE EXECUTOR BLOCKED.** This document records owner-supplied evidence and grants no execution authority, consumes no attempt, and makes no Production or physical-effect claim.
 
 ## Goal and boundary
 
-Define the smallest separately governed Core-release successor that can preserve the supplied detector baseline `loaded/inactive/dead/disabled/PID 0` while deploying a future IDEA3 Core release. This change adds only a pure offline evidence-contract checker and deterministic tests. It does not implement a host executor, shell runner, frozen runner, attempt marker, or Recovery gate.
+Define the smallest separately governed Core-release successor that can preserve the supplied detector baseline `loaded/inactive/dead/disabled/PID 0` while deploying a future IDEA3 Core release. The repository contains a pure offline evidence checker, including an ICu readiness validator and deterministic tests. There is no host executor, shell runner, frozen runner, persistent attempt marker/journal writer, or Recovery gate; the new validator checks reported pre-marker/marker/journal evidence and cannot create or authenticate it.
 
 The verified base is `728c2d9b56d2d8b0b5933202ca20f45e6687602b`. The active Core release baseline remains `954ce1c191885e9e90198a6f54a3d990bcf144fc`; the Detector baseline is loaded/inactive/dead/disabled/PID 0. The owner approves the OLD release as an `EXACT_RELEASE` rollback target **for design only**. `ROLLBACK_LIVE_AUTHORIZED=NO`. CTu/CTv remain consumed immutable FAIL; Recovery remains unauthorized.
 
@@ -48,7 +48,9 @@ A future PRE/POST/RB comparison must preserve all captured services and shared s
 
 A future ICu stage must perform strict read-only preflight before consuming its own authority: verify exact main and frozen runner provenance; exact OLD/NEW IDs, counts, sums and manifest pins; installed old pointer and release guard; Core and Detector unit/drop-in hashes and systemd properties; Core active and Detector inactive/dead/disabled/PID0 with zero matching processes; disk and required preserved-service snapshots; immutable CTu/CTv history; Recovery remains unauthorized; and no declared prohibited effect. If the exact inactive-Detector restart consequence is unknown—or evidence indicates the Detector would become active—the runner must refuse before install or pointer mutation. Only after a fresh, exact PRE succeeds and independent/human approvals are bound may a unique global ICu marker be atomically created. Marker existence permanently consumes the one attempt. A root-trusted durable journal is written before each owned mutation and binds both release IDs/digests, pointer, pre-state and phase; it records forward and rollback restart invocation counts. Recovery acts only on that attempt's proved ownership, never deletes a foreign/unproven release, never retries, and escalates on unknown state. A recorded restart invocation is never replayed; rollback is attempted at most once and only after the exact OLD guard, units, and safety preconditions pass. CTu/CTv markers and closeouts remain byte-for-byte untouched.
 
-No marker, journal, runner, authorization parser, live host command, or Recovery gate is implemented by this successor update. Proposed stage `ICu` is not registered.
+The offline ICu readiness validator requires the exact release IDs and digest pins, fresh installed Core/Detector unit and drop-in digests, the inactive Detector baseline, a separately approved authority record, an absent one-shot marker and journal plus implementation semantics, the exact OLD `EXACT_RELEASE` rollback target, matching PRE/POST preservation snapshots, and an empty effect list. Synthetic or fixture systemd results are explicitly rejected as proof of the Production restart consequence. Even an input labelled as an actual installed-unit observation remains unauthenticated evidence and does not change the fixed `LIVE_EXECUTOR=BLOCKED` result.
+
+No persistent marker/journal writer, runner, authorization parser, live host command, or Recovery gate is implemented by this successor update. Proposed stage `ICu` is not registered. This is an offline readiness contract only; it does not satisfy the future stage's operational marker, journal, freeze, or rollback implementation requirements.
 
 ## Offline checker contract
 
@@ -74,4 +76,4 @@ Even a structurally consistent fixture is only an offline contract result, never
 
 ## Verification boundary
 
-The added focused tests use in-memory owner-evidence fixtures and verify exact pin binding, design-vs-live authority separation, inactive baseline, unknown systemd effects, and no Recovery/effect claims. They do not prove Production unit behavior, installed release bytes, rollback feasibility, Detector operation, Recovery, network state, or physical hardware effect.
+The added focused tests use in-memory fixtures and verify exact release pins, installed unit metadata shape, inactive Detector state, systemd evidence provenance, one-attempt/journal declarations, exact-release rollback, preservation snapshots, authority separation, and prohibited effects. They do not prove Production unit behavior, installed release bytes, rollback feasibility, Detector operation, Recovery, network state, or physical hardware effect. No Production execution is enabled by the validator.
