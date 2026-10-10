@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-10
+updated: 2026-10-11
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,75 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## PR #344 two-blocker correction — 2026-10-11
+
+Task: existing PR2 Recording / Archive; branch
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub.
+Starting reviewed HEAD: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+Current main: `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
+State: LOCAL SOURCE VERIFIED; independent correction review PASS; exact-head CI handoff pending.
+Production mutation allowed: NO. PR remains Draft; no merge authorization.
+
+| Session | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | LOCAL VERIFIED / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Starting HEAD 9ee7cd82 | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Normal push to existing Draft PR and exact-head CI |
+
+### Plan and scope
+
+1. Baseline the existing offline Recorder/NAS tests in an isolated worktree.
+2. Add distinct-image RED tests: A at t=0, B at t=30; surplus-frame
+   dropping, rollover/resolution/session-boundary reset and separate recorders.
+3. Keep one previous-image snapshot per segment; use it only for missing CFR
+   slots and put the incoming image at its target slot. Reset at segment boundaries.
+4. Add only the FFmpeg runtime package to the supported Engine Dockerfile.
+   Test real temporary mp4v-to-H.264 conversion and fail-closed source retention.
+5. Run affected/full offline Engine and Monitor tests, build/codec checks where
+   available, collaboration/Vault/diff/secret validation and exact-head CI.
+6. Preserve this task's one unmerged receipt and historical evidence; update
+   current-session evidence and maintain the same Draft PR for independent review.
+
+Owned source paths: Engine Dockerfile, recorder and focused Engine tests.
+Canonical status and the current unmerged task receipt are evidence paths.
+No new shared surface is planned; inherited `.env.example` and
+`docker-compose.yml` declarations remain. No microphone/audio feature,
+Producer Authority, Live, RBAC, Monitor implementation, NAS/DB runtime,
+Machine A/C or PR #348 change. Main reconciliation remains separately reviewed.
+
+### Current correction evidence and limitations
+
+- Docker installs the minimal `ffmpeg` runtime package and checks the executable
+  and `libx264` encoder during image build; non-root `USER aegis` is unchanged.
+- Recorder holds an owned previous-image snapshot per segment. Past slots use
+  past content, including between-slot captures. Fast-source surplus dropping,
+  measured partial duration and 300-second rotation stay unchanged. Held state
+  resets on rollover, resolution change and finalization; separate recorder
+  instances do not share it. No demand/session/authority code changed.
+- Synthetic video-only mp4v converted using actual FFmpeg 8.1.2; ffprobe reports
+  non-empty H.264/yuv420p MP4, 12 frames /1s, and full decode succeeds. Actual
+  invalid-media failure, missing FFmpeg and empty output retain source material
+  and prevent transfer/Monitor publication. No microphone/audio feature added.
+- Offline Engine full: 308 PASS /0 FAIL /0 SKIP. Monitor full: 188 PASS /0 FAIL
+  /59 conditional PostgreSQL SKIP; focused Monitor: 58 PASS /0 FAIL /7 SKIP,
+  including Machine A symmetry 6/6. Focused recorder/NAS/viewer: 27 PASS.
+  Governance: 61 PASS. Monitor build: PASS. Vault: PASS with two existing canvas
+  warnings. Docker daemon is unavailable: container build/codec acceptance is
+  NOT RUN, and host codec evidence is not container acceptance.
+- Main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` is not merged/rebased here.
+  Real DB migration tests, hardware, deployed Archive/Download/seek, capacity,
+  integration acceptance and required repository protection remain pending.
+  Inherited `-an` and NAS-before-Monitor-ack behavior remain explicitly unchanged.
+  October 10's 84 PASS /0 FAIL /6 SKIP and historical runtime claims stay historical.
+- Fresh read-only correction review: Critical 0 /Important 0 /Minor 0. The
+  reviewer's optional dropped-frame/reused-buffer test was added and passes;
+  ten timeline tests and final Engine rerun verify it. Human functional and
+  shared integration approval are not substituted by agent source review.
+- Final `git diff --check`, staged diff check and added-content secret-pattern
+  scan pass (zero secret hits plus content review). Collaboration policy passes
+  against PR merge-base `1128e5253d72171bc04e9c48d50a05d044390476` (23 paths).
+  Direct current-main comparison fails policy: the unreconciled branch lacks
+  competing main-only paths/receipts (414 comparison paths). This is an existing
+  reconciliation gate, not permission to modify those paths or waive guards.
 
 ## PR #344 functional-prototype handoff — 2026-10-10
 

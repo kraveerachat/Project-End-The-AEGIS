@@ -5,10 +5,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# FFmpeg supplies libx264 for browser-compatible Archive conversion.
 # OpenSSH/rsync are installed for the optional verified NAS path. Development
 # keeps NAS disabled, so their presence never implies a successful transfer.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client rsync \
+    && apt-get install -y --no-install-recommends openssh-client rsync ffmpeg \
+    && ffmpeg -version \
+    && ffmpeg -hide_banner -encoders | grep -q ' libx264 ' \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
