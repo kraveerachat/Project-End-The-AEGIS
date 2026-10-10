@@ -9267,7 +9267,7 @@ Canonical design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-10-idea3-
 
 Current task `AEGIS_IDEA3_GOVERNED_CORE_UPGRADE_NEXT_STAGE` uses verified main
 `ca7f66f56626b6ab396566ce891baef7b1e60cdc` (PR #429 merge), branch
-`feat/idea3-icu-governed-core-upgrade`, PR pending. The owner approved OLD release
+`feat/idea3-icu-governed-core-upgrade`, Draft PR #430; independent reviews pending. The owner approved OLD release
 `954ce1c191885e9e90198a6f54a3d990bcf144fc` as `EXACT_RELEASE` for design only;
 rollback execution and Core upgrade remain unauthorized. OLD guard, file-count,
 sums and manifest values are owner-attested; the release artifact is not in this
@@ -9302,4 +9302,4 @@ Security/Governance approval, and separate execution authorization.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | MERGED in PR #429 at `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | 40 focused tests passed on PR #429 | base `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | offline design/checker only | ICu operational implementation | keep ICu unregistered and live executor blocked |
-| ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | PARTIAL / LOCAL VERIFIED; Draft PR and independent review pending | 43 focused tests passed; Ruff, AST parse, diff check, and vault validation pass (2 existing canvas warnings); synthetic restart PASS remains NOT PROVEN; no live-capable runner | branch `feat/idea3-icu-governed-core-upgrade` from merged main `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | no Production, systemd, authority-marker, or service mutation | independent exact-head review; future implementation of marker/journal writer and frozen runner | keep ICu unregistered; no live authorization |
+| ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | PARTIAL / LOCAL VERIFIED; Draft PR #430; reviews pending | 43 focused tests passed; Ruff, AST parse, diff check, and vault validation pass (2 existing canvas warnings); synthetic restart PASS remains NOT PROVEN; no live-capable runner | branch `feat/idea3-icu-governed-core-upgrade` from merged main `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | no Production, systemd, authority-marker, or service mutation | independent exact-head review; future implementation of marker/journal writer and frozen runner | keep ICu unregistered; no live authorization |
