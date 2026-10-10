@@ -15,7 +15,7 @@ NEW_RELEASE = "idea3-core-728c2d9b-20261010"
 PROPOSED_SUCCESSOR_STAGE = "ICu"
 PRESERVED_SUCCESSOR_SERVICES = (
     "idea1", "idea2", "mqtt_broker", "mqtt_service_2", "twingate", "tunnel", "firewall",
-    "nftables", "network", "relay", "esp32", "incidents", "ctu_ctv_markers", "recovery_markers",
+    "nftables", "network", "relay", "esp32", "incidents", "database", "ctu_ctv_markers", "recovery_markers",
 )
 SUCCESSOR_CONTRACT = {
     "preflight": "READ_ONLY_EXACT_PINS_UNITS_DETECTOR_AND_PRESERVATION",
@@ -377,7 +377,7 @@ def evaluate_pinned_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "binding": "PINNED_EVIDENCE_CONSISTENT" if matched else "INCONSISTENT",
         "checks": {key: "MATCH" if value else "MISMATCH" for key, value in checks.items()},
-        "rollback_design_approved": "YES" if checks["rollback_decision"] else "NOT_BOUND",
+        "rollback_design_approval_claim_matches": "YES" if checks["rollback_decision"] else "NO",
         "rollback_live_authorized": "NO",
         "old_release_evidence": "OWNER_ATTESTED_PIN_SET_MATCHES" if checks["old_release"] else "MISMATCH",
         "new_release_evidence": "PIN_SET_MATCHES_REPORTED_CANDIDATE" if checks["new_release"] else "MISMATCH",

@@ -14,7 +14,7 @@ edit_policy: append-by-new-file
 
 - Recorded the owner’s approval of OLD release `954ce1c191885e9e90198a6f54a3d990bcf144fc` as an `EXACT_RELEASE` rollback target for design only. Rollback execution and Core upgrade authorization remain **NO**.
 - Bound the current OLD/NEW evidence pins in the pure offline checker and identified `ICu` as a proposed unique successor stage. `ICu` is not registered and has no live executor.
-- Specified read-only preflight, exact release pins, inactive Detector PRE/POST, one-attempt marker and write-ahead journal, exact-release rollback, Core-only mutation allowlist, service preservation, and separate Security/Governance and human execution approval.
+- Specified read-only preflight, exact release pins, inactive Detector PRE/POST, one-attempt marker and write-ahead journal, exact-release rollback, Core-only mutation allowlist, preservation of IDEA3 database/audit/dispatch state and other services, and separate Security/Governance and human execution approval.
 - Unknown systemd restart effects fail closed before release installation or pointer switch. CTu/CTv and Recovery authority remain unchanged.
 
 ## Source files changed

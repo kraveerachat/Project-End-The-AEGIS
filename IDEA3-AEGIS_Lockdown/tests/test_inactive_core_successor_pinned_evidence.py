@@ -50,7 +50,7 @@ def test_owner_exact_release_approval_is_design_only_and_evidence_pins_bind():
     report = CONTRACT.evaluate_pinned_evidence(current_evidence())
 
     assert report["binding"] == "PINNED_EVIDENCE_CONSISTENT"
-    assert report["rollback_design_approved"] == "YES"
+    assert report["rollback_design_approval_claim_matches"] == "YES"
     assert report["rollback_live_authorized"] == "NO"
     assert report["old_release_evidence"] == "OWNER_ATTESTED_PIN_SET_MATCHES"
     assert report["new_release_evidence"] == "PIN_SET_MATCHES_REPORTED_CANDIDATE"
@@ -66,7 +66,7 @@ def test_owner_exact_release_approval_is_design_only_and_evidence_pins_bind():
     assert report["successor_contract"]["rollback_restart_limit"] == "AT_MOST_ONE_AFTER_SAFE_ROLLBACK_PREFLIGHT"
     assert report["successor_contract"]["rollback"].startswith("EXACT_RELEASE_ONLY")
     assert report["successor_contract"]["unknown_systemd_effect"] == "REFUSE_BEFORE_POINTER_SWITCH_OR_RESTART"
-    assert {"idea1", "idea2", "mqtt_broker", "recovery_markers"}.issubset(
+    assert {"idea1", "idea2", "mqtt_broker", "database", "ctu_ctv_markers", "recovery_markers"}.issubset(
         report["successor_contract"]["preserve"]
     )
     assert report["successor_contract"]["detector_commands"] == "NONE"
