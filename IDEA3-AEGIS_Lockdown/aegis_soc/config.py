@@ -172,6 +172,9 @@ LOCAL_CUT_ENABLED = os.getenv("AEGIS_LOCAL_CUT_ENABLED", "")
 LOCAL_CUT_SOCKET = os.getenv("AEGIS_LOCAL_CUT_SOCKET", "").strip()
 LOCAL_CUT_OPERATOR_UID = _optional_int("AEGIS_LOCAL_CUT_OPERATOR_UID")
 LOCAL_CUT_SOCKET_GID = _optional_int("AEGIS_LOCAL_CUT_SOCKET_GID")
+# Core-held CUT credential (scrypt, mode 0600, Core-owned). A separate policy domain from the D4 RESTORE credential: it must be a
+# different file and a different hash. There is deliberately no default and no inline value; unset keeps the channel disabled.
+LOCAL_CUT_CREDENTIAL_FILE = os.getenv("AEGIS_LOCAL_CUT_CREDENTIAL_FILE", "").strip()
 # OD-F1-DEPLOY-01: the dedicated F1 alert transport. Constants on purpose (no environment override): the general runtime
 # directory and the Recovery runtime are never an alert path. The group is filesystem reachability only; the uid is the authority.
 ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"

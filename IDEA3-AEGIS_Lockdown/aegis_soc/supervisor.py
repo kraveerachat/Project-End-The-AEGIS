@@ -345,8 +345,13 @@ class AegisSupervisor:
         authorize_restore: bool = False,
         not_after: float | None = None,
         restore_basis: str | None = None,
+        pre_publish=None,
     ):
-        """Issue a physical command and let Core own pending-ACK state."""
+        """Issue a physical command and let Core own pending-ACK state.
+
+        ``pre_publish`` runs inside ``_command_lock``, after the pending/containment checks passed and immediately before the
+        publish, so a durable pre-dispatch record is part of the same atomic decision (a refused request writes nothing).
+        """
         if (
             action == "RESTORE_UPLINK"
             and self.settings.profile == "production"
@@ -386,6 +391,7 @@ class AegisSupervisor:
                             "critical": critical,
                             "origin": origin,
                             "not_after": not_after,
+                            "pre_publish": pre_publish,
                         }
                         detail = "CUT_UPLINK queued behind the in-flight RESTORE_UPLINK"
                         db.log_event("COMMAND_QUEUED", f"{detail} (origin={origin})", db.CRITICAL)
@@ -416,6 +422,7 @@ class AegisSupervisor:
                     origin=origin,
                     authorize_restore=authorize_restore,
                     not_after=not_after,
+                    **({} if pre_publish is None else {"pre_publish": pre_publish}),
                 )
                 if result.sent:
                     self.pending_command = {
@@ -705,7 +712,13 @@ class AegisSupervisor:
         if operator_uid is None or operator_uid == 0 or not config.LOCAL_CUT_SOCKET:
             self.log_event("ERROR", "local_cut_unconfigured", reason="OPERATOR_UID_OR_SOCKET_MISSING_OR_ROOT")
             return
-        gate = local_cut.LocalCutGate(self, allowed_uid=operator_uid, audit=db.log_event, audit_strict=db.log_event_strict)
+        credential = self._load_local_cut_credential()
+        if credential is None:
+            return
+        gate = local_cut.LocalCutGate(
+            self, allowed_uid=operator_uid, credential=credential, audit=db.log_event, audit_strict=db.log_event_strict,
+            monotonic=self.monotonic,
+        )
         try:
             server = local_cut.LocalCutServer(config.LOCAL_CUT_SOCKET, gate, socket_gid=config.LOCAL_CUT_SOCKET_GID)
             server.start()
@@ -713,6 +726,25 @@ class AegisSupervisor:
             self.log_event("ERROR", "local_cut_failed", error=type(error).__name__)
             return
         self.local_cut = server
+
+    def _load_local_cut_credential(self):
+        """The Core-held CUT credential, or None (channel stays down). Fail closed; never the D4 RESTORE credential."""
+        path = config.LOCAL_CUT_CREDENTIAL_FILE
+        if not path:
+            self.log_event("ERROR", "local_cut_unconfigured", reason="CUT_CREDENTIAL_MISSING")
+            return None
+        if config.RESTORE_CREDENTIAL_FILE and os.path.realpath(path) == os.path.realpath(config.RESTORE_CREDENTIAL_FILE):
+            self.log_event("ERROR", "local_cut_unconfigured", reason="CUT_CREDENTIAL_IS_RESTORE_CREDENTIAL_FILE")
+            return None
+        try:
+            credential = lr.RestoreCredential.load(path)
+        except lr.CredentialError:
+            self.log_event("ERROR", "local_cut_unconfigured", reason="CUT_CREDENTIAL_UNUSABLE")
+            return None
+        if not local_cut.credentials_are_distinct(credential, self.restore_credential):
+            self.log_event("ERROR", "local_cut_unconfigured", reason="CUT_CREDENTIAL_EQUALS_RESTORE_CREDENTIAL")
+            return None
+        return credential
 
     def stop_local_cut(self) -> None:
         server, self.local_cut = self.local_cut, None
