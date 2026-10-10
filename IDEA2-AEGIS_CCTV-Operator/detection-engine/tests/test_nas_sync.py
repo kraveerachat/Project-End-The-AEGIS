@@ -67,9 +67,31 @@ class NASSyncTruthTests(unittest.TestCase):
                 nas_retry_backoff_s=0,
             ).validate()
             worker = NASSyncWorker(config, metrics, threading.Event(), monitor)
+            worker._prepare_browser_playback = lambda *_args: True
             worker._ensure_remote_dir = lambda: None
             worker._transfer = lambda *_args: (0, "", "")
             worker._verify = lambda *_args: False
+
+            worker._sync_one(segment(path))
+
+            self.assertTrue(os.path.exists(path))
+            self.assertEqual(monitor.clips, [])
+            self.assertEqual(metrics.snapshot()["nas"]["last_status"], "failed")
+
+    def test_browser_transcode_failure_keeps_file_and_posts_no_clip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._file(directory)
+            metrics = MetricsRegistry()
+            monitor = FakeMonitor()
+            config = EngineConfig(
+                nas_enabled=True,
+                nas_user="aegis",
+                nas_host="nas.local",
+                nas_max_retries=1,
+            ).validate()
+            worker = NASSyncWorker(config, metrics, threading.Event(), monitor)
+            worker._prepare_browser_playback = lambda *_args: False
+            worker._ensure_remote_dir = lambda: self.fail("must not transfer unplayable clip")
 
             worker._sync_one(segment(path))
 
@@ -90,6 +112,7 @@ class NASSyncTruthTests(unittest.TestCase):
                 nas_delete_after_sync=True,
             ).validate()
             worker = NASSyncWorker(config, metrics, threading.Event(), monitor)
+            worker._prepare_browser_playback = lambda *_args: True
             worker._ensure_remote_dir = lambda: None
             worker._transfer = lambda *_args: (0, "", "")
             worker._verify = lambda *_args: True

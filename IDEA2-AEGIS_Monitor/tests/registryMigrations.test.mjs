@@ -25,6 +25,7 @@ const migrationPaths = [
 ]
 
 const ownershipMigrationPath = 'server/db/migrations/005_physical_producer_ownership.sql'
+const clipDurationMigrationPath = 'server/db/migrations/006_pr2_clip_duration_default_300.sql'
 
 test('migration 005 statically preserves history and changes only producer ownership', () => {
   const sql = normalizedSql(ownershipMigrationPath)
@@ -36,6 +37,21 @@ test('migration 005 statically preserves history and changes only producer owner
   assert.match(sql, /drop index if exists camera_producer_epochs_active_logical_idx/)
   assert.match(sql, /alter table camera_producer_epochs alter column logical_camera_id drop not null/)
   assert.doesNotMatch(sql, /drop\s+(?:table|column)\b|truncate\b|delete\s+from\b|drop index[^;]*active_physical/)
+})
+
+
+test('migration 006 changes only the clips duration default to 300 seconds', () => {
+  const sql = normalizedSql(clipDurationMigrationPath)
+  assert.match(sql, /^begin;/)
+  assert.match(sql, /commit;$/)
+  assert.match(
+    sql,
+    /alter table clips alter column duration_sec set default 300/,
+  )
+  assert.doesNotMatch(
+    sql,
+    /\b(?:insert|update|delete|truncate|drop)\b/,
+  )
 })
 
 // These tests only mutate randomly named schemas in an explicitly supplied
@@ -193,6 +209,57 @@ async function assertPhysicalOwnership(client, schemaName) {
 }
 
 const disposablePostgres = { skip: !process.env.AEGIS_MONITOR_TEST_DATABASE_URL }
+
+test(
+  'migration_006_changes_future_default_without_rewriting_historical_rows',
+  disposablePostgres,
+  async () => {
+    await withDisposableSchema(async (client) => {
+      await client.query(`
+        CREATE TABLE clips (
+          id BIGSERIAL PRIMARY KEY,
+          duration_sec INTEGER NOT NULL DEFAULT 600
+        );
+        INSERT INTO clips DEFAULT VALUES;
+      `)
+
+      assert.deepEqual(
+        (await client.query(
+          'SELECT id, duration_sec FROM clips ORDER BY id',
+        )).rows,
+        [{ id: '1', duration_sec: 600 }],
+      )
+
+      await client.query(read(clipDurationMigrationPath))
+
+      assert.deepEqual(
+        (await client.query(
+          'SELECT id, duration_sec FROM clips ORDER BY id',
+        )).rows,
+        [{ id: '1', duration_sec: 600 }],
+        'migration must not rewrite historical measured durations',
+      )
+
+      assert.deepEqual(
+        (await client.query(
+          'INSERT INTO clips DEFAULT VALUES RETURNING duration_sec',
+        )).rows,
+        [{ duration_sec: 300 }],
+      )
+
+      // Rerun must remain safe and leave the same future default.
+      await client.query(read(clipDurationMigrationPath))
+
+      assert.deepEqual(
+        (await client.query(
+          'INSERT INTO clips DEFAULT VALUES RETURNING duration_sec',
+        )).rows,
+        [{ duration_sec: 300 }],
+      )
+    })
+  },
+)
+
 
 // Catches fresh-schema/upgrade divergence, lingering logical uniqueness, and
 // accidentally weakened physical uniqueness or missing demand context FKs.

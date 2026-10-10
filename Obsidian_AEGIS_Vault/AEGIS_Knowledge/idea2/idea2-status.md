@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-05
+updated: 2026-10-11
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -14,6 +14,379 @@ edit_policy: owner-writable
 
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
+
+## PR #344 two-blocker correction — 2026-10-11
+
+Task: existing PR2 Recording / Archive; branch
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub.
+Starting reviewed HEAD: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+Current main: `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
+State: LOCAL SOURCE VERIFIED; independent correction review PASS; exact-head CI handoff pending.
+Production mutation allowed: NO. PR remains Draft; no merge authorization.
+
+| Session | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | LOCAL VERIFIED / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Starting HEAD 9ee7cd82 | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Normal push to existing Draft PR and exact-head CI |
+
+### Plan and scope
+
+1. Baseline the existing offline Recorder/NAS tests in an isolated worktree.
+2. Add distinct-image RED tests: A at t=0, B at t=30; surplus-frame
+   dropping, rollover/resolution/session-boundary reset and separate recorders.
+3. Keep one previous-image snapshot per segment; use it only for missing CFR
+   slots and put the incoming image at its target slot. Reset at segment boundaries.
+4. Add only the FFmpeg runtime package to the supported Engine Dockerfile.
+   Test real temporary mp4v-to-H.264 conversion and fail-closed source retention.
+5. Run affected/full offline Engine and Monitor tests, build/codec checks where
+   available, collaboration/Vault/diff/secret validation and exact-head CI.
+6. Preserve this task's one unmerged receipt and historical evidence; update
+   current-session evidence and maintain the same Draft PR for independent review.
+
+Owned source paths: Engine Dockerfile, recorder and focused Engine tests.
+Canonical status and the current unmerged task receipt are evidence paths.
+No new shared surface is planned; inherited `.env.example` and
+`docker-compose.yml` declarations remain. No microphone/audio feature,
+Producer Authority, Live, RBAC, Monitor implementation, NAS/DB runtime,
+Machine A/C or PR #348 change. Main reconciliation remains separately reviewed.
+
+### Current correction evidence and limitations
+
+- Docker installs the minimal `ffmpeg` runtime package and checks the executable
+  and `libx264` encoder during image build; non-root `USER aegis` is unchanged.
+- Recorder holds an owned previous-image snapshot per segment. Past slots use
+  past content, including between-slot captures. Fast-source surplus dropping,
+  measured partial duration and 300-second rotation stay unchanged. Held state
+  resets on rollover, resolution change and finalization; separate recorder
+  instances do not share it. No demand/session/authority code changed.
+- Synthetic video-only mp4v converted using actual FFmpeg 8.1.2; ffprobe reports
+  non-empty H.264/yuv420p MP4, 12 frames /1s, and full decode succeeds. Actual
+  invalid-media failure, missing FFmpeg and empty output retain source material
+  and prevent transfer/Monitor publication. No microphone/audio feature added.
+- Offline Engine full: 308 PASS /0 FAIL /0 SKIP. Monitor full: 188 PASS /0 FAIL
+  /59 conditional PostgreSQL SKIP; focused Monitor: 58 PASS /0 FAIL /7 SKIP,
+  including Machine A symmetry 6/6. Focused recorder/NAS/viewer: 27 PASS.
+  Governance: 61 PASS. Monitor build: PASS. Vault: PASS with two existing canvas
+  warnings. Docker daemon is unavailable: container build/codec acceptance is
+  NOT RUN, and host codec evidence is not container acceptance.
+- Main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` is not merged/rebased here.
+  Real DB migration tests, hardware, deployed Archive/Download/seek, capacity,
+  integration acceptance and required repository protection remain pending.
+  Inherited `-an` and NAS-before-Monitor-ack behavior remain explicitly unchanged.
+  October 10's 84 PASS /0 FAIL /6 SKIP and historical runtime claims stay historical.
+- Fresh read-only correction review: Critical 0 /Important 0 /Minor 0. The
+  reviewer's optional dropped-frame/reused-buffer test was added and passes;
+  ten timeline tests and final Engine rerun verify it. Human functional and
+  shared integration approval are not substituted by agent source review.
+- Final `git diff --check`, staged diff check and added-content secret-pattern
+  scan pass (zero secret hits plus content review). Collaboration policy passes
+  against PR merge-base `1128e5253d72171bc04e9c48d50a05d044390476` (23 paths).
+  Direct current-main comparison fails policy: the unreconciled branch lacks
+  competing main-only paths/receipts (414 comparison paths). This is an existing
+  reconciliation gate, not permission to modify those paths or waive guards.
+
+## PR #344 functional-prototype handoff — 2026-10-10
+
+The functional owner declares IDEA2's accepted Functional Prototype scope
+CLOSED on 2026-10-10. This is an owner scope decision, not GitHub approval,
+merge authorization, exact-head Production deployment proof, or completion of
+every security/performance/operational gate. PR #344 remains Draft for independent
+human and integration review. Source evidence checkpoint:
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`; observed current main:
+`dbf00185331474053f46486fcefa795a46f5b821`; PR comparison merge-base:
+`1128e5253d72171bc04e9c48d50a05d044390476`.
+
+Historical owner-reported Machine A onsite acceptance remains unchanged:
+continuous authenticated CONNECTED=True / DEMAND=True / VIEWERS=1 across the
+300-second boundary; clip ID4 duration300s and logout partial ID5 duration83s,
+both stored_on_nas=true after SCP/checksum/file/DB verification. Storage was
+`/opt/aegis/data/monitor-clips`, mounted read-only at `/nas/clips`. The Engine
+returned idle; the historical Monitor evidence reported RestartCount=0.
+`CLIP_STORAGE_INGEST_VERIFIED=YES`; a separate remote NAS appliance is not proven.
+
+Additional owner evidence on 2026-10-10: a newly uploaded CAM-01 clip appeared
+in the real Archival Footage page of the integrated system. Runtime provenance
+is not pinned to isolated PR #344 source, so this is INTEGRATED_RUNTIME_ACCEPTANCE,
+not exact-head source acceptance. Download, audio playback, seeking, exhaustive
+negative RBAC/session/camera-scope acceptance, migration006 deployment and
+capacity/retention remain unverified or undecided. No new runtime test was run
+by this handoff.
+
+Source limitations are explicit: PR #344's mp4v conversion still uses `-an`,
+and NAS success/local deletion do not wait for acknowledged Monitor publication.
+Neither real microphone capture nor end-to-end audio preservation is claimed
+for this exact revision. Later stacked/local runtime changes must not be
+silently attributed to #344. No implementation is changed here.
+
+Fresh offline handoff verification: NAS4/4 and viewer/recording9/9 PASS;
+Archive/migration tests10 PASS /0 FAIL /6 conditional PostgreSQL SKIP;
+governance61/61 PASS; Vault PASS with two existing owner-canvas warnings.
+Full suites/browser/hardware were not rerun for this documentation-only change;
+earlier results below remain historical. One partial task-handoff receipt is
+added; existing receipts are untouched. Current source, integration surfaces
+`.env.example` and `docker-compose.yml`, actual main drift, and unresolved gates
+require human disposition before Ready. Merge #344 first, then separately
+authorize #348 reconciliation; no automatic base change or dependency merge.
+PRODUCTION_MUTATION=NO; MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO;
+MERGE_AUTHORIZED=NO.
+
+## Historical task checkpoints — PR2 Recording / Archive (2026-10-05)
+
+Task: PR2 Recording / Archive. Branch:
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
+`9cebd2a061f8d47bc97349762aa87f169c706710`. Current state: IN PROGRESS —
+SOURCE + MACHINE A ONSITE RECORDING AND CLIP-STORAGE INGEST ACCEPTANCE COMPLETE;
+PRODUCTION ARCHIVE/DEPLOYMENT AND REMOTE NAS ACCEPTANCE PENDING. Production
+mutation allowed by this checkpoint: NO.
+
+Goal: while the authenticated Operator camera session remains active, record
+continuously and finalize one truthful clip every 300 seconds. Navigation among
+Live, Archive, Diagnostics, Settings and back to Live must not split the active
+recording. When the final viewer/session ends (including logout), finalize the
+current partial clip at its measured duration instead of padding/dropping it.
+A finalized clip becomes visible in Archival footage only after the existing NAS
+transfer/integrity-verification path succeeds. Archival footage must show the
+actual video, actual duration, support playback/seek, and add an authenticated,
+camera-scoped download path without exposing the NAS filesystem path.
+
+Scope: SegmentRecorder 300-second contract and partial-finalize regression
+coverage; clip metadata truthfulness; Archive playback/duration UI; RBAC-protected
+clip download; schema/config wording/default reconciliation. Out of scope:
+PR1/PR1.5 Live lifecycle semantics, GPU/model work, camera identity redesign,
+NAS Production mount mutation, retention policy, and unrelated UI redesign.
+
+Acceptance boundary for this repository session:
+- default segment target = 300 seconds and rotation remains continuous;
+- clearing viewer demand finalizes one non-empty partial segment with measured
+  duration;
+- Archive renders real finalized clip video and measured duration;
+- download uses the same auth/camera scope/storage verification boundary as
+  playback;
+- NAS success remains transfer -> integrity verify -> clip metadata publication;
+- source/unit/build validation must pass before this session can be called PASS;
+- Machine A onsite real-camera 300-second rollover, continuous viewer demand,
+  verified clip-storage ingest and logout partial are owner-reported PASS.
+  This is not proof of a separate remote NAS appliance or Production Archive
+  playback/download. Production deployment, migration 006, live Archive/RBAC
+  acceptance and retention/capacity decisions remain separate gates.
+
+### PR2 Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S1 | 300s recording + truthful partial + portable CFR normalization + browser-playable NAS Archive + playback/download source contract | SOURCE + MACHINE A RECORDING ACCEPTANCE COMPLETE; PRODUCTION/NAS/ARCHIVE PENDING | Focused recording 9/9 PASS; Engine full suite 294/294 PASS in disposable Python 3.12; Machine A 300s rotation PASS, navigation continuity PASS, truthful full/partial media duration PASS, real-camera local H.264/yuv420p +faststart PASS | portable FPS checkpoint | SOURCE VALIDATION PASS / MACHINE A RECORDING PASS / LOCAL H264 PIPELINE PASS | Archive live playback/seek/download/RBAC, real NAS transfer/hash, Production DB default 600 -> 300, Production deploy | keep PR #344 Draft; continue Archive/NAS/Production acceptance |
+| PR2-S2 | Onsite full rollover, logout partial, verified clip-storage ingest, inline Archive card source | MACHINE A ONSITE PASS; PRODUCTION ARCHIVE/DEPLOYMENT PENDING | Owner-reported continuous connected/demanded viewer through 300s; verified 300s and 83s clips; checksum and DB publication after transfer PASS; inline-card source/browser tests PASS | `7259d62a89dd16ff9e1494462e6b8f1b9bdbb786` plus this status checkpoint | FULL_ROLLOVER_RUNTIME_GATE=PASS; VIEWER_CONTINUOUS_5MIN=PASS; CLIP_STORAGE_INGEST_VERIFIED=YES; REAL_REMOTE_NAS_VERIFIED=NO | migration 006; Production PR2 deployment; live Archive playback/seek/download and RBAC; capacity/retention; final receipt | keep PR #344 Draft; pre-deploy review only |
+
+### PR2-S1 checkpoint — source validated and HOME/LOCAL acceptance complete; Production/NAS pending
+
+Work performed at implementation checkpoint
+`028bf8350ef33b3af9161951427008f86d1b328b`:
+
+- full recording interval changed from 600 to 300 seconds; demand/session release
+  still finalizes the open file and now has a regression asserting a measured
+  ~137-second partial duration;
+- the next captured frame can open the next segment immediately after a
+  five-minute rollover;
+- default NAS destination was reconciled to
+  `/opt/aegis/data/monitor-clips`, matching the deployment-owned Monitor clips
+  host mount while NAS remains opt-in;
+- default mp4v output must be converted with FFmpeg/libx264 to H.264,
+  `yuv420p`, `+faststart` before hashing/transfer. Conversion failure retains
+  the local source and publishes no Archive row;
+- Archive listing now requires `stored_on_nas = TRUE`;
+- Archival footage renders actual duration/end time, the real same-origin
+  `<video controls>`, and Download;
+- `GET /api/clips/:id/video` and `GET /api/clips/:id/download` share one
+  server-side session, camera-scope, verified-NAS and basename/mount resolver.
+
+Validation evidence at source head
+`3ee733874a10b1248f2e8e3684574c5508b04f77`:
+
+- Monitor `npm test`: 245 total, 187 pass, 58 conditional skip, 0 fail;
+- Monitor Vite production build: PASS;
+- Detection Engine full suite: 292 tests, 7 conditional skips, 0 fail;
+- focused viewer/recording contract: 7/7 PASS, including default 300-second
+  rollover, immediate next-segment eligibility, and measured partial finalize
+  when final viewer demand clears;
+- focused NAS truth/fail-closed contract: 4/4 PASS, including retention on
+  browser-transcode failure, retention on integrity mismatch, no success claim
+  while NAS is disabled, and verified-transfer-only success;
+- Machine A local FFmpeg smoke: real mp4v source transcoded successfully through
+  `libx264` to H.264, 640x360, `yuv420p`;
+- source worktree remained clean at the same head after validation.
+
+Read-only runtime discovery did not constitute Production acceptance. The
+installed Machine A NAS integration remains disabled, with no active NAS host
+or user configured. The Production Monitor clips host path currently resolves
+to local server storage rather than a verified real NAS mount. Therefore real
+NAS transfer/hash, Production DB default reconciliation, Production deployment,
+real >5-minute camera/browser acceptance, Archive playback/download and live
+RBAC remain PENDING.
+
+PR #344 remains Draft. No Production container, Production database, Twingate,
+IDEA1, IDEA3, SSH server configuration, camera runtime, NAS, or filesystem
+permission was mutated by this HOME/LOCAL validation checkpoint. This is not
+the final task receipt and PR2 is not CLOSED.
+
+### PR2-S1 portable FPS / Machine A recording checkpoint ? 2026-10-05
+
+Owner-run Machine A recording acceptance is complete. With the temporary
+Machine A runtime target set to 30 FPS, one authenticated viewer produced a
+300.0-second first segment and a 52.6-second logout partial. Resulting media
+durations were 300.767 seconds and 52.267 seconds. Navigation
+Live -> Archive -> Diagnostics -> Settings -> Live produced zero pre-logout
+demand, camera-connection or viewer-count drops, and logout returned the Engine
+to idle.
+
+The duration defect was traced to camera cadence versus VideoWriter timebase:
+Machine A supplied about 30 captured frames per second while the writer
+declared 24 FPS, so 9023 frames from a 300-second segment played for about
+375.96 seconds.
+
+The PR2 source now maps Frame.captured_at monotonic time onto the configured
+constant-frame-rate output instead of assuming that the physical camera obeys
+CAP_PROP_FPS. Faster sources drop surplus presentation frames and slower
+sources duplicate the latest available frame. The implementation therefore
+does not hard-code Machine A's 30 FPS behavior.
+
+Portable-FPS source validation:
+- focused viewer/recording suite: 9/9 PASS, including explicit 30 -> 24 FPS
+  normalization and slower-source duplication regressions;
+- Detection Engine full suite: 294/294 PASS in a disposable CPython 3.12
+  environment containing Engine and locked Identity Agent dependencies;
+- dependency import proof: PASS, including cryptography 50.0.1, OpenCV,
+  FastAPI and pywin32;
+- source immutability after testing: PASS.
+
+A real-camera local FFmpeg smoke also converted a finalized mp4v clip to
+H.264/yuv420p with fast-start while preserving its 52.266667-second duration.
+
+Machine A portable-FPS runtime acceptance is now PASS. The reviewed
+SegmentRecorder from PR2 head 948d82ff21fa2aea2a8cf0713f32ee54b61e94c4
+was deployed with an exact SHA-256 match, and the temporary
+AEGIS_TARGET_FPS=30 workaround was removed. The active runtime now uses
+AEGIS_TARGET_FPS=24 and AEGIS_SEGMENT_SECONDS=300.
+
+Real-camera proof at target_fps=24 observed an approximately 29.95 FPS
+physical capture rate while the recorded CFR remained exactly 24.000 FPS.
+The authenticated Live session produced 2098 captured frames and 1674 CFR
+output frames. Recorder duration was 70.2 seconds; ffprobe reported
+69.750000 seconds, an absolute delta of 0.450000 seconds and ratio
+0.993590. The proof had zero demand-drop, camera-connection-drop, or
+viewer-zero samples before logout. Logout finalized exactly one non-empty
+partial segment and returned the Engine to idle.
+
+Therefore the original approximately-30-FPS-camera versus 24-FPS-writer
+duration defect is closed on Machine A without a per-camera 30 FPS source
+default. Portable FPS runtime acceptance is PASS.
+
+Production Monitor, Production database, Twingate and NAS were not changed.
+Real NAS verification, Archive live playback/seek/download/RBAC, Production
+DB default reconciliation and Production deployment remain pending. PR #344 remains Draft. This is not the final PR2
+receipt and PR2 is not CLOSED.
+
+### PR2 existing Production DB default migration checkpoint - 2026-10-05
+
+Production read-only discovery confirmed that the authoritative Monitor
+database is `aegis_monitor`. Its existing `public.clips` table is present with
+zero rows and `duration_sec INTEGER NOT NULL DEFAULT 600`.
+
+PR2 fresh-schema source already declares `DEFAULT 300`, but an existing table
+retains its previous column default. PR2 therefore adds
+`006_pr2_clip_duration_default_300.sql`.
+
+Migration 006 changes only the future `clips.duration_sec` default to 300. It
+does not update or rewrite historical clip rows or measured durations.
+
+Production Monitor is still the pre-PR2 PR343 image. Production clip storage
+is also not a verified remote NAS: `/nas/clips` is currently a read-only bind
+of `/opt/aegis/data/monitor-clips`, which resolves to the Production server
+root ext4 filesystem and currently contains zero clip files.
+
+Therefore real NAS verification remains pending and `NAS_VERIFIED=PASS` must
+not be claimed.
+
+Remaining acceptance requires real NAS preparation, separately authorized
+Production application of migration 006 and the reviewed PR2 Monitor image,
+followed by end-to-end transfer/hash verification, `stored_on_nas=true`,
+Archive playback/seek/download and RBAC proof.
+
+No Production container, Production database, filesystem, NAS, Twingate,
+Identity Agent, IDEA1 or IDEA3 mutation was performed by this source work.
+PR #344 remains Draft and PR2 is not CLOSED.
+
+### PR2 Machine A NAS client preparation checkpoint - 2026-10-05
+
+Machine A home-side NAS client preparation is complete without contacting a
+NAS or changing Production.
+
+Windows OpenSSH 9.5p2 provides ssh, scp and ssh-keygen. FFmpeg/ffprobe
+8.1.2 are available. Native rsync is not installed, so the reviewed Windows
+transfer method is scp.
+
+A dedicated ED25519 keypair for IDEA2 NAS transfer was created under the
+Detection Engine runtime NAS directory. The private key ACL has inheritance
+disabled and remains local to Machine A. The runtime .env now references
+that dedicated key and sets AEGIS_NAS_METHOD=scp.
+
+Safety state remains fail-closed:
+- AEGIS_NAS_ENABLED=false;
+- NAS host is unset;
+- NAS user is unset;
+- verification mode is checksum;
+- the Detection Engine was not restarted;
+- no NAS connection or transfer was attempted;
+- the Engine remained idle with zero viewers.
+
+This checkpoint proves Machine A client readiness only. It does not prove a
+real NAS, NAS filesystem, NAS account, destination permissions, transfer,
+remote SHA-256 verification, Archive publication or Production NAS mounting.
+
+REAL_NAS_VERIFIED=NO remains mandatory. Production, Twingate, Identity
+Agent, IDEA1 and IDEA3 were unchanged. PR #344 remains Draft and PR2 is not
+CLOSED.
+
+### PR2-S2 onsite acceptance / pre-deploy checkpoint — 2026-10-05
+
+The human owner reports Machine A onsite acceptance complete for the PR2
+recording path. An authenticated real-camera viewer remained
+`CONNECTED=True`, `DEMAND=True`, `VIEWERS=1` continuously across the five-minute
+boundary. The first rollover entered clip-storage transfer pending at about
+299 seconds; verified sync completed while the same viewer stayed active.
+`FULL_ROLLOVER_RUNTIME_GATE=PASS` and `VIEWER_CONTINUOUS_5MIN=PASS` are
+owner-provided live evidence, not repository-test claims.
+
+The final acceptance produced exactly one full 300-second clip (DB clip ID 4,
+`stored_on_nas=true`,
+`/opt/aegis/data/monitor-clips/CAM-01_20261005_212311.mp4`) and one
+83-second logout partial (DB clip ID 5, `stored_on_nas=true`,
+`/opt/aegis/data/monitor-clips/CAM-01_20261005_212811.mp4`). Machine A -> SCP
+-> Beelink clip storage, checksum verification and DB publication only after
+verified transfer all passed. Both files exist on the server and are readable
+but not writable by Monitor. The Monitor mount is
+`/opt/aegis/data/monitor-clips -> /nas/clips` with `RW=false`; Monitor stayed
+running with `RestartCount=0`. This proves `CLIP_STORAGE_INGEST_VERIFIED=YES`,
+not a separate remote physical NAS appliance:
+`REAL_REMOTE_NAS_VERIFIED=NO`.
+
+After logout the Engine was idle (`viewer=0`, `demand=false`, NAS pending=0,
+synced_total=5, failed_total=0). The old local segment baseline was not
+backfilled. `RETURN_TO_MACHINE_A_FOR_PR2=NOT_REQUIRED` for this already
+completed onsite recording gate.
+
+Archive UI source commit `7259d62a89dd16ff9e1494462e6b8f1b9bdbb786`
+embeds a native video player in each card and removes the second expanded
+player. Previously reported verification: targeted Archive 3/3 PASS, Monitor
+188 pass / 59 conditional skip / 0 fail, browser 31/31 PASS, Vite build PASS,
+`git diff --check` PASS. Browser tests use fixtures; they do not prove live
+Production Archive playback.
+
+Still pending: Production PR2 Monitor deployment; application of migration 006
+to change the existing DB duration default from 600 to 300; live Production
+Archive playback/seek and Download; RBAC/session/camera-scope negative
+acceptance; storage capacity and retention decision; final immutable receipt;
+and Ready/merge decisions. `PR2_RECORDING_ARCHIVE=CLOSED` and
+`PRODUCTION_PR2_DEPLOYED=YES` are not claimed. PR #344 remains Draft. This
+documentation checkpoint performs no Production or Machine A mutation.
 
 ## Current task — Operator Live navigation persistence and single-camera layout (2026-10-05)
 
