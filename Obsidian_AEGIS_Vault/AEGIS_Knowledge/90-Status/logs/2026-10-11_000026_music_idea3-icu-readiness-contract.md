@@ -24,7 +24,7 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/tests/test_icu_readiness_contract.py` — tests for synthetic restart rejection, installed unit and Detector evidence shape, authority/attempt gates, exact rollback, preservation, and fail-closed drift.
 - `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-10-idea3-inactive-core-successor-design.md` — reconciled scope and limits with the offline validator; operational runner and marker/journal remain unimplemented.
 - `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md` — updated current task, branch, evidence, and remaining blockers.
-- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-10_235941_music_idea3-icu-readiness-contract.md` — this immutable receipt.
+- `Obsidian_AEGIS_Vault/AEGIS_Knowledge/90-Status/logs/2026-10-11_000026_music_idea3-icu-readiness-contract.md` — this immutable receipt.
 
 All paths are inside the IDEA3 boundary. Shared surfaces touched: **None**.
 
