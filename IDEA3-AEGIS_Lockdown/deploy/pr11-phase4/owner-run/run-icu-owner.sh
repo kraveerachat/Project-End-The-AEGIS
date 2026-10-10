@@ -1,35 +1,35 @@
 #!/usr/bin/env bash
 # ICu repository template. Every PIN_ value must be replaced by the reviewed
 # exact-main freeze process. The committed template refuses to run unpinned.
-# This runner is deliberately closed until actual installed-unit restart
-# behavior has been proven in a separate reviewed task. That proof must not be
-# inferred from synthetic systemd behavior or supplied as an environment flag.
+# The archived installed-unit restart observation is checked before the marker.
+# Its exact digest is pinned in the frozen runner and both authority records.
 # The stage contains zero explicit Detector commands.
 set -Eeuo pipefail
 umask 077
 
 EXPECTED_MAIN=PIN_MAIN_SHA
-readonly AUTHORITATIVE_MAIN="4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17"
+readonly REVIEWED_BASE_MAIN="52afbf16a4094b81ed03a0c8847d7e038af9bb3e"
 OPERATOR_USER=PIN_OPERATOR_USER
 OPERATOR_UID=PIN_OPERATOR_UID
 RUNNER_TEMPLATE_SHA256=PIN_TEMPLATE_SHA256
 UNIT_SNAPSHOT_SHA256=PIN_UNIT_SNAPSHOT_SHA256
+OBSERVATION_SHA256=PIN_OBSERVATION_SHA256
 OLD_RELEASE_ID=954ce1c191885e9e90198a6f54a3d990bcf144fc
 NEW_RELEASE_ID=idea3-core-728c2d9b-20261010
 NEW_RELEASE_SOURCE_MAIN=728c2d9b56d2d8b0b5933202ca20f45e6687602b
 NEW_SUMS_SHA256=0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749
 NEW_MANIFEST_SHA256=b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf
-readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO
+readonly OBSERVATION_DIR=/home/kittipat/Workspace/idea3-p4-evidence/icu-restart-observation-EpXVDDsV
 
-for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RUNNER_TEMPLATE_SHA256 UNIT_SNAPSHOT_SHA256; do
+for pin in EXPECTED_MAIN OPERATOR_USER OPERATOR_UID RUNNER_TEMPLATE_SHA256 UNIT_SNAPSHOT_SHA256 OBSERVATION_SHA256; do
   case "${!pin}" in PIN_*) echo "STOP: runner is not frozen ($pin)."; exit 2 ;; esac
 done
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ ]] || exit 2
-[ "$EXPECTED_MAIN" = "$AUTHORITATIVE_MAIN" ] || { echo "STOP: main pin is not the authoritative PR #430 merge"; exit 2; }
 [[ "$OPERATOR_USER" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || exit 2
 [[ "$OPERATOR_UID" =~ ^[1-9][0-9]{0,9}$ ]] || exit 2
 [[ "$RUNNER_TEMPLATE_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
 [[ "$UNIT_SNAPSHOT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
+[[ "$OBSERVATION_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
 [ "$(id -u)" != 0 ] || { echo "Run as the frozen non-root operator."; exit 2; }
 [ "$(id -un)" = "$OPERATOR_USER" ] && [ "$(id -u)" = "$OPERATOR_UID" ] || exit 2
 
@@ -52,6 +52,7 @@ for f in \
   "frozen_runner_sha256=$ICU_RUNNER_SHA256" \
   "runner_template_sha256=$RUNNER_TEMPLATE_SHA256" \
   "unit_snapshot_sha256=$UNIT_SNAPSHOT_SHA256" \
+  "restart_observation_sha256=$OBSERVATION_SHA256" \
   "operator_user=$OPERATOR_USER" \
   "operator_uid=$OPERATOR_UID" \
   "old_release_id=$OLD_RELEASE_ID" \
@@ -65,6 +66,8 @@ done
 [ "$(git -C "$REPO" rev-parse HEAD)" = "$EXPECTED_MAIN" ] || { echo "STOP: exact main mismatch"; exit 2; }
 [ -z "$(git -C "$REPO" status --porcelain)" ] || { echo "STOP: execution checkout is dirty"; exit 2; }
 git -C "$REPO" fetch -q origin main 2>/dev/null && [ "$(git -C "$REPO" rev-parse origin/main)" = "$EXPECTED_MAIN" ] || { echo "STOP: origin/main mismatch"; exit 2; }
+GIT_NO_REPLACE_OBJECTS=1 git -C "$REPO" merge-base --is-ancestor "$REVIEWED_BASE_MAIN" "$EXPECTED_MAIN" \
+  || { echo "STOP: exact main does not contain reviewed PR #431"; exit 2; }
 
 gate=$(TZ=Asia/Bangkok bash "$P4/p4-stage-gate.sh" --stage ICu --mode live \
   --authorization "$AUTH_DIR/authorization-ICu.txt" --k3 "$AUTH_DIR/k3-ICu.txt") || { printf '%s\n' "$gate"; exit 2; }
@@ -95,6 +98,9 @@ python3 "$P4/p4-icu-upgrade.py" check-release --path "$SOURCE_DIR" --release-id 
 [ -z "$(pgrep -af '[a]egis_soc.production_detector' || true)" ] || { echo "STOP: Detector process exists"; exit 2; }
 UNIT_SNAPSHOT_SEEN=$(python3 "$P4/p4-icu-upgrade.py" unit-snapshot | sed -n 's/^ICU_UNIT_SNAPSHOT_SHA256=//p')
 [ "$UNIT_SNAPSHOT_SEEN" = "$UNIT_SNAPSHOT_SHA256" ] || { echo "STOP: installed unit/drop-in snapshot changed"; exit 2; }
+python3 "$P4/p4-icu-upgrade.py" check-restart-observation --path "$OBSERVATION_DIR" \
+  --unit-snapshot-sha256 "$UNIT_SNAPSHOT_SHA256" --expected-observation-sha256 "$OBSERVATION_SHA256" \
+  || { echo "STOP: actual installed-unit restart observation is incomplete or drifted"; exit 2; }
 
 ATTEMPT_DIR=/var/lib/aegis-idea3/attempts
 ATTEMPT_MARKER=$ATTEMPT_DIR/ICU-GLOBAL-ATTEMPT-CONSUMED
@@ -115,20 +121,14 @@ sudo bash -c "cd '$PRE' && sha256sum -c --quiet --strict SHA256SUMS" || { echo "
 CORE_PRE=$(systemctl show -p MainPID --value aegis-idea3-core.service)/$(systemctl show -p NRestarts --value aegis-idea3-core.service)
 DETECTOR_PRE=$(systemctl show -p MainPID --value aegis-idea3-detector.service)/$(systemctl show -p ActiveState --value aegis-idea3-detector.service)/$(systemctl show -p SubState --value aegis-idea3-detector.service)
 
-# The existing offline readiness evaluator is the source of exact release,
-# Detector, authority, history, preservation and effect checks. A host-bound
-# evidence package must be generated from fresh read-only captures here before
-# marker consumption. It is not supplied by this repository task.
-if [ "$SYSTEMD_RESTART_EFFECT_PROVEN" != YES ]; then
-  echo "ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN"
-  echo "ICU_ATTEMPT_CONSUMED=NO ICU_LIVE_EXECUTED=NO PRODUCTION_MUTATION_PERFORMED=NO"
-  echo "READY_FOR_LIVE=NO RECOVERY_AUTHORIZED=NO"
-  exit 3
-fi
-
-# The branch below is intentionally unreachable in this task. Enabling it
-# requires a reviewed source update after actual installed-unit evidence.
-sudo python3 "$P4/p4-icu-upgrade.py" journal --path "$JOURNAL" --phase attempt_marker_pending || exit 2
+# Recheck both pinned sources after PRE and before the irreversible marker.
+[ "$(python3 "$P4/p4-icu-upgrade.py" unit-snapshot | sed -n 's/^ICU_UNIT_SNAPSHOT_SHA256=//p')" = "$UNIT_SNAPSHOT_SHA256" ] \
+  || { echo "STOP: installed units changed during PRE"; exit 2; }
+python3 "$P4/p4-icu-upgrade.py" check-restart-observation --path "$OBSERVATION_DIR" \
+  --unit-snapshot-sha256 "$UNIT_SNAPSHOT_SHA256" --expected-observation-sha256 "$OBSERVATION_SHA256" \
+  || { echo "STOP: restart observation changed during PRE"; exit 2; }
+sudo python3 "$P4/p4-icu-upgrade.py" journal --path "$JOURNAL" --phase attempt_marker_pending \
+  --unit-snapshot-sha256 "$UNIT_SNAPSHOT_SHA256" --restart-observation-sha256 "$OBSERVATION_SHA256" || exit 2
 sudo python3 "$P4/p4-icu-upgrade.py" consume-marker --path "$ATTEMPT_MARKER" || exit 2
 sudo python3 "$P4/p4-icu-upgrade.py" journal --path "$JOURNAL" --phase attempt_consumed || exit 2
 

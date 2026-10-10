@@ -7,18 +7,38 @@ not offer an environment-variable or command-line override for that blocker.
 
 from __future__ import annotations
 
-import json
+import argparse
+import hashlib
 import importlib.util
+import json
 import os
 import re
 import secrets
-import argparse
-import hashlib
 import subprocess
 from pathlib import Path
 from typing import Any
 
-EXPECTED_MAIN = "4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17"
+REVIEWED_BASE_MAIN = "52afbf16a4094b81ed03a0c8847d7e038af9bb3e"
+
+
+def _source_main() -> str:
+    """Read the executing Git checkout; never accept a caller-selected revision."""
+    repo = Path(__file__).resolve().parents[3]
+    env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "GIT_NO_REPLACE_OBJECTS": "1",
+           "GIT_CONFIG_GLOBAL": "/dev/null"}
+    git = ["git", "-c", f"safe.directory={repo}", "-C", str(repo)]
+    try:
+        head = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
+                              env=env, timeout=15, check=True).stdout.strip()
+        subprocess.run(git + ["merge-base", "--is-ancestor", REVIEWED_BASE_MAIN, head],
+                       capture_output=True, env=env, timeout=15, check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ICuRefused("ICU_SOURCE_MAIN_NOT_REVIEWED_SUCCESSOR") from exc
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        raise ICuRefused("ICU_SOURCE_MAIN_INVALID")
+    return head
+
+
 OLD_RELEASE_ID = "954ce1c191885e9e90198a6f54a3d990bcf144fc"
 NEW_RELEASE_ID = "idea3-core-728c2d9b-20261010"
 NEW_RELEASE_SOURCE_MAIN = "728c2d9b56d2d8b0b5933202ca20f45e6687602b"
@@ -26,7 +46,7 @@ OLD_SUMS_SHA256 = "9b2faeb4f44225bcf38ba6df5b5403e014998c7310e7c04a77c30c03f2d17
 OLD_MANIFEST_SHA256 = "732d6af5afb0451e51655078abd8c6dc04a72ed258fb04e79c806210f2002a18"
 NEW_SUMS_SHA256 = "0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749"
 NEW_MANIFEST_SHA256 = "b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf"
-SYSTEMD_RESTART_EFFECT_PROVEN = False
+RESTART_OBSERVATION_DIR = Path("/home/kittipat/Workspace/idea3-p4-evidence/icu-restart-observation-EpXVDDsV")
 PRESERVED_KEYS = {
     "idea1", "idea2", "mqtt_broker", "mqtt_service_2", "twingate", "tunnel",
     "firewall", "nftables", "network", "relay", "esp32", "incidents",
@@ -59,6 +79,121 @@ JOURNAL_TRANSITIONS = {
 
 class ICuRefused(RuntimeError):
     """A stable fail-closed reason without host-sensitive details."""
+
+
+EXPECTED_MAIN = _source_main()
+
+
+def verify_restart_observation_dir(directory: Path, unit_snapshot_sha256: str,
+                                   expected_observation_sha256: str | None = None) -> dict[str, Any]:
+    """Verify archived local observation bytes before any attempt is consumed."""
+    directory = Path(directory)
+    contract_path = Path(__file__).resolve().parent / "inactive-core-successor/inactive_core_successor_contract.py"
+    spec = importlib.util.spec_from_file_location("p4_icu_restart_contract", contract_path)
+    if spec is None or spec.loader is None:
+        raise ICuRefused("ICU_RESTART_CONTRACT_UNAVAILABLE")
+    contract = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(contract)
+    names = set(contract.ICU_OBSERVATION_ARTIFACT_SHA256) | {"observation.json"}
+    if directory.is_symlink() or not directory.is_dir() or {item.name for item in directory.iterdir()} != names:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_INCOMPLETE")
+    contents: dict[str, bytes] = {}
+    for name in sorted(names):
+        path = directory / name
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+            raise ICuRefused("ICU_RESTART_OBSERVATION_FILE_UNSAFE")
+        contents[name] = path.read_bytes()
+    hashes = {name: hashlib.sha256(body).hexdigest() for name, body in contents.items()}
+    if any(hashes[name] != digest for name, digest in contract.ICU_OBSERVATION_ARTIFACT_SHA256.items()):
+        raise ICuRefused("ICU_RESTART_OBSERVATION_ARTIFACT_MISMATCH")
+    if (contents["detector-lifecycle-window.log"] != b"-- No entries --\n"
+            or b"aegis-idea3-detector" in contents["systemd-manager-events.log"]):
+        raise ICuRefused("ICU_RESTART_OBSERVATION_DETECTOR_EVENT")
+    if b"aegis-idea3-core.service: Deactivated successfully." not in contents["systemd-manager-events.log"]:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_CORE_EVENT_MISSING")
+    if contents["shared-before.txt"] != contents["shared-after.txt"]:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_SHARED_DRIFT")
+    try:
+        record = json.loads(contents["observation.json"].decode("ascii"))
+    except (UnicodeError, ValueError) as exc:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_RECORD_INVALID") from exc
+    if not isinstance(record, dict) or set(record) != {
+        "schema", "host", "restart_argv", "restart_exit_code", "core_before_show", "core_after_show",
+        "detector_before_show", "detector_after_show", "detector_process_count_before",
+        "detector_process_count_after", "release_before", "release_after", "unit_snapshot_before",
+        "unit_snapshot_after",
+    } or record.get("schema") != "aegis-icu-installed-restart-observation-v1" or record.get("host") != "archlinux":
+        raise ICuRefused("ICU_RESTART_OBSERVATION_RECORD_INVALID")
+
+    def show(key: str, fields: set[str]) -> dict[str, str]:
+        raw = record.get(key)
+        if not isinstance(raw, str) or not raw.endswith("\n") or "\r" in raw:
+            raise ICuRefused("ICU_RESTART_OBSERVATION_SHOW_INVALID")
+        values: dict[str, str] = {}
+        for line in raw.splitlines():
+            name, sep, value = line.partition("=")
+            if not sep or name not in fields or name in values or not value:
+                raise ICuRefused("ICU_RESTART_OBSERVATION_SHOW_INVALID")
+            values[name] = value
+        if set(values) != fields:
+            raise ICuRefused("ICU_RESTART_OBSERVATION_SHOW_INVALID")
+        return values
+
+    core_fields = {"LoadState", "ActiveState", "SubState", "MainPID", "NRestarts"}
+    detector_fields = core_fields | {"UnitFileState", "Restart", "Requires", "After"}
+    core_before = show("core_before_show", core_fields)
+    core_after = show("core_after_show", core_fields)
+    detector_before = show("detector_before_show", detector_fields)
+    detector_after = show("detector_after_show", detector_fields)
+    for state in (core_before, core_after):
+        if state["LoadState"] != "loaded" or not re.fullmatch(r"[0-9]+", state["MainPID"] + state["NRestarts"]):
+            raise ICuRefused("ICU_RESTART_OBSERVATION_CORE_INVALID")
+    for state in (detector_before, detector_after):
+        if not re.fullmatch(r"[0-9]+", state["MainPID"] + state["NRestarts"]):
+            raise ICuRefused("ICU_RESTART_OBSERVATION_DETECTOR_INVALID")
+        if ("aegis-idea3-core.service" not in state["Requires"].split()
+                or "aegis-idea3-core.service" not in state["After"].split()
+                or state["Restart"] != "no"):
+            raise ICuRefused("ICU_RESTART_OBSERVATION_DETECTOR_INVALID")
+    if detector_before != detector_after or any(
+        type(record.get(key)) is not int or record[key] != 0
+        for key in ("detector_process_count_before", "detector_process_count_after")
+    ):
+        raise ICuRefused("ICU_RESTART_OBSERVATION_DETECTOR_INVALID")
+    if not SHA256_RE.fullmatch(unit_snapshot_sha256) or record["unit_snapshot_before"] != unit_snapshot_sha256:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_UNIT_MISMATCH")
+    bundle_body = "".join(f"{name}={hashes[name]}\n" for name in sorted(names)).encode("ascii")
+    bundle_sha = hashlib.sha256(bundle_body).hexdigest()
+    if expected_observation_sha256 is not None and bundle_sha != expected_observation_sha256:
+        raise ICuRefused("ICU_RESTART_OBSERVATION_PIN_MISMATCH")
+    observation = {
+        "result": "PASS_LOCAL",
+        "evidence_class": "ACTUAL_INSTALLED_UNIT_RESTART_OBSERVATION",
+        "core_restart_argv": record["restart_argv"],
+        "restart_exit_code": record["restart_exit_code"],
+        "core_pre": {"state": core_before["ActiveState"] + "/" + core_before["SubState"],
+                     "pid": int(core_before["MainPID"]), "n_restarts": int(core_before["NRestarts"])},
+        "core_post": {"state": core_after["ActiveState"] + "/" + core_after["SubState"],
+                      "pid": int(core_after["MainPID"]), "n_restarts": int(core_after["NRestarts"])},
+        "detector_pre": "/".join((detector_before["LoadState"], detector_before["ActiveState"],
+                                  detector_before["SubState"], detector_before["UnitFileState"],
+                                  "pid" + detector_before["MainPID"], "nrestarts" + detector_before["NRestarts"],
+                                  "process0")),
+        "detector_post": "/".join((detector_after["LoadState"], detector_after["ActiveState"],
+                                   detector_after["SubState"], detector_after["UnitFileState"],
+                                   "pid" + detector_after["MainPID"], "nrestarts" + detector_after["NRestarts"],
+                                   "process0")),
+        "detector_lifecycle_events": 0,
+        "release_pre": record["release_before"],
+        "release_post": record["release_after"],
+        "unit_snapshot_pre": record["unit_snapshot_before"],
+        "unit_snapshot_post": record["unit_snapshot_after"],
+        "observation_sha256": bundle_sha,
+        "artifact_sha256": {name: hashes[name] for name in contract.ICU_OBSERVATION_ARTIFACT_SHA256},
+    }
+    if not contract.icu_restart_observation_consistent(observation):
+        raise ICuRefused("ICU_RESTART_OBSERVATION_CONTRACT_MISMATCH")
+    return observation
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -264,17 +399,22 @@ def read_journal(path: Path) -> dict[str, Any]:
 def validate_exact_authority(auth: dict[str, str], k3: dict[str, str], *, runner_sha256: str,
                              runner_template_sha256: str,
                              operator_user: str, operator_uid: str, unit_snapshot_sha256: str,
+                             restart_observation_sha256: str,
                              today: str) -> None:
     """Require independently recorded, exact-pin-matching ICu Authorization + K3."""
     required = {
         "stage": "ICu", "expected_main": EXPECTED_MAIN, "frozen_runner_sha256": runner_sha256,
         "runner_template_sha256": runner_template_sha256,
         "operator_user": operator_user, "operator_uid": operator_uid,
-        "unit_snapshot_sha256": unit_snapshot_sha256, "old_release_id": OLD_RELEASE_ID,
+        "unit_snapshot_sha256": unit_snapshot_sha256,
+        "restart_observation_sha256": restart_observation_sha256,
+        "old_release_id": OLD_RELEASE_ID,
         "new_release_id": NEW_RELEASE_ID, "new_release_source_main": NEW_RELEASE_SOURCE_MAIN,
         "new_sums_sha256": NEW_SUMS_SHA256, "new_manifest_sha256": NEW_MANIFEST_SHA256,
     }
-    if not all(SHA256_RE.fullmatch(value) for value in (runner_sha256, runner_template_sha256, unit_snapshot_sha256)):
+    if not all(SHA256_RE.fullmatch(value) for value in (
+        runner_sha256, runner_template_sha256, unit_snapshot_sha256, restart_observation_sha256,
+    )):
         raise ICuRefused("ICU_AUTHORITY_DIGEST_INVALID")
     if set(auth) != (set(required) | {"date", "authorizer", "scope", "reference"}):
         raise ICuRefused("ICU_AUTHORIZATION_FIELDS_INVALID")
@@ -304,7 +444,16 @@ def validate_preflight(facts: dict[str, Any]) -> None:
     before = facts.get("preserved_services")
     if not isinstance(before, dict) or set(before) != PRESERVED_KEYS:
         raise ICuRefused("ICU_PRESERVATION_SNAPSHOT_INVALID")
-    if facts.get("restart_effect") != "NOT_PROVEN" or not SYSTEMD_RESTART_EFFECT_PROVEN:
+    unit_sha = facts.get("unit_snapshot_sha256")
+    observation_sha = facts.get("restart_observation_sha256")
+    if (not isinstance(unit_sha, str) or not isinstance(observation_sha, str)
+            or not SHA256_RE.fullmatch(observation_sha)):
+        raise ICuRefused("ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN")
+    try:
+        verified = verify_restart_observation_dir(RESTART_OBSERVATION_DIR, unit_sha, observation_sha)
+    except ICuRefused as exc:
+        raise ICuRefused("ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN") from exc
+    if facts.get("restart_effect") != verified:
         raise ICuRefused("ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN")
 
 
@@ -360,7 +509,6 @@ def execute(backend: Any, marker: Path, journal_path: Path | None = None) -> dic
     """Preflight, consume once, then run journaled bounded operations if unblocked."""
     facts = backend.preflight()  # read-only; backend must bind both exact release guards and unit digests
     validate_preflight(facts)
-    # This intentionally remains unreachable while the actual installed-unit consequence is NOT_PROVEN.
     journal = Path(journal_path) if journal_path else Path(marker).with_name("icu-journal.json")
     marker = Path(marker)
     if marker.exists() or marker.is_symlink():
@@ -460,6 +608,8 @@ def _main() -> int:
     journal.add_argument("--path", required=True, type=Path)
     journal.add_argument("--phase", required=True)
     journal.add_argument("--set", action="append", default=[])
+    journal.add_argument("--unit-snapshot-sha256")
+    journal.add_argument("--restart-observation-sha256")
     journal_assert = commands.add_parser("assert-journal")
     journal_assert.add_argument("--path", required=True, type=Path)
     journal_assert.add_argument("--phase", required=True)
@@ -470,6 +620,10 @@ def _main() -> int:
     check.add_argument("--sums-sha256", required=True)
     check.add_argument("--manifest-sha256", required=True)
     commands.add_parser("unit-snapshot")
+    observation = commands.add_parser("check-restart-observation")
+    observation.add_argument("--path", required=True, type=Path)
+    observation.add_argument("--unit-snapshot-sha256", required=True)
+    observation.add_argument("--expected-observation-sha256", required=True)
     args = parser.parse_args()
     try:
         if args.command == "consume-marker":
@@ -489,6 +643,18 @@ def _main() -> int:
                     state[key] = value == "true"
                 else:
                     raise ICuRefused("ICU_JOURNAL_BOOLEAN_INVALID")
+            if args.phase == "attempt_marker_pending":
+                if (not isinstance(args.unit_snapshot_sha256, str)
+                        or not isinstance(args.restart_observation_sha256, str)
+                        or not SHA256_RE.fullmatch(args.unit_snapshot_sha256)
+                        or not SHA256_RE.fullmatch(args.restart_observation_sha256)):
+                    raise ICuRefused("ICU_JOURNAL_OBSERVATION_PIN_MISSING")
+                state["preflight"] = {
+                    "unit_snapshot_sha256": args.unit_snapshot_sha256,
+                    "restart_observation_sha256": args.restart_observation_sha256,
+                }
+            elif args.unit_snapshot_sha256 is not None or args.restart_observation_sha256 is not None:
+                raise ICuRefused("ICU_JOURNAL_OBSERVATION_PIN_REWRITE_REFUSED")
             write_ahead_journal(args.path, args.phase, state)
         elif args.command == "assert-journal":
             data = read_journal(args.path)
@@ -498,6 +664,12 @@ def _main() -> int:
             check_release(args.path, args.release_id, args.source_main, args.sums_sha256, args.manifest_sha256)
         elif args.command == "unit-snapshot":
             print(f"ICU_UNIT_SNAPSHOT_SHA256={unit_snapshot_sha256()}")
+            return 0
+        elif args.command == "check-restart-observation":
+            checked = verify_restart_observation_dir(
+                args.path, args.unit_snapshot_sha256, args.expected_observation_sha256,
+            )
+            print(f"ICU_RESTART_OBSERVATION_SHA256={checked['observation_sha256']}")
             return 0
         print("ICU_TOOL=PASS")
         return 0
