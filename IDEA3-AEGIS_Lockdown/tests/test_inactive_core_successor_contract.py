@@ -235,7 +235,8 @@ def test_report_never_claims_production_readiness_authorization_or_physical_effe
     assert report["authorization"] == "NONE"
     assert report["physical_containment"] == "NOT_PROVEN"
     assert "INSTALLED_SYSTEMD_BEHAVIOR_NOT_LIVE_PROVEN" in report["blockers"]
-    assert "CURRENT_OLD_RELEASE_TREE_DIGEST_NOT_SUPPLIED" in report["blockers"]
+    assert "OLD_RELEASE_TREE_DIGEST_OWNER_ATTESTED_NOT_REINSPECTED" in report["blockers"]
+    assert "ROLLBACK_APPROVAL_IS_DESIGN_ONLY_NOT_LIVE" in report["blockers"]
 
 
 def test_checker_has_no_filesystem_process_network_or_host_control_imports():
