@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,6 +17,17 @@ FREEZER = DEPLOY / "icu_runner_freeze.py"
 P4_LIB = DEPLOY / "p4-lib.sh"
 RUNNER = DEPLOY / "owner-run/run-icu-owner.sh"
 STAGE_GATE = DEPLOY / "p4-stage-gate.sh"
+OBSERVATION_FIXTURE = ROOT / "tests/fixtures/icu-restart-observation"
+SHARED_CAPTURE = "".join(
+    f"{service} ActiveState=active SubState=running MainPID={pid} \n"
+    for service, pid in (
+        ("aegis-detection-engine.service", 947),
+        ("aegis-detection-tunnel.service", 366609),
+        ("mosquitto.service", 951),
+        ("aegis-idea3-mosquitto.service", 7573),
+        ("twingate.service", 952),
+    )
+).encode()
 
 SPEC = importlib.util.spec_from_file_location("p4_icu_upgrade", TOOL)
 ICU = importlib.util.module_from_spec(SPEC)
@@ -43,20 +57,18 @@ def test_icu_is_registered_as_unique_mutating_stage_before_recovery(tmp_path: Pa
     assert stages.index("CTv") < stages.index("ICu") < stages.index("Recovery")
 
 
-def test_frozen_runner_is_pinned_and_refuses_unknown_restart_effect_before_marker() -> None:
+def test_frozen_runner_checks_pinned_observation_before_marker() -> None:
     text = RUNNER.read_text()
     assert "EXPECTED_MAIN=PIN_MAIN_SHA" in text
     assert "OLD_RELEASE_ID=954ce1c191885e9e90198a6f54a3d990bcf144fc" in text
     assert "NEW_RELEASE_ID=idea3-core-728c2d9b-20261010" in text
-    assert "SYSTEMD_RESTART_EFFECT_PROVEN=NO" in text
-    assert "ACTUAL_INSTALLED_UNIT_RESTART_EFFECT_NOT_PROVEN" in text
-    blocker = text.index('if [ "$SYSTEMD_RESTART_EFFECT_PROVEN" != YES ]')
+    assert "OBSERVATION_SHA256=PIN_OBSERVATION_SHA256" in text
+    blocker = text.index('check-restart-observation --path "$OBSERVATION_DIR"')
     marker = text.index('consume-marker --path "$ATTEMPT_MARKER"')
     assert blocker < marker
-    assert "readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO" in text
-    assert 'readonly AUTHORITATIVE_MAIN="4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17"' in text
+    assert 'readonly REVIEWED_BASE_MAIN="52afbf16a4094b81ed03a0c8847d7e038af9bb3e"' in text
     rollback = (DEPLOY / "stages/ICu/rollback.sh").read_text()
-    assert "readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO" in rollback
+    assert "check-restart-observation --path \"$OBSERVATION_DIR\"" in rollback
     assert "${SYSTEMD_RESTART_EFFECT_PROVEN:-NO}" not in rollback
     assert "Detector command" in text
 
@@ -75,7 +87,8 @@ def test_attempt_marker_is_exclusive_durable_and_never_reusable(tmp_path: Path) 
         raise AssertionError("a second invocation must be refused")
 
 
-def _authority_records(tmp_path: Path, *, k3_unit: str = "c" * 64) -> tuple[Path, Path]:
+def _authority_records(tmp_path: Path, *, k3_unit: str = "c" * 64,
+                       k3_observation: str = "e" * 64) -> tuple[Path, Path]:
     today = subprocess.run(["date", "+%F"], check=True, text=True, capture_output=True,
                            env={**os.environ, "TZ": "Asia/Bangkok"}).stdout.strip()
     fields = {
@@ -83,6 +96,7 @@ def _authority_records(tmp_path: Path, *, k3_unit: str = "c" * 64) -> tuple[Path
         "frozen_runner_sha256": "a" * 64,
         "runner_template_sha256": "b" * 64,
         "unit_snapshot_sha256": "c" * 64,
+        "restart_observation_sha256": "e" * 64,
         "operator_user": "kittipat",
         "operator_uid": "1000",
         "old_release_id": ICU.OLD_RELEASE_ID,
@@ -96,7 +110,8 @@ def _authority_records(tmp_path: Path, *, k3_unit: str = "c" * 64) -> tuple[Path
     common = "".join(f"{key}={value}\n" for key, value in fields.items())
     auth.write_text("AEGIS_P4_AUTHORIZATION_V1\n" + f"stage=ICu\ndate={today}\nauthorizer=music\n"
                     "scope=Governed ICu executor\nreference=https://example.test/icu\n" + common)
-    k3_values = fields | {"unit_snapshot_sha256": k3_unit}
+    k3_values = fields | {"unit_snapshot_sha256": k3_unit,
+                          "restart_observation_sha256": k3_observation}
     k3_common = "".join(f"{key}={value}\n" for key, value in k3_values.items())
     k3.write_text("AEGIS_P4_K3_CONFIRMATION_V1\n" + f"stage=ICu\ndate={today}\nconfirmed_by=kraveerachat\n"
                   "idea1_window_overlap=NONE\nreference=https://example.test/icu-k3\n" + k3_common)
@@ -125,11 +140,22 @@ def test_stage_gate_refuses_icu_authority_k3_pin_mismatch(tmp_path: Path) -> Non
     assert "K3_ICU_BINDING_MISMATCH" in result.stdout
 
 
+def test_stage_gate_refuses_observation_digest_mismatch(tmp_path: Path) -> None:
+    auth, k3 = _authority_records(tmp_path, k3_observation="f" * 64)
+    result = subprocess.run(["bash", str(STAGE_GATE), "--stage", "ICu", "--mode", "simulate",
+                             "--authorization", str(auth), "--k3", str(k3)],
+                            check=False, text=True, capture_output=True,
+                            env={**os.environ, "TZ": "Asia/Bangkok"})
+    assert result.returncode == 1
+    assert "K3_ICU_BINDING_MISMATCH" in result.stdout
+
+
 def test_exact_authority_rejects_extra_fields_and_stale_date() -> None:
     required = {
         "stage": "ICu", "expected_main": ICU.EXPECTED_MAIN,
         "frozen_runner_sha256": "a" * 64, "runner_template_sha256": "b" * 64,
-        "unit_snapshot_sha256": "c" * 64, "operator_user": "kittipat", "operator_uid": "1000",
+        "unit_snapshot_sha256": "c" * 64, "restart_observation_sha256": "e" * 64,
+        "operator_user": "kittipat", "operator_uid": "1000",
         "old_release_id": ICU.OLD_RELEASE_ID, "new_release_id": ICU.NEW_RELEASE_ID,
         "new_release_source_main": ICU.NEW_RELEASE_SOURCE_MAIN, "new_sums_sha256": ICU.NEW_SUMS_SHA256,
         "new_manifest_sha256": ICU.NEW_MANIFEST_SHA256,
@@ -139,12 +165,14 @@ def test_exact_authority_rejects_extra_fields_and_stale_date() -> None:
                      "reference": "https://example.test/k"}
     ICU.validate_exact_authority(auth, k3, runner_sha256="a" * 64, runner_template_sha256="b" * 64,
                                  operator_user="kittipat", operator_uid="1000",
-                                 unit_snapshot_sha256="c" * 64, today="2026-10-11")
+                                 unit_snapshot_sha256="c" * 64,
+                                 restart_observation_sha256="e" * 64, today="2026-10-11")
     try:
         ICU.validate_exact_authority(auth | {"recovery_authorization": "https://example.test/recovery"}, k3,
                                      runner_sha256="a" * 64, runner_template_sha256="b" * 64,
                                      operator_user="kittipat", operator_uid="1000",
-                                     unit_snapshot_sha256="c" * 64, today="2026-10-11")
+                                     unit_snapshot_sha256="c" * 64,
+                                     restart_observation_sha256="e" * 64, today="2026-10-11")
     except ICU.ICuRefused as exc:
         assert str(exc) == "ICU_AUTHORIZATION_FIELDS_INVALID"
     else:
@@ -159,24 +187,166 @@ def test_freezer_binds_exact_main_template_operator_unit_snapshot_and_repo_path(
         operator_user="kittipat",
         operator_uid="1000",
         unit_snapshot_sha256="c" * 64,
+        restart_observation_sha256="e" * 64,
         repo_path="/srv/aegis/exact-main",
     )
     assert template_sha == __import__("hashlib").sha256(template.encode()).hexdigest()
     assert runner_sha == __import__("hashlib").sha256(rendered.encode()).hexdigest()
     assert all(token not in rendered for token in FREEZER_MODULE.PIN_VALUES)
     assert f"EXPECTED_MAIN={ICU.EXPECTED_MAIN}" in rendered
-    assert "readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO" in rendered
+    assert "OBSERVATION_SHA256=" + "e" * 64 in rendered
 
 
-def test_freezer_refuses_wrong_main_and_repository_local_output() -> None:
+def test_freezer_accepts_current_main_after_reviewed_431_ancestor() -> None:
+    current_main = subprocess.run(
+        ["git", "-C", str(ROOT.parent), "rev-parse", "HEAD"],
+        check=True, text=True, capture_output=True,
+    ).stdout.strip()
+    assert subprocess.run(
+        ["git", "-C", str(ROOT.parent), "merge-base", "--is-ancestor",
+         "52afbf16a4094b81ed03a0c8847d7e038af9bb3e", current_main],
+        check=False,
+    ).returncode == 0
+    rendered, template_sha, runner_sha = FREEZER_MODULE.render_runner(
+        RUNNER.read_text(), expected_main=current_main, operator_user="kittipat",
+        operator_uid="1000", unit_snapshot_sha256="c" * 64,
+        restart_observation_sha256="e" * 64,
+        repo_path="/srv/aegis/exact-main",
+    )
+    assert f"EXPECTED_MAIN={current_main}" in rendered
+    assert template_sha == hashlib.sha256(RUNNER.read_bytes()).hexdigest()
+    assert runner_sha == hashlib.sha256(rendered.encode()).hexdigest()
+
+
+def test_executor_journal_binds_its_actual_source_commit(tmp_path: Path) -> None:
+    current = subprocess.run(
+        ["git", "-C", str(ROOT.parent), "rev-parse", "HEAD"],
+        check=True, text=True, capture_output=True,
+    ).stdout.strip()
+    journal = ICU.write_ahead_journal(tmp_path / "icu-journal.json", "attempt_marker_pending")
+    assert journal["expected_main"] == current
+
+
+def _copy_observation_fixture(directory: Path) -> None:
+    shutil.copytree(OBSERVATION_FIXTURE, directory)
+    for name in ("shared-before.txt", "shared-after.txt"):
+        (directory / name).write_bytes(SHARED_CAPTURE)
+
+
+def _complete_observation(tmp_path: Path) -> Path:
+    directory = tmp_path / "observation"
+    _copy_observation_fixture(directory)
+    core_before = "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=949\nNRestarts=0\n"
+    core_after = "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=366896\nNRestarts=0\n"
+    detector = ("LoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=disabled\n"
+                "MainPID=0\nNRestarts=0\nRestart=no\nRequires=aegis-idea3-core.service\n"
+                "After=aegis-idea3-core.service\n")
+    (directory / "observation.json").write_text(json.dumps({
+        "schema": "aegis-icu-installed-restart-observation-v1",
+        "host": "archlinux",
+        "restart_argv": ["systemctl", "restart", "aegis-idea3-core.service"],
+        "restart_exit_code": 0,
+        "core_before_show": core_before,
+        "core_after_show": core_after,
+        "detector_before_show": detector,
+        "detector_after_show": detector,
+        "detector_process_count_before": 0,
+        "detector_process_count_after": 0,
+        "release_before": ICU.OLD_RELEASE_ID,
+        "release_after": ICU.OLD_RELEASE_ID,
+        "unit_snapshot_before": "b" * 64,
+        "unit_snapshot_after": "b" * 64,
+    }, sort_keys=True) + "\n")
+    return directory
+
+
+def test_observation_reader_requires_archived_core_and_detector_captures(tmp_path: Path) -> None:
+    directory = tmp_path / "observation"
+    _copy_observation_fixture(directory)
+    with pytest.raises(ICU.ICuRefused, match="ICU_RESTART_OBSERVATION_INCOMPLETE"):
+        ICU.verify_restart_observation_dir(directory, "b" * 64)
+
+
+def test_observation_reader_checks_real_log_hashes_and_pid_transition(tmp_path: Path) -> None:
+    directory = _complete_observation(tmp_path)
+    observation = ICU.verify_restart_observation_dir(directory, "b" * 64)
+    assert observation["core_pre"]["pid"] == 949
+    assert observation["core_post"]["pid"] == 366896
+    assert observation["result"] == "PASS_LOCAL"
+    assert len(observation["observation_sha256"]) == 64
+    with (directory / "systemd-manager-events.log").open("a") as stream:
+        stream.write("aegis-idea3-detector.service: Started\n")
+    with pytest.raises(ICU.ICuRefused, match="ICU_RESTART_OBSERVATION_ARTIFACT_MISMATCH"):
+        ICU.verify_restart_observation_dir(directory, "b" * 64)
+
+
+def test_observation_cli_and_initial_journal_pin_exact_archive(tmp_path: Path) -> None:
+    directory = _complete_observation(tmp_path)
+    digest = ICU.verify_restart_observation_dir(directory, "b" * 64)["observation_sha256"]
+    command = ["python3", str(TOOL), "check-restart-observation", "--path", str(directory),
+               "--unit-snapshot-sha256", "b" * 64, "--expected-observation-sha256", digest]
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    assert result.returncode == 0
+    assert f"ICU_RESTART_OBSERVATION_SHA256={digest}" in result.stdout
+    result = subprocess.run(command[:-1] + ["a" * 64], text=True, capture_output=True, check=False)
+    assert result.returncode == 1
+    assert "ICU_RESTART_OBSERVATION_PIN_MISMATCH" in result.stdout
+    journal = tmp_path / "icu-journal.json"
+    result = subprocess.run(["python3", str(TOOL), "journal", "--path", str(journal),
+                             "--phase", "attempt_marker_pending", "--unit-snapshot-sha256", "b" * 64,
+                             "--restart-observation-sha256", digest], text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ICU.read_journal(journal)["preflight"] == {
+        "unit_snapshot_sha256": "b" * 64, "restart_observation_sha256": digest,
+    }
+
+
+def test_executor_preflight_rechecks_archived_observation_before_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    directory = _complete_observation(tmp_path)
+    certificate = ICU.verify_restart_observation_dir(directory, "b" * 64)
+    monkeypatch.setattr(ICU, "RESTART_OBSERVATION_DIR", directory)
+    facts = {
+        "restart_effect": certificate,
+        "restart_observation_sha256": certificate["observation_sha256"],
+        "unit_snapshot_sha256": "b" * 64,
+        "current_release_id": ICU.OLD_RELEASE_ID,
+        "core_active_state": "active",
+        "detector_state": "loaded/inactive/dead/disabled/pid0/process0",
+        "ctu_ctv_history": "FAIL_IMMUTABLE_CONSUMED",
+        "recovery_authorized": "NO",
+        "preserved_services": {key: "UNCHANGED" for key in ICU.PRESERVED_KEYS},
+    }
+    ICU.validate_preflight(facts)
+    (directory / "observation.json").write_text("{}\n")
+    with pytest.raises(ICU.ICuRefused):
+        ICU.validate_preflight(facts)
+
+
+def test_freeze_refuses_unrelated_main_even_when_head_matches_origin(tmp_path: Path) -> None:
+    repo = tmp_path / "foreign-repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=ICu Test",
+                    "-c", "user.email=icu@example.test", "commit", "-q", "--allow-empty", "-m", "foreign"],
+                   check=True)
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True,
+                          text=True, capture_output=True).stdout.strip()
+    subprocess.run(["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", head], check=True)
+    with pytest.raises(ValueError, match="ICU_FREEZE_REVIEWED_ANCESTOR_MISSING"):
+        FREEZER_MODULE.freeze(repo, tmp_path / "runner", "kittipat", "1000")
+
+
+def test_freezer_refuses_malformed_main() -> None:
     try:
-        FREEZER_MODULE.render_runner(RUNNER.read_text(), expected_main="0" * 40, operator_user="kittipat",
+        FREEZER_MODULE.render_runner(RUNNER.read_text(), expected_main="not-a-main", operator_user="kittipat",
                                      operator_uid="1000", unit_snapshot_sha256="c" * 64,
+                                     restart_observation_sha256="e" * 64,
                                      repo_path="/srv/aegis/exact-main")
     except ValueError as exc:
         assert str(exc) == "ICU_FREEZE_MAIN_MISMATCH"
     else:
-        raise AssertionError("the source pin is fixed to the specified merged main")
+        raise AssertionError("the frozen source pin must be a full commit SHA")
 
 
 def test_write_ahead_journal_is_atomic_durable_and_binds_exact_release_pins(tmp_path: Path) -> None:
@@ -254,8 +424,9 @@ def test_unknown_restart_effect_refuses_before_marker_and_any_mutation(tmp_path:
 
 
 class _ExecutorBackend:
-    def __init__(self, failure: str) -> None:
+    def __init__(self, failure: str, observation: dict[str, object]) -> None:
         self.failure = failure
+        self.observation = observation
         self.current = ICU.OLD_RELEASE_ID
         self.installed = False
         self.operations: list[tuple[str, str]] = []
@@ -264,7 +435,9 @@ class _ExecutorBackend:
 
     def preflight(self) -> dict[str, object]:
         return {
-            "restart_effect": "NOT_PROVEN",
+            "restart_effect": self.observation,
+            "restart_observation_sha256": self.observation["observation_sha256"],
+            "unit_snapshot_sha256": "b" * 64,
             "current_release_id": ICU.OLD_RELEASE_ID,
             "core_active_state": "active",
             "detector_state": "loaded/inactive/dead/disabled/pid0/process0",
@@ -321,11 +494,10 @@ def test_executor_failure_rolls_back_only_attempt_owned_state_and_never_retries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
     expected_switches: int, expected_restarts: int, expected_install: bool,
 ) -> None:
-    # Exercise otherwise unreachable state transitions with a fake backend. The
-    # module default and frozen runner remain hard-blocked for any live use.
-    monkeypatch.setattr(ICU, "SYSTEMD_RESTART_EFFECT_PROVEN", True)
-    assert ICU.SYSTEMD_RESTART_EFFECT_PROVEN is True
-    backend = _ExecutorBackend(failure)
+    # Exercise journal and rollback transitions with a complete offline archive.
+    directory = _complete_observation(tmp_path)
+    monkeypatch.setattr(ICU, "RESTART_OBSERVATION_DIR", directory)
+    backend = _ExecutorBackend(failure, ICU.verify_restart_observation_dir(directory, "b" * 64))
     marker = tmp_path / "ICU-GLOBAL-ATTEMPT-CONSUMED"
     journal_path = tmp_path / "icu-journal.json"
 
@@ -352,6 +524,6 @@ def test_executor_failure_rolls_back_only_attempt_owned_state_and_never_retries(
     assert backend.operations == operations_before_retry
 
 
-def test_executor_default_keeps_restart_effect_blocked() -> None:
-    assert ICU.SYSTEMD_RESTART_EFFECT_PROVEN is False
-    assert "readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO" in RUNNER.read_text()
+def test_supplied_observation_directory_still_fails_closed_without_raw_capture() -> None:
+    with pytest.raises(ICU.ICuRefused, match="ICU_RESTART_OBSERVATION_INCOMPLETE"):
+        ICU.verify_restart_observation_dir(ICU.RESTART_OBSERVATION_DIR, "b" * 64)

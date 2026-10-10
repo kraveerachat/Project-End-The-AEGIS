@@ -140,3 +140,56 @@ def test_pin_unit_or_attempt_drift_fails_closed():
     assert report["checks"]["preservation"] == "REJECTED"
     assert report["attempt_marker_may_be_consumed"] is False
     assert report["live_executor"] == "BLOCKED"
+
+
+def test_readiness_accepts_complete_local_restart_observation_but_not_live_authority():
+    sample = evidence()
+    sample["restart_effect"] = {
+        "result": "PASS_LOCAL",
+        "evidence_class": "ACTUAL_INSTALLED_UNIT_RESTART_OBSERVATION",
+        "core_restart_argv": ["systemctl", "restart", "aegis-idea3-core.service"],
+        "restart_exit_code": 0,
+        "core_pre": {"state": "active/running", "pid": 949, "n_restarts": 0},
+        "core_post": {"state": "active/running", "pid": 366896, "n_restarts": 0},
+        "detector_pre": "loaded/inactive/dead/disabled/pid0/nrestarts0/process0",
+        "detector_post": "loaded/inactive/dead/disabled/pid0/nrestarts0/process0",
+        "detector_lifecycle_events": 0,
+        "release_pre": CONTRACT.OLD_RELEASE,
+        "release_post": CONTRACT.OLD_RELEASE,
+        "unit_snapshot_pre": "b" * 64,
+        "unit_snapshot_post": "b" * 64,
+        "observation_sha256": "a" * 64,
+        "artifact_sha256": {
+            "detector-lifecycle-window.log": "19c4e28b2f54ea8f217db4e622b0a5c758efa7b77ce2dc0394b6d159568c0b2e",
+            "systemd-manager-events.log": "d72cffdd3c2f3fc1d5501f8bcfd5509899ba91cf27cc5bf6be1a4207c1808831",
+            "shared-before.txt": "f515bd956683cb1ba5301462597a2b96e14fa47c904b995b4769a5899b06faaf",
+            "shared-after.txt": "f515bd956683cb1ba5301462597a2b96e14fa47c904b995b4769a5899b06faaf",
+        },
+    }
+    report = CONTRACT.evaluate_icu_readiness(sample)
+    assert report["checks"]["systemd_restart_effect"] == "OBSERVATION_RECORDED"
+    assert report["systemd_restart_effect"] == "OBSERVATION_RECORDED_NOT_INDEPENDENTLY_AUTHENTICATED"
+    assert report["live_executor"] == "BLOCKED"
+    assert report["attempt_marker_may_be_consumed"] is False
+
+    sample["restart_effect"]["core_post"]["pid"] = 949
+    assert CONTRACT.evaluate_icu_readiness(sample)["checks"]["systemd_restart_effect"] == "NOT_PROVEN"
+    sample["restart_effect"]["core_post"]["pid"] = 366896
+    sample["restart_effect"]["core_pre"]["pid"] = 123
+    assert CONTRACT.evaluate_icu_readiness(sample)["checks"]["systemd_restart_effect"] == "NOT_PROVEN"
+
+
+def test_readiness_authority_uses_the_frozen_main_and_reviewed_431_ancestor():
+    sample = evidence()
+    sample["reviewed_base_main"] = "52afbf16a4094b81ed03a0c8847d7e038af9bb3e"
+    sample["main_sha"] = "52afbf16a4094b81ed03a0c8847d7e038af9bb3e"
+    sample["authority"].update({
+        "exact_main": sample["main_sha"],
+        "independent_review": True,
+        "owner_execution_approval": True,
+        "core_upgrade_authorized": True,
+        "rollback_live_authorized": True,
+    })
+    assert CONTRACT.evaluate_icu_readiness(sample)["checks"]["authority"] == "CONSISTENT"
+    sample["authority"]["exact_main"] = CONTRACT.CURRENT_MAIN
+    assert CONTRACT.evaluate_icu_readiness(sample)["checks"]["authority"] == "REJECTED"

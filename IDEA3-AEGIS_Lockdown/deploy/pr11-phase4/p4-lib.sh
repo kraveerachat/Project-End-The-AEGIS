@@ -117,7 +117,7 @@ p4_stage_auth_extra() {
     # CTu records bind the actual frozen attempt, not only stage/date.
     CTu) echo expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id ;;
     CTv) echo expected_main frozen_runner_sha256 runner_template_sha256 bundle_manifest_sha256 control_manifest_sha256 unit_sha256 operator_user operator_uid device_id ;;
-    ICu) echo expected_main frozen_runner_sha256 runner_template_sha256 unit_snapshot_sha256 operator_user operator_uid old_release_id new_release_id new_release_source_main new_sums_sha256 new_manifest_sha256 ;;
+    ICu) echo expected_main frozen_runner_sha256 runner_template_sha256 unit_snapshot_sha256 restart_observation_sha256 operator_user operator_uid old_release_id new_release_id new_release_source_main new_sums_sha256 new_manifest_sha256 ;;
   esac
 }
 

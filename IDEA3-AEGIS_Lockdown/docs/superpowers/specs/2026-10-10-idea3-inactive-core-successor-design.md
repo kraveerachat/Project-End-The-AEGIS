@@ -4,7 +4,7 @@ Status: **ICu REPOSITORY EXECUTOR IMPLEMENTED; LIVE EXECUTION BLOCKED.** This do
 
 ## Goal and boundary
 
-Define the smallest separately governed Core-release successor that can preserve the supplied detector baseline `loaded/inactive/dead/disabled/PID 0` while deploying a future IDEA3 Core release. The repository now registers ICu after CTv and before Recovery and provides a frozen-runner generator, exact authority gate, exclusive one-attempt marker, durable journal writer, preflight, and exact-release rollback path. The live owner runner has a hard-coded `SYSTEMD_RESTART_EFFECT_PROVEN=NO` gate: it exits before consuming the marker while the installed-unit restart consequence remains unknown.
+Define the smallest separately governed Core-release successor that can preserve the supplied detector baseline `loaded/inactive/dead/disabled/PID 0` while deploying a future IDEA3 Core release. The repository now registers ICu after CTv and before Recovery and provides a frozen-runner generator, exact authority gate, exclusive one-attempt marker, durable journal writer, preflight, and exact-release rollback path. The runner and rollback verify a pinned archive of the actual installed-unit restart observation. The supplied archive lacks the PRE/POST Core and Detector capture record, so freeze and execution still refuse. A future exact-main freeze requires a clean main containing PR #431, binds the observation digest to Authorization/K3, and grants no LIVE authority by itself.
 
 The verified base is `728c2d9b56d2d8b0b5933202ca20f45e6687602b`. The active Core release baseline remains `954ce1c191885e9e90198a6f54a3d990bcf144fc`; the Detector baseline is loaded/inactive/dead/disabled/PID 0. The owner approves the OLD release as an `EXACT_RELEASE` rollback target **for design only**. `ROLLBACK_LIVE_AUTHORIZED=NO`. CTu/CTv remain consumed immutable FAIL; Recovery remains unauthorized.
 
@@ -68,7 +68,7 @@ Even a structurally consistent fixture is only an offline contract result, never
 ## Explicit blockers before any live executor
 
 1. Fresh read-only host PRE must prove installed `current`, OLD release guard and both pinned digests; current repository has only the owner-attested OLD verifier facts, not its release artifact.
-2. Exact installed Core/Detector unit and drop-in digests plus safe behavior of a plain Core restart with Detector inactive. The supplied dependencies are known, but actual effect remains NOT_PROVEN.
+2. Exact installed Core/Detector unit and drop-in digests plus a complete archived PRE/POST capture from the completed plain Core restart with Detector inactive. The four supplied log and preservation files match pinned hashes; the Core/Detector capture record and restart result are not archived, so the executable proof remains incomplete.
 3. Fresh exact host/service/disk evidence and preservation snapshot, including Detector still inactive. Supplied baseline is not a fresh stage PRE.
 4. A separate approved ICu authority, one-attempt marker schema/location, journal trust boundary, authorization/K3 contract, and failure/rollback decision ownership.
 5. Independent Security/Governance review and separate human authorization to execute. `EXACT_RELEASE` design approval does not grant this. Recovery authority remains separately blocked and is not granted here.
@@ -76,4 +76,4 @@ Even a structurally consistent fixture is only an offline contract result, never
 
 ## Verification boundary
 
-The added focused tests use in-memory fixtures and verify exact release pins, installed unit metadata shape, inactive Detector state, systemd evidence provenance, one-attempt/journal declarations, exact-release rollback, preservation snapshots, authority separation, and prohibited effects. They do not prove Production unit behavior, installed release bytes, rollback feasibility, Detector operation, Recovery, network state, or physical hardware effect. No Production execution is enabled by the validator.
+The focused offline tests use in-memory and archived-log fixtures to verify release pins, installed unit metadata shape, inactive Detector state, restart evidence parsing, one-attempt/journal declarations, exact-release rollback, preservation snapshots, authority separation, and prohibited effects. They do not prove Production unit behavior, installed release bytes, rollback feasibility, Detector operation, Recovery, network state, or physical hardware effect. No Production execution is enabled by the incomplete supplied archive.

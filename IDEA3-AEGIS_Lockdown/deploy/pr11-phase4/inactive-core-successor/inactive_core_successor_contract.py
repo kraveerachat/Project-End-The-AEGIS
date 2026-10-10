@@ -10,7 +10,8 @@ from typing import Any
 
 BASE_MAIN = "dbf00185331474053f46486fcefa795a46f5b821"
 OLD_RELEASE = "954ce1c191885e9e90198a6f54a3d990bcf144fc"
-CURRENT_MAIN = "728c2d9b56d2d8b0b5933202ca20f45e6687602b"
+CURRENT_MAIN = "728c2d9b56d2d8b0b5933202ca20f45e6687602b"  # pinned candidate release source
+REVIEWED_BASE_MAIN = "52afbf16a4094b81ed03a0c8847d7e038af9bb3e"
 NEW_RELEASE = "idea3-core-728c2d9b-20261010"
 PROPOSED_SUCCESSOR_STAGE = "ICu"
 PRESERVED_SUCCESSOR_SERVICES = (
@@ -398,6 +399,46 @@ def evaluate_pinned_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
 
 
 ICU_PRESERVED_SERVICES = set(PRESERVED_SERVICES) | {"ctu_ctv_markers"}
+ICU_OBSERVATION_ARTIFACT_SHA256 = {
+    "detector-lifecycle-window.log": "19c4e28b2f54ea8f217db4e622b0a5c758efa7b77ce2dc0394b6d159568c0b2e",
+    "systemd-manager-events.log": "d72cffdd3c2f3fc1d5501f8bcfd5509899ba91cf27cc5bf6be1a4207c1808831",
+    "shared-before.txt": "f515bd956683cb1ba5301462597a2b96e14fa47c904b995b4769a5899b06faaf",
+    "shared-after.txt": "f515bd956683cb1ba5301462597a2b96e14fa47c904b995b4769a5899b06faaf",
+}
+
+
+def icu_restart_observation_consistent(restart: Mapping[str, Any] | None) -> bool:
+    """Check the exact local observation claim; input authenticity is separate."""
+    if not isinstance(restart, Mapping) or set(restart) != {
+        "result", "evidence_class", "core_restart_argv", "restart_exit_code",
+        "core_pre", "core_post", "detector_pre", "detector_post",
+        "detector_lifecycle_events", "release_pre", "release_post",
+        "unit_snapshot_pre", "unit_snapshot_post", "observation_sha256", "artifact_sha256",
+    }:
+        return False
+    before = _mapping(restart, "core_pre")
+    after = _mapping(restart, "core_post")
+    detector = "loaded/inactive/dead/disabled/pid0/nrestarts0/process0"
+    return bool(
+        restart.get("result") == "PASS_LOCAL"
+        and restart.get("evidence_class") == "ACTUAL_INSTALLED_UNIT_RESTART_OBSERVATION"
+        and restart.get("core_restart_argv") == ["systemctl", "restart", "aegis-idea3-core.service"]
+        and type(restart.get("restart_exit_code")) is int and restart["restart_exit_code"] == 0
+        and before and after and set(before) == set(after) == {"state", "pid", "n_restarts"}
+        and before.get("state") == after.get("state") == "active/running"
+        and type(before.get("pid")) is int and before["pid"] == 949
+        and type(after.get("pid")) is int and after["pid"] == 366896
+        and type(before.get("n_restarts")) is int and before["n_restarts"] == 0
+        and type(after.get("n_restarts")) is int and after["n_restarts"] == 0
+        and restart.get("detector_pre") == restart.get("detector_post") == detector
+        and type(restart.get("detector_lifecycle_events")) is int
+        and restart["detector_lifecycle_events"] == 0
+        and restart.get("release_pre") == restart.get("release_post") == OLD_RELEASE
+        and _sha(restart.get("unit_snapshot_pre"), SHA64)
+        and restart["unit_snapshot_pre"] == restart.get("unit_snapshot_post")
+        and _sha(restart.get("observation_sha256"), SHA64)
+        and restart.get("artifact_sha256") == ICU_OBSERVATION_ARTIFACT_SHA256
+    )
 
 
 def evaluate_icu_readiness(evidence: Mapping[str, Any]) -> dict[str, Any]:
@@ -464,19 +505,13 @@ def evaluate_icu_readiness(evidence: Mapping[str, Any]) -> dict[str, Any]:
     )
     # A PASS from a synthetic or offline systemd experiment is never accepted as
     # proof of the installed Production units' restart consequence.
-    restart_proven = bool(
-        restart
-        and restart.get("result") == "PASS"
-        and restart.get("evidence_class") == "ACTUAL_INSTALLED_UNIT_RESTART_OBSERVATION"
-        and restart.get("core_restart_argv") == ["systemctl", "restart", "aegis-idea3-core.service"]
-        and restart.get("detector_pre") == "inactive/dead/disabled/pid0/process0"
-        and restart.get("detector_post") == "inactive/dead/disabled/pid0/process0"
-        and restart.get("detector_lifecycle_events") == 0
-    )
+    restart_proven = icu_restart_observation_consistent(restart)
     authority_ok = bool(
         authority
         and authority.get("stage") == "ICu"
-        and authority.get("exact_main") == CURRENT_MAIN
+        and evidence.get("reviewed_base_main") == REVIEWED_BASE_MAIN
+        and _sha(evidence.get("main_sha"), SHA40)
+        and authority.get("exact_main") == evidence.get("main_sha")
         and authority.get("independent_review") is True
         and authority.get("owner_execution_approval") is True
         and authority.get("core_upgrade_authorized") is True
