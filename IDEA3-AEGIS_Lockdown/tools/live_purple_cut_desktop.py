@@ -23,6 +23,7 @@ from tkinter import messagebox, simpledialog
 from types import SimpleNamespace
 
 from tools import live_purple_observer as live
+from tools import live_purple_incident_desktop as incident_desktop
 
 ENABLE_ENV = "AEGIS_DESKTOP_CUT_ENABLED"
 SOCKET_ENV = "AEGIS_LOCAL_CUT_SOCKET"
@@ -74,8 +75,9 @@ def _thread_runner(function, *args):
     threading.Thread(target=function, args=args, name="aegis-cut-desktop", daemon=True).start()
 
 
-def _cut_gui_class(gui, flow, prompts, run_async):
-    Base = live._live_gui_class(gui)
+def _cut_gui_class(gui, flow, prompts, run_async, *, incident_source=None):
+    Base = (live._live_gui_class(gui) if incident_source is None else
+            incident_desktop._incident_gui_class(gui, incident_source, run_async))
 
     class LivePurpleCutDesktopGUI(Base):
         manual_cut_enabled = True
@@ -172,9 +174,9 @@ def _cut_gui_class(gui, flow, prompts, run_async):
                 prompts.notify("Manual CUT", f"{view.state}\n\n{view.text}")
 
         def _schedule_poll(self):
-            run_async(self._poll_worker)
+            run_async(self._cut_poll_worker)
 
-        def _poll_worker(self):
+        def _cut_poll_worker(self):
             view = flow.poll()
             self._call_later(0, self._after_poll, view)
 
@@ -188,8 +190,8 @@ def _cut_gui_class(gui, flow, prompts, run_async):
     return LivePurpleCutDesktopGUI
 
 
-def create_cut_app(root, *, flow, prompts=None, run_async=_thread_runner, status_path=live.reader.STATUS_PATH,
-                   max_age_seconds=live.reader.DEFAULT_MAX_AGE_SECONDS):
+def create_cut_app(root, *, flow, prompts=None, run_async=_thread_runner, incident_source=None,
+                   status_path=live.reader.STATUS_PATH, max_age_seconds=live.reader.DEFAULT_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("the CUT Desktop must start without an imported aegis_soc package")
     sys.path.insert(0, str(live.PYTHONUI_ROOT))
@@ -201,7 +203,7 @@ def create_cut_app(root, *, flow, prompts=None, run_async=_thread_runner, status
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
     mqtt = live.LiveMQTT()
     controller = live.LiveController()
-    app_class = _cut_gui_class(gui, flow, prompts or Prompts(), run_async)
+    app_class = _cut_gui_class(gui, flow, prompts or Prompts(), run_async, incident_source=incident_source)
     app = app_class(root, mqtt, controller, status_path=Path(status_path), max_age_seconds=max_age_seconds)
     return app, SimpleNamespace(mqtt=mqtt, controller=controller, flow=flow)
 

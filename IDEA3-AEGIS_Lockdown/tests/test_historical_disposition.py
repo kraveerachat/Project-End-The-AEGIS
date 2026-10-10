@@ -309,7 +309,13 @@ def test_an_unconfigured_detector_authority_refuses(world, monkeypatch):
 
 # ------------------------------------------------------------------------------------------------ normal Recovery unchanged
 PINS = {
-    "recovery_core.py": "c92d2c3c2d4a5d0c5decb890e7b13e5eac3ff8e6b97c38ef7ac8d541c3657435",
+    # re-pinned with explicit Human Owner approval (2026-10-10), previous pin c92d2c3c2d4a5d0c5decb890e7b13e5eac3ff8e6b97c38ef7ac8d541c3657435.
+    # The ONLY change is the R3 software-containment read-back in CoreRecoveryService: it now also requires the helper's reply to be a dict whose
+    # `operation` is "contains" and whose `ip` equals the requested address (plus the existing ok/present), so a mismatched or malformed reply
+    # fails closed as READ_BACK_NOT_CONFIRMED instead of VERIFIED. Intentional hardening; the pin exists so any Recovery change is deliberate and
+    # reviewed. R1B NEW/CREATED acceptance, the R8 closure, D4 RESTORE authorization, audit ordering and historical disposition are unchanged,
+    # and their own pins below (and the frozen owner-runner digests) are untouched.
+    "recovery_core.py": "2043b8cf057e362d9e885cd0831bbe62299b6e27220ae7626bbb76c712604bf7",
     "recovery_protocol.py": "1854124f815057b5efe9d7bee84ee95163b3d4a207224997bfe7a4596de19d60",
     # re-pinned by the Recovery R2-R8 stage task (2026-10-06): evaluate() gained ONE explicit optional `opener` read-only store seam (default unchanged); no R8 or R1B acceptance predicate changed.
     "recovery_evidence.py": "ec1c95dc2881b31eea2b46408d0ee2a6e60b16f0b871097503519bd85203e1b9",
