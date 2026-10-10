@@ -9262,3 +9262,28 @@ Canonical design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-10-idea3-
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | ICS-S1 | Inactive-detector upgrade design and pure offline contract | DRAFT PR #426 OPEN; INDEPENDENT REVIEW REQUESTED | `25 passed`, including independent review regressions for distinct OLD/NEW IDs, payload closure, manifest format, and sums order; Ruff PASS; AST parse PASS; diff check PASS; vault validator PASS with 2 existing canvas owner-data warnings; collaboration policy PASS; GitHub Collaboration guardrails PASS on prior posted head; independent code review found no remaining actionable issue | branch `feat/idea3-inactive-core-successor-contract`, base `dbf00185331474053f46486fcefa795a46f5b821` | repository-only; no production mutation | review exact final PR head; human merge only | keep live executor blocked |
+
+## IDEA3 governed inactive-detector Core upgrade successor — 2026-10-10
+
+Current task `AEGIS_IDEA3_GOVERNED_CORE_UPGRADE_NEXT_STAGE` uses verified main
+`728c2d9b56d2d8b0b5933202ca20f45e6687602b`, branch
+`feat/idea3-governed-core-upgrade-successor`. The owner approved OLD release
+`954ce1c191885e9e90198a6f54a3d990bcf144fc` as `EXACT_RELEASE` for design only;
+rollback execution and Core upgrade remain unauthorized. OLD guard, file-count,
+sums and manifest values are owner-attested; the release artifact is not in this
+repository/workspace for independent reinspection. The existing NEW candidate
+at the supplied evidence path was not rebuilt; its sums and manifest file hashes
+matched the supplied values, with source main `728c2d9b` and runtime closure
+owner-reported PASS.
+
+The pinned-evidence checker reports consistency only. Proposed unique stage
+`ICu` is unregistered and has no live executor. Installed Detector dependencies
+are `Requires=Core` and `After=Core`; actual effect of a plain Core restart on an
+inactive Detector is **NOT PROVEN**. This blocks any executor. No Core restart,
+Detector lifecycle, marker, CTu/CTv, Recovery, network, or Production action was
+performed. CTu/CTv remain consumed immutable FAIL; Recovery authorization remains
+NO.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | LOCAL VERIFIED; DRAFT PR AND INDEPENDENT REVIEW PENDING | 40 focused tests passed; Ruff and AST parse pass; existing NEW sums/manifest hashes match owner pins; systemd actual restart effect remains NOT PROVEN | branch from `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | repository-only | one receipt, policy validation, Draft PR, independent exact-head review | keep ICu unregistered and live executor blocked |

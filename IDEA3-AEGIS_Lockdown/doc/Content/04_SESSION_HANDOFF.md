@@ -2741,3 +2741,25 @@ Missing blockers include the owner-verified OLD release tree digest, a reviewed
 NEW release closure, rollback-target approval, fresh host evidence, live proof
 of installed systemd behavior, separate Core-upgrade authority, and the
 independent Security/Governance review. Recovery authority remains distinct.
+
+## Current task continuation — governed inactive-detector Core successor — 2026-10-10
+
+Task: `AEGIS_IDEA3_GOVERNED_CORE_UPGRADE_NEXT_STAGE` on
+`feat/idea3-governed-core-upgrade-successor`, based on verified main
+`728c2d9b56d2d8b0b5933202ca20f45e6687602b`. The owner approved release
+`954ce1c191885e9e90198a6f54a3d990bcf144fc` as `EXACT_RELEASE` for design only;
+this grants no rollback or Core-upgrade execution authority. OLD release
+verification and hashes are owner-attested and the artifact is unavailable for
+independent local inspection. The existing NEW candidate was not rebuilt; local
+SHA-256 checks matched its supplied sums/manifest digests, and its manifest pins
+the exact current main. The owner-reported full guard/runtime closure result is
+recorded as owner evidence.
+
+The new pure offline pin assessment recognizes proposed unique stage `ICu`,
+keeps it unregistered, and always returns live execution BLOCKED, no
+authorization, and Recovery unauthorized. The installed Detector unit is
+reported with `Requires=Core` and `After=Core`; actual effect of a plain Core
+restart while Detector is inactive remains NOT PROVEN. Do not implement or run
+a live executor until exact installed unit/drop-in evidence and a separately
+approved, fail-closed systemd behavior contract exist. Core restart, Detector,
+Production, network, markers, CTu/CTv, and Recovery were untouched.

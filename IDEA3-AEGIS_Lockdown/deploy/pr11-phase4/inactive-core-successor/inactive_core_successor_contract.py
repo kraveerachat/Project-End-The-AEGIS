@@ -10,6 +10,29 @@ from typing import Any
 
 BASE_MAIN = "dbf00185331474053f46486fcefa795a46f5b821"
 OLD_RELEASE = "954ce1c191885e9e90198a6f54a3d990bcf144fc"
+CURRENT_MAIN = "728c2d9b56d2d8b0b5933202ca20f45e6687602b"
+NEW_RELEASE = "idea3-core-728c2d9b-20261010"
+PROPOSED_SUCCESSOR_STAGE = "ICu"
+PRESERVED_SUCCESSOR_SERVICES = (
+    "idea1", "idea2", "mqtt_broker", "mqtt_service_2", "twingate", "tunnel", "firewall",
+    "nftables", "network", "relay", "esp32", "incidents", "database", "ctu_ctv_markers", "recovery_markers",
+)
+SUCCESSOR_CONTRACT = {
+    "preflight": "READ_ONLY_EXACT_PINS_UNITS_DETECTOR_AND_PRESERVATION",
+    "detector_pre_post": "LOADED_INACTIVE_DEAD_DISABLED_PID0_ZERO_MATCHING_PROCESSES",
+    "attempt": "ONE_GLOBAL_MARKER_AFTER_PASSING_PRE_MARKER_BLOCKS_RERUN",
+    "journal": "DURABLE_WRITE_AHEAD_PHASE_RECORD_BEFORE_EACH_MUTATION",
+    "forward_restart_limit": "ONE_PLAIN_CORE_RESTART",
+    "rollback_restart_limit": "AT_MOST_ONE_AFTER_SAFE_ROLLBACK_PREFLIGHT",
+    "rollback": "EXACT_RELEASE_ONLY_AFTER_REPROVING_OLD_AND_UNIT_DETECTOR_STATE",
+    "unknown_systemd_effect": "REFUSE_BEFORE_POINTER_SWITCH_OR_RESTART",
+    "mutation_allowlist": ["INSTALL_NEW_IMMUTABLE_RELEASE", "SWITCH_CURRENT", "PLAIN_CORE_RESTART", "BOUNDED_EXACT_RELEASE_ROLLBACK"],
+    "preserve": list(PRESERVED_SUCCESSOR_SERVICES),
+    "detector_commands": "NONE",
+    "recovery_authority": "SEPARATE_AND_NOT_GRANTED",
+    "authorization": "NEW_ICU_AUTHORITY_AND_HUMAN_APPROVAL_REQUIRED",
+    "independent_review": "SECURITY_GOVERNANCE_REQUIRED_ON_EXACT_HEAD",
+}
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 SHA64 = re.compile(r"[0-9a-f]{64}\Z")
 PYVER = re.compile(r"\d+\.\d+\.\d+[A-Za-z0-9.+-]*\Z", re.ASCII)
@@ -281,10 +304,94 @@ def evaluate(evidence: Mapping[str, Any]) -> dict[str, Any]:
         "checks": checks,
         "blockers": sorted(set(blockers + [
             "LIVE_EXECUTOR_NOT_IMPLEMENTED", "OFFLINE_INPUT_AUTHENTICITY_NOT_VERIFIED",
-            "INSTALLED_SYSTEMD_BEHAVIOR_NOT_LIVE_PROVEN", "CURRENT_OLD_RELEASE_TREE_DIGEST_NOT_SUPPLIED",
-            "ROLLBACK_OWNER_APPROVAL_NOT_SUPPLIED", "FRESH_HOST_SERVICE_EVIDENCE_NOT_SUPPLIED",
-            "NEW_RELEASE_CLOSURE_NOT_BUILT_OR_OWNER_PINNED", "SEPARATE_CORE_UPGRADE_AUTHORITY_NOT_APPROVED",
+            "INSTALLED_SYSTEMD_BEHAVIOR_NOT_LIVE_PROVEN", "OLD_RELEASE_TREE_DIGEST_OWNER_ATTESTED_NOT_REINSPECTED",
+            "ROLLBACK_APPROVAL_IS_DESIGN_ONLY_NOT_LIVE", "FRESH_HOST_SERVICE_EVIDENCE_NOT_SUPPLIED",
+            "NEW_RELEASE_FULL_TREE_GUARD_NOT_REEXECUTED", "SEPARATE_CORE_UPGRADE_AUTHORITY_NOT_APPROVED",
             "RECOVERY_AUTHORITY_REMAINS_SEPARATE_AND_UNGRANTED", "CTU_CTV_MARKER_BYTES_NOT_REINSPECTED",
             "PRODUCTION_READINESS_NOT_ASSESSED",
         ])),
+    }
+
+
+def _exact_section(evidence: Mapping[str, Any], name: str, expected: Mapping[str, Any]) -> bool:
+    section = _mapping(evidence, name)
+    return bool(section is not None and set(section) == set(expected) and all(section.get(k) == v for k, v in expected.items()))
+
+
+def evaluate_pinned_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind the supplied owner evidence to the current proposed ICu design pins.
+
+    This is an offline consistency assessment only. It neither authenticates the
+    evidence source nor creates stage registration, execution authority, or a
+    live readiness result.
+    """
+    checks = {
+        "main_sha": isinstance(evidence, Mapping) and evidence.get("main_sha") == CURRENT_MAIN,
+        "rollback_decision": isinstance(evidence, Mapping) and _exact_section(
+            evidence, "rollback_decision", {"exact_release_design_approved": True, "live_authorized": False}
+        ),
+        "old_release": isinstance(evidence, Mapping) and _exact_section(evidence, "old_release", {
+            "release_id": OLD_RELEASE, "verify": "PASS", "file_count": 54,
+            "sums_sha256": "9b2faeb4f44225bcf38ba6df5b5403e014998c7310e7c04a77c30c03f2d177df",
+            "manifest_sha256": "732d6af5afb0451e51655078abd8c6dc04a72ed258fb04e79c806210f2002a18",
+        }),
+        "new_release": isinstance(evidence, Mapping) and _exact_section(evidence, "new_release", {
+            "release_id": NEW_RELEASE, "verify": "PASS", "file_count": 55,
+            "sums_sha256": "0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749",
+            "manifest_sha256": "b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf",
+            "source_main_sha": CURRENT_MAIN, "runtime_closure": "PASS", "local_cut_default": "DISABLED",
+        }) and isinstance(evidence, Mapping) and _mapping(evidence, "old_release") is not None
+        and _mapping(evidence, "old_release").get("release_id") != _mapping(evidence, "new_release").get("release_id"),
+        "runtime_baseline": isinstance(evidence, Mapping)
+        and evidence.get("runtime_baseline") == {
+            "core": "ACTIVE",
+            "detector": {"load_state": "loaded", "active_state": "inactive", "sub_state": "dead",
+                         "unit_file_state": "disabled", "pid": 0},
+        },
+        "systemd_record": isinstance(evidence, Mapping) and _exact_section(
+            evidence, "systemd", {"detector_requires_core": True, "detector_after_core": True,
+                                   "actual_restart_effect": "NOT_PROVEN"}
+        ),
+        "history_and_recovery": isinstance(evidence, Mapping) and _exact_section(
+            evidence, "history", {"ctu_ctv": "FAIL_IMMUTABLE_CONSUMED", "recovery_authorized": False}
+        ),
+        "no_declared_effects": isinstance(evidence, Mapping) and evidence.get("effects") == [],
+    }
+    matched = all(checks.values()) and isinstance(evidence, Mapping) and evidence.get(
+        "schema"
+    ) == "idea3-inactive-core-successor-pinned-evidence-v1"
+    blockers = [
+        "ACTUAL_SYSTEMD_RESTART_EFFECT_NOT_PROVEN",
+        "FRESH_HOST_UNIT_DROPIN_AND_PRE_POST_EVIDENCE_REQUIRED",
+        "ICU_EXECUTOR_AND_STAGE_REGISTRATION_NOT_IMPLEMENTED",
+        "ONE_ATTEMPT_AUTHORITY_NOT_ISSUED",
+        "DURABLE_JOURNAL_CONTRACT_NOT_IMPLEMENTED_OR_REVIEWED",
+        "INDEPENDENT_SECURITY_GOVERNANCE_REVIEW_REQUIRED",
+        "LIVE_UPGRADE_AUTHORIZATION_NOT_GRANTED",
+        "RECOVERY_AUTHORIZATION_SEPARATE_AND_NO",
+        "CTU_CTV_HISTORY_REMAINS_IMMUTABLE_FAIL",
+        "OFFLINE_INPUT_AUTHENTICITY_NOT_VERIFIED",
+    ]
+    if not matched:
+        blockers.append("PINNED_EVIDENCE_SCHEMA_OR_VALUE_MISMATCH")
+    return {
+        "binding": "PINNED_EVIDENCE_CONSISTENT" if matched else "INCONSISTENT",
+        "checks": {key: "MATCH" if value else "MISMATCH" for key, value in checks.items()},
+        "rollback_design_approval_claim_matches": "YES" if checks["rollback_decision"] else "NO",
+        "rollback_live_authorized": "NO",
+        "old_release_evidence": "OWNER_ATTESTED_PIN_SET_MATCHES" if checks["old_release"] else "MISMATCH",
+        "new_release_evidence": "PIN_SET_MATCHES_REPORTED_CANDIDATE" if checks["new_release"] else "MISMATCH",
+        "systemd_restart_effect": "NOT_PROVEN",
+        "proposed_stage_id": PROPOSED_SUCCESSOR_STAGE,
+        "stage_registration": "NOT_REGISTERED",
+        "successor_contract": {
+            key: list(value) if isinstance(value, list) else value
+            for key, value in SUCCESSOR_CONTRACT.items()
+        },
+        "live_executor": "BLOCKED",
+        "production_readiness": "NOT_ASSESSED",
+        "authorization": "NONE",
+        "recovery_authorized": "NO",
+        "physical_containment": "NOT_PROVEN",
+        "blockers": blockers,
     }
