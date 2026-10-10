@@ -77,6 +77,20 @@ def evidence():
     }
 
 
+def refresh_manifest(sample):
+    candidate = sample["releases"]["candidate"]
+    manifest_bytes = json.dumps(candidate["manifest"], indent=2).encode("ascii") + b"\n"
+    manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
+    candidate["manifest_sha256"] = manifest_sha
+    candidate["payload_files"]["RELEASE-MANIFEST.json"] = manifest_sha
+    candidate["release_sums_content"] = "".join(
+        f"{candidate['payload_files'][path]}  {path}\n" for path in sorted(candidate["payload_files"])
+    )
+    sums_sha = hashlib.sha256(candidate["release_sums_content"].encode("ascii")).hexdigest()
+    candidate["release_sums_sha256"] = sums_sha
+    candidate["tree_sha256"] = sums_sha
+
+
 def test_offline_contract_checker_is_added_in_the_inactive_successor_boundary():
     assert CHECKER.is_file()
     report = CONTRACT.evaluate(evidence())
@@ -120,6 +134,29 @@ def test_release_ids_must_be_distinct_and_guard_inventory_must_close_payload():
     report = CONTRACT.evaluate(sample)
     assert report["checks"]["release_content_closure"] == "REJECTED"
 
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("schema_version", True),
+    ("python_version", "3.14"),
+    ("created_by_tool_version", "v1"),
+])
+def test_manifest_metadata_must_match_the_release_builder_contract(field, value):
+    sample = evidence()
+    sample["releases"]["candidate"]["manifest"][field] = value
+    refresh_manifest(sample)
+    assert CONTRACT.evaluate(sample)["checks"]["release_content_closure"] == "REJECTED"
+
+
+def test_release_sums_content_must_be_sorted():
+    sample = evidence()
+    candidate = sample["releases"]["candidate"]
+    candidate["release_sums_content"] = "".join(
+        f"{candidate['payload_files'][path]}  {path}\n" for path in sorted(candidate["payload_files"], reverse=True)
+    )
+    sums_sha = hashlib.sha256(candidate["release_sums_content"].encode("ascii")).hexdigest()
+    candidate["release_sums_sha256"] = sums_sha
+    candidate["tree_sha256"] = sums_sha
+    assert CONTRACT.evaluate(sample)["checks"]["release_content_closure"] == "REJECTED"
 
 def test_malformed_non_ascii_release_paths_are_rejected_without_raising():
     sample = evidence()

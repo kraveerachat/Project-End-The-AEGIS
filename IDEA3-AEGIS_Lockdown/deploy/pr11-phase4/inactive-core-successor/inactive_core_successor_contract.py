@@ -12,6 +12,8 @@ BASE_MAIN = "dbf00185331474053f46486fcefa795a46f5b821"
 OLD_RELEASE = "954ce1c191885e9e90198a6f54a3d990bcf144fc"
 SHA40 = re.compile(r"[0-9a-f]{40}\Z")
 SHA64 = re.compile(r"[0-9a-f]{64}\Z")
+PYVER = re.compile(r"\d+\.\d+\.\d+[A-Za-z0-9.+-]*\Z", re.ASCII)
+TOOLVER = re.compile(r"\d+(\.\d+)*\Z", re.ASCII)
 DETECTOR_FIELDS = ("load_state", "active_state", "sub_state", "unit_file_state", "pid", "process_count", "unit_sha256")
 REQUIRED_RUNTIME_FILES = {
     "aegis_soc/__init__.py", "aegis_soc/cli.py", "aegis_soc/production_detector.py",
@@ -116,9 +118,14 @@ def _checks(evidence: Mapping[str, Any]) -> tuple[dict[str, str], list[str]]:
             manifest_sha_ok = (
                 tuple(manifest.keys()) == MANIFEST_FIELDS
                 and manifest.get("schema_version") == 1
+                and not isinstance(manifest.get("schema_version"), bool)
                 and manifest.get("release_id") == candidate.get("release_id")
                 and manifest.get("source_git_sha") == candidate.get("source_git_sha")
                 and manifest.get("source_tree_dirty") is False
+                and isinstance(manifest.get("python_version"), str)
+                and PYVER.fullmatch(manifest["python_version"]) is not None
+                and isinstance(manifest.get("created_by_tool_version"), str)
+                and TOOLVER.fullmatch(manifest["created_by_tool_version"]) is not None
                 and _sha(manifest.get("requirements_sha256"), SHA64)
                 and manifest.get("requirements_sha256") == payload_files.get("requirements.txt")
                 and type(manifest.get("file_count")) is int
@@ -132,11 +139,14 @@ def _checks(evidence: Mapping[str, Any]) -> tuple[dict[str, str], list[str]]:
     if isinstance(release_sums_content, str) and isinstance(payload_files, Mapping):
         try:
             sums_entries: dict[str, str] = {}
+            previous_path: str | None = None
             for line in release_sums_content.splitlines(keepends=True):
                 match = re.fullmatch(r"([0-9a-f]{64})  ([^\n]+)\n", line)
-                if match is None or match.group(2) in sums_entries:
+                if (match is None or match.group(2) in sums_entries
+                        or (previous_path is not None and match.group(2) <= previous_path)):
                     break
                 sums_entries[match.group(2)] = match.group(1)
+                previous_path = match.group(2)
             else:
                 sums_entries_ok = sums_entries == payload_files
         except (TypeError, ValueError):

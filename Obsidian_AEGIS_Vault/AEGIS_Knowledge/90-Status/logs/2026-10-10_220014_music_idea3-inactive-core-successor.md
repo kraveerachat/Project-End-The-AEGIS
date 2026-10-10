@@ -32,7 +32,7 @@ All paths are IDEA3-owned. No IDEA1/IDEA2, production configuration, frozen runn
 
 ## Verification evidence
 
-- From `IDEA3-AEGIS_Lockdown/`: `PYTHONDONTWRITEBYTECODE=1 /home/kittipat/.venvs/aegis-idea3-core/bin/python -m pytest -p no:cacheprovider -q tests/test_inactive_core_successor_contract.py` — pass: 21 passed.
+- From `IDEA3-AEGIS_Lockdown/`: `PYTHONDONTWRITEBYTECODE=1 /home/kittipat/.venvs/aegis-idea3-core/bin/python -m pytest -p no:cacheprovider -q tests/test_inactive_core_successor_contract.py` — pass: 25 passed.
 - From `IDEA3-AEGIS_Lockdown/`: `ruff check deploy/pr11-phase4/inactive-core-successor/inactive_core_successor_contract.py tests/test_inactive_core_successor_contract.py --no-cache` — pass.
 - From `IDEA3-AEGIS_Lockdown/`: Python `ast.parse` of the checker — pass.
 - From repository root: `git diff --check` — pass after receipt metadata/format correction.
@@ -40,7 +40,7 @@ All paths are IDEA3-owned. No IDEA1/IDEA2, production configuration, frozen runn
 - Initial pytest under default Python failed because pytest was unavailable there; the project virtual environment produced the result above.
 - No Production or hardware verification was attempted or claimed.
 
-Independent review found that OLD and NEW identity inequality was not enforced and the payload inventory could validate against itself. Both were corrected with an explicit inequality check, parsed sums content, a separately supplied builder/guard inventory, and regression tests; exact-head independent review is pending.
+Independent review identified and the implementation corrected: OLD/NEW identity inequality; self-matched payload inventory; manifest schema-version type and Python/tool version format compatibility with the existing builder; sorted checksum-entry enforcement; and the design manifest-digest serialization description. Regression tests cover these cases. Independent exact-head review is pending.
 
 ## Canonical notes updated
 
