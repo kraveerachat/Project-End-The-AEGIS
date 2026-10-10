@@ -1,0 +1,1 @@
+# ICu opens no listener and sends no MQTT command.

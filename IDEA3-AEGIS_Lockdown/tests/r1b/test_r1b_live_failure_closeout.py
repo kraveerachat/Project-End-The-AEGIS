@@ -82,7 +82,7 @@ def test_no_authorization_artifact_is_committed_and_the_r1b_stage_stays_register
     """History: PR #365 added no R1Bv; R1Bv has since run LIVE (its closeout is checked by tests/r1bv/test_r1bv_live_closeout.py). No Authorization file is ever committed."""
     p4 = base.P4
     assert not list(p4.glob("**/authorization-R1Bv*"))
-    assert "R1B R1Bv RRu CTu CTv Recovery L8" in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1).replace("R1Dv ", "")
+    assert "R1B R1Bv RRu CTu CTv ICu Recovery L8" in re.search(r'readonly P4_STAGES="([^"]*)"', (p4 / "p4-lib.sh").read_text()).group(1).replace("R1Dv ", "")
 
 
 STALE = re.compile(r"R1B_LIVE_EXECUTED=NO|R1B_ATTEMPT_CONSUMED=NO|R1B has NOT run|R1B has not run", re.I)

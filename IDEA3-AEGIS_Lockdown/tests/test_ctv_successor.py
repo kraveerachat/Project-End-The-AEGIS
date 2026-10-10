@@ -143,7 +143,7 @@ def test_ctv_predecessor_and_recovery_successor_contracts_are_registered():
     stage_gate = (DEPLOY / "p4-lib.sh").read_text()
     recovery = (DEPLOY / "p4-recovery-run-lib.sh").read_text()
     runner = CTV_RUNNER.read_text()
-    assert "CTu CTv Recovery" in stage_gate
+    assert "CTu CTv ICu Recovery" in stage_gate
     assert "recovery_ctv_successor_gate" in recovery
     for field in ("CTV_IS_CTU_RETRY=NO", "CTV_ATTEMPT_CONSUMED", "CTV_RUNNER_TEMPLATE_SHA256"):
         assert field in runner

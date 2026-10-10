@@ -126,9 +126,11 @@ elif [ "$STAGE" = CTu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || 
   fail AUTHORIZATION_CTU_BINDING_MALFORMED
 elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
   fail AUTHORIZATION_CTV_BINDING_MALFORMED
+elif [ "$STAGE" = ICu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_snapshot_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || [ "${R[old_release_id]}" != "954ce1c191885e9e90198a6f54a3d990bcf144fc" ] || [ "${R[new_release_id]}" != "idea3-core-728c2d9b-20261010" ] || [ "${R[new_release_source_main]}" != "728c2d9b56d2d8b0b5933202ca20f45e6687602b" ] || [ "${R[new_sums_sha256]}" != "0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749" ] || [ "${R[new_manifest_sha256]}" != "b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf" ]; }; then
+  fail AUTHORIZATION_ICU_BINDING_MALFORMED
 elif [ "${R[stage]}" != "$STAGE" ]; then
   fail AUTHORIZATION_STAGE_MISMATCH
-elif { [ "$STAGE" = CTu ] || [ "$STAGE" = CTv ] || [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
+elif { [ "$STAGE" = CTu ] || [ "$STAGE" = CTv ] || [ "$STAGE" = ICu ] || [ "$STAGE" = L7u ] || [ "$STAGE" = L8p ] || [ "$STAGE" = F1 ] || [ "$STAGE" = F1r ] || [ "$STAGE" = F1i ] || [ "$STAGE" = F1u ] || [ "$STAGE" = R1A ] || [ "$STAGE" = R1Du ] || [ "$STAGE" = R1D ] || [ "$STAGE" = R1Dv ] || [ "$STAGE" = R1Bv ] || [ "$STAGE" = R1B ] || [ "$STAGE" = RRu ] || [ "$STAGE" = Recovery ]; } && { [ -n "${R[d6_notice]+set}" ] || [ -n "${R[integration_review]+set}" ] || [ -n "${R[recovery_authorization]+set}" ]; }; then
   # L8p likewise never carries the L8-only recovery_authorization nor the L7/L2 notices (it has its own physical_recovery_attestation).
   # F1r (current-release activation), F1i (post-L7 repaired-release install) and F1u (post-F1 Core upgrade) are bound by the same rule as F1: no extra field at all.
   # F1 carries NO extra field at all: not the L7/L2 notices, not recovery_authorization, not physical_recovery_attestation (L8p alone).
@@ -159,6 +161,18 @@ else
     AUTH_CTV_USER="${R[operator_user]:-}"
     AUTH_CTV_UID="${R[operator_uid]:-}"
     AUTH_CTV_DEVICE="${R[device_id]:-}"
+  elif [ "$STAGE" = ICu ]; then
+    AUTH_ICU_MAIN="${R[expected_main]:-}"
+    AUTH_ICU_RUNNER="${R[frozen_runner_sha256]:-}"
+    AUTH_ICU_TEMPLATE="${R[runner_template_sha256]:-}"
+    AUTH_ICU_UNIT="${R[unit_snapshot_sha256]:-}"
+    AUTH_ICU_USER="${R[operator_user]:-}"
+    AUTH_ICU_UID="${R[operator_uid]:-}"
+    AUTH_ICU_OLD="${R[old_release_id]:-}"
+    AUTH_ICU_NEW="${R[new_release_id]:-}"
+    AUTH_ICU_SOURCE="${R[new_release_source_main]:-}"
+    AUTH_ICU_SUMS="${R[new_sums_sha256]:-}"
+    AUTH_ICU_MANIFEST="${R[new_manifest_sha256]:-}"
   fi
 fi
 
@@ -191,6 +205,8 @@ if p4_stage_mutates "$STAGE"; then
       K3_ALLOWED="$K3_ALLOWED expected_main runner_sha256 unit_sha256 operator_user operator_uid device_id"
     elif [ "$STAGE" = CTv ]; then
       K3_ALLOWED="$K3_ALLOWED expected_main frozen_runner_sha256 runner_template_sha256 bundle_manifest_sha256 control_manifest_sha256 unit_sha256 operator_user operator_uid device_id"
+    elif [ "$STAGE" = ICu ]; then
+      K3_ALLOWED="$K3_ALLOWED expected_main frozen_runner_sha256 runner_template_sha256 unit_snapshot_sha256 operator_user operator_uid old_release_id new_release_id new_release_source_main new_sums_sha256 new_manifest_sha256"
     fi
     if [ -z "$K3_KIND" ] || ! parse_record "$K3" "$K3_MAGIC" "$K3_ALLOWED" "$K3_ALLOWED"; then
       fail K3_MALFORMED
@@ -202,6 +218,8 @@ if p4_stage_mutates "$STAGE"; then
       fail K3_CTU_BINDING_MALFORMED
     elif [ "$STAGE" = CTv ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[bundle_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[control_manifest_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || ! [[ "${R[device_id]}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || [ "${R[frozen_runner_sha256]}" = "${R[runner_template_sha256]}" ]; }; then
       fail K3_CTV_BINDING_MALFORMED
+    elif [ "$STAGE" = ICu ] && { ! [[ "${R[expected_main]}" =~ ^[0-9a-f]{40}$ ]] || ! [[ "${R[frozen_runner_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[runner_template_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[unit_snapshot_sha256]}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${R[operator_user]}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || ! [[ "${R[operator_uid]}" =~ ^[1-9][0-9]{0,9}$ ]] || [ "${R[old_release_id]}" != "954ce1c191885e9e90198a6f54a3d990bcf144fc" ] || [ "${R[new_release_id]}" != "idea3-core-728c2d9b-20261010" ] || [ "${R[new_release_source_main]}" != "728c2d9b56d2d8b0b5933202ca20f45e6687602b" ] || [ "${R[new_sums_sha256]}" != "0fbe8c208b49242c4ede3a097f019879dad2e0e1ab2dd7ec1a468bc289fc5749" ] || [ "${R[new_manifest_sha256]}" != "b6dfa93168f43d7471de3d5092baefda9f0b1027cf5dba3d6b1e3f99eb5a16cf" ]; }; then
+      fail K3_ICU_BINDING_MALFORMED
     elif [ "$STAGE" = CTu ] && { \
       [ "${R[expected_main]}" != "${AUTH_CTU_MAIN:-}" ] || \
       [ "${R[runner_sha256]}" != "${AUTH_CTU_RUNNER:-}" ] || \
@@ -219,6 +237,16 @@ if p4_stage_mutates "$STAGE"; then
       [ "${R[unit_sha256]}" != "${AUTH_CTV_UNIT:-}" ] || \
       [ "${R[operator_user]}" != "${AUTH_CTV_USER:-}" ] || [ "${R[operator_uid]}" != "${AUTH_CTV_UID:-}" ] || [ "${R[device_id]}" != "${AUTH_CTV_DEVICE:-}" ]; }; then
       fail K3_CTV_BINDING_MISMATCH
+    elif [ "$STAGE" = ICu ] && { \
+      [ "${R[expected_main]}" != "${AUTH_ICU_MAIN:-}" ] || \
+      [ "${R[frozen_runner_sha256]}" != "${AUTH_ICU_RUNNER:-}" ] || \
+      [ "${R[runner_template_sha256]}" != "${AUTH_ICU_TEMPLATE:-}" ] || \
+      [ "${R[unit_snapshot_sha256]}" != "${AUTH_ICU_UNIT:-}" ] || \
+      [ "${R[operator_user]}" != "${AUTH_ICU_USER:-}" ] || [ "${R[operator_uid]}" != "${AUTH_ICU_UID:-}" ] || \
+      [ "${R[old_release_id]}" != "${AUTH_ICU_OLD:-}" ] || [ "${R[new_release_id]}" != "${AUTH_ICU_NEW:-}" ] || \
+      [ "${R[new_release_source_main]}" != "${AUTH_ICU_SOURCE:-}" ] || [ "${R[new_sums_sha256]}" != "${AUTH_ICU_SUMS:-}" ] || \
+      [ "${R[new_manifest_sha256]}" != "${AUTH_ICU_MANIFEST:-}" ]; }; then
+      fail K3_ICU_BINDING_MISMATCH
     elif [ "${R[stage]}" != "$STAGE" ]; then
       fail K3_STAGE_MISMATCH
     elif [ "${R[date]}" != "$TODAY" ]; then
