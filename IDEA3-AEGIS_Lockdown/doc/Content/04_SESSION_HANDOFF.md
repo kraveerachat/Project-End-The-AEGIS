@@ -2721,3 +2721,23 @@ correlation key, a live cross-IDEA exercise, total-control-power-loss
 fail-secure behavior, final relay-cycle Twingate auto-recovery, and
 deployment-grade mechanics. Do not merge, deploy, flash, reset, publish MQTT,
 or manipulate the relay or network from this branch.
+
+## Current task continuation — inactive-detector Core successor — 2026-10-10
+
+The current task is `AEGIS_IDEA3_POST_CTV_INACTIVE_DETECTOR_SUCCESSOR` on
+`feat/idea3-inactive-core-successor-contract`, based on verified
+`dbf00185331474053f46486fcefa795a46f5b821`. Current task state and session
+evidence are in `Obsidian_AEGIS_Vault/AEGIS_Knowledge/idea3/idea3-status.md`.
+
+The task is repository-only. It adds a design/specification and a pure,
+in-memory offline contract checker with focused tests. No live-capable upgrade
+executor, stage runner, marker, journal, Recovery gate, or authorization is
+implemented. `LIVE_EXECUTOR=BLOCKED`, `PRODUCTION_READINESS=NOT_ASSESSED`,
+`AUTHORIZATION=NONE`, and `PHYSICAL_CONTAINMENT=NOT_PROVEN` remain mandatory
+outputs. Do not run F1u/R1Du or change CTu/CTv history, markers, Production,
+services, network, MQTT, Detector, Core, or hardware.
+
+Missing blockers include the owner-verified OLD release tree digest, a reviewed
+NEW release closure, rollback-target approval, fresh host evidence, live proof
+of installed systemd behavior, separate Core-upgrade authority, and the
+independent Security/Governance review. Recovery authority remains distinct.
