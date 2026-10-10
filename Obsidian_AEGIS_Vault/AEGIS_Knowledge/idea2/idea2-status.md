@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-05
+updated: 2026-10-10
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,7 +15,52 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
-## Current task — PR2 Recording / Archive 5-minute clips + NAS playback/download (2026-10-05)
+## PR #344 functional-prototype handoff — 2026-10-10
+
+The functional owner declares IDEA2's accepted Functional Prototype scope
+CLOSED on 2026-10-10. This is an owner scope decision, not GitHub approval,
+merge authorization, exact-head Production deployment proof, or completion of
+every security/performance/operational gate. PR #344 remains Draft for independent
+human and integration review. Source evidence checkpoint:
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`; observed current main:
+`dbf00185331474053f46486fcefa795a46f5b821`; PR comparison merge-base:
+`1128e5253d72171bc04e9c48d50a05d044390476`.
+
+Historical owner-reported Machine A onsite acceptance remains unchanged:
+continuous authenticated CONNECTED=True / DEMAND=True / VIEWERS=1 across the
+300-second boundary; clip ID4 duration300s and logout partial ID5 duration83s,
+both stored_on_nas=true after SCP/checksum/file/DB verification. Storage was
+`/opt/aegis/data/monitor-clips`, mounted read-only at `/nas/clips`. The Engine
+returned idle; the historical Monitor evidence reported RestartCount=0.
+`CLIP_STORAGE_INGEST_VERIFIED=YES`; a separate remote NAS appliance is not proven.
+
+Additional owner evidence on 2026-10-10: a newly uploaded CAM-01 clip appeared
+in the real Archival Footage page of the integrated system. Runtime provenance
+is not pinned to isolated PR #344 source, so this is INTEGRATED_RUNTIME_ACCEPTANCE,
+not exact-head source acceptance. Download, audio playback, seeking, exhaustive
+negative RBAC/session/camera-scope acceptance, migration006 deployment and
+capacity/retention remain unverified or undecided. No new runtime test was run
+by this handoff.
+
+Source limitations are explicit: PR #344's mp4v conversion still uses `-an`,
+and NAS success/local deletion do not wait for acknowledged Monitor publication.
+Neither real microphone capture nor end-to-end audio preservation is claimed
+for this exact revision. Later stacked/local runtime changes must not be
+silently attributed to #344. No implementation is changed here.
+
+Fresh offline handoff verification: NAS4/4 and viewer/recording9/9 PASS;
+Archive/migration tests10 PASS /0 FAIL /6 conditional PostgreSQL SKIP;
+governance61/61 PASS; Vault PASS with two existing owner-canvas warnings.
+Full suites/browser/hardware were not rerun for this documentation-only change;
+earlier results below remain historical. One partial task-handoff receipt is
+added; existing receipts are untouched. Current source, integration surfaces
+`.env.example` and `docker-compose.yml`, actual main drift, and unresolved gates
+require human disposition before Ready. Merge #344 first, then separately
+authorize #348 reconciliation; no automatic base change or dependency merge.
+PRODUCTION_MUTATION=NO; MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO;
+MERGE_AUTHORIZED=NO.
+
+## Historical task checkpoints — PR2 Recording / Archive (2026-10-05)
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
