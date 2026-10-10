@@ -9236,3 +9236,29 @@ Production mutation allowed: NO
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | CTv-S1 | Separate CTu/CTv provenance domains, complete pre-consume rehearsal, durable consumed-no-mutation journal, full post-consume failure matrix, Recovery successor gate, and refusal-only stage handlers | READY FOR MANUAL GIT INTEGRATION | CTv 62 PASS; CTu 35 PASS; RRu 123 PASS; TrustedClock 64 PASS; Recovery 103 PASS before sandbox UNIX-socket bind `EPERM`; hermetic Recovery CTv successor tests 22 PASS; vault validation PASS with two pre-existing canvas warnings; shell/Python syntax and diff checks PASS; collaborationPolicy/vaultMultiWriter remain blocked by temporary-cwd harness path resolution | uncommitted local repair; committed HEAD `b4ac656055a974869ec790bccc283c5e8c759b1b` | repository implementation PASS; LIVE intentionally unexecuted | independent Security/Governance review; human merge only; fresh CTv authority after review | do not run CTu/CTv/Recovery LIVE from this branch |
+
+## IDEA3 inactive-detector Core successor — repository-only — 2026-10-10
+
+```text
+TASK=AEGIS_IDEA3_POST_CTV_INACTIVE_DETECTOR_SUCCESSOR
+BRANCH=feat/idea3-inactive-core-successor-contract
+BASE_MAIN=dbf00185331474053f46486fcefa795a46f5b821
+PRODUCTION_MUTATION_ALLOWED=NO
+LIVE_EXECUTOR=BLOCKED_NOT_IMPLEMENTED
+PRODUCTION_READINESS=NOT_ASSESSED
+AUTHORIZATION=NONE
+PHYSICAL_CONTAINMENT=NOT_PROVEN
+CTU_CTV_HISTORY=FAIL_IMMUTABLE_CONSUMED_NO_RETRY
+```
+
+This task adds an IDEA3-only design and a pure in-memory offline contract checker. It does not modify F1u/R1Du, frozen runners, Recovery gates, incident records, markers, or production files. The checker compares supplied detector, release-closure, rollback, history, preservation, and effect claims; its inputs are untrusted and it cannot inspect Git or a host.
+
+The supplied `954ce1c191885e9e90198a6f54a3d990bcf144fc` OLD release lacks an owner-verified immutable tree digest in this task. The checked-in unit and R1Du fake systemd world are design/model evidence only; installed dependency behavior is not live-proven. New release closure, rollback approval, fresh host evidence, separate Core-upgrade authority, and independent Security/Governance review remain blockers. Recovery authority remains separate and ungranted.
+
+Canonical design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-10-idea3-inactive-core-successor-design.md`. Implementation plan: `IDEA3-AEGIS_Lockdown/docs/superpowers/plans/2026-10-10-idea3-inactive-core-successor-plan.md`.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ICS-S1 | Inactive-detector upgrade design and pure offline contract | LOCAL IMPLEMENTATION VERIFIED; DRAFT PR/REVIEW PENDING | `21 passed`, including independent review regressions for distinct OLD/NEW IDs and separate payload inventory; Ruff PASS; AST parse PASS; diff check PASS; vault validator PASS with 2 existing canvas owner-data warnings; pure checker has no host-effect interfaces | implementation branch from exact `dbf00185331474053f46486fcefa795a46f5b821` | repository-only; no production mutation | one receipt, policy validation, Draft PR, independent exact-head review | keep live executor blocked |
