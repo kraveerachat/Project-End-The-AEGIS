@@ -207,7 +207,13 @@ class CoreRecoveryService:
                 reason = str(applied.get("reason_code", "APPLY_NOT_CONFIRMED"))[:64]
             else:
                 read_back = self.containment.contains(address)
-                if read_back.get("ok") is True and read_back.get("present") is True:
+                if (
+                    isinstance(read_back, dict)
+                    and read_back.get("ok") is True
+                    and read_back.get("operation") == "contains"
+                    and read_back.get("ip") == address
+                    and read_back.get("present") is True
+                ):
                     result, reason = "VERIFIED", "READ_BACK_CONFIRMED"
                 else:
                     reason = "READ_BACK_NOT_CONFIRMED"
