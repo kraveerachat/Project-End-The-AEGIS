@@ -20,10 +20,10 @@ edit_policy: owner-writable
 Task: UI-only Dark/Light redesign and removal of synthetic Monitor face boxes.
 Branch: `codex/idea2-monitor-themes-face-overlay`
 Owner: pub
-PR: Draft handoff on the task branch, stacked on PR #348; URL in final GitHub handoff.
-Current state: SOURCE COMPLETE / PARTIAL DRAFT HANDOFF; human/dependency acceptance pending
+PR: [#425](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/425), Draft, stacked on PR #348
+Current state: REFERENCE-THEME SOURCE VERIFIED / OWNER VISUAL ACCEPTANCE PENDING; dependency acceptance pending
 Started: 2026-10-10
-Last implementation/evidence checkpoint: `5ff9c6b8db39ab6bb5e76cc22619c223babfe097`
+Initial implementation/evidence checkpoint: `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` (historical; owner rejected the initial visual preview)
 Production mutation allowed: NO
 
 ### Scope and safety
@@ -43,6 +43,7 @@ existing Archive and passive SOC behavior; the new PR must remain stacked.
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | S1 | Impeccable critique, shared tokens/layout/motion and synthetic-overlay removal | SOURCE COMPLETE | offline real React/Edge fixtures; independent UI re-review | `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` | browser61/61; affected31/31; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner reviews Draft |
+| S2 | Owner-reference theme correction only: shared CSS and existing browser tests | SOURCE VERIFIED; owner visual acceptance pending | two reference images; independent contrast critique; actual Edge screenshots | same PR #425 continuation | full browser67/67; final affected51/51; focused30/30; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner checks Light/Dark preview |
 
 ### Session S1 plan
 
@@ -52,7 +53,7 @@ Verify all existing pages across roles/themes and TH/EN/ZH settings, responsive
 sizes, focus/reduced motion and unchanged stream cleanup. Document baseline
 failures separately; no skipped/fixture test is real-camera acceptance.
 
-### Source handoff evidence
+### Historical initial source handoff evidence (S1)
 
 Dark navy/cyan and Light blue/cyan/mint semantic tokens cover every existing
 authorized view. Sidebar selection is4px/200ms with bounded glow, keyboard focus
@@ -88,6 +89,39 @@ and protected App/CoreEntry remain unchanged. Base is PR348
 baseline test disposition, human visual acceptance and any rollout remain
 separately authorized. One receipt:
 `90-Status/logs/2026-10-10_212802_pub_idea2-monitor-themes-face-overlay.md`.
+
+### Owner-reference correction evidence (S2)
+
+The owner rejected S1's subdued recolor as too similar to the original. S2
+implements the supplied theme composition: tall navy sidebar/brand, separate
+glass status header, vivid blue/cyan/mint Light backdrop, near-black/navy Dark
+backdrop, frosted cards and bounded luminous edges. Shared authenticated-app CSS
+covers all existing permitted SOC/operator/operator2 views; no new functions,
+menus, handlers or data. This correction changes only monitorTheme.css, its
+existing browser regressions and this mutable status. The original receipt
+remains unchanged; fixture results are not owner visual or hardware acceptance.
+
+- Reference-composition RED:0 PASS/6 FAIL. Contrast RED:0 PASS/4 FAIL; nested
+  SOC selector-count RED:0 PASS/1 FAIL. All corrected with focused regressions.
+- Complete browser suite:67 PASS/0 FAIL/0 SKIP. After the final CSS-only count
+  correction, theme/camera-selector recheck:51 PASS/0 FAIL/0 SKIP.
+- Focused design/liveCamera/UI-freeze/viewer-demand/stream/viewState:30 PASS/
+  0 FAIL/0 SKIP. Full Monitor:231 PASS/1 unchanged baseline Archive assertion
+  FAIL/109 conditional DB SKIP. No skip or failure counted as PASS.
+- Final Vite build PASS:2080 modules; CSS160.54kB/gzip36.37,
+  JS427.51kB/gzip133.34. Governance61 PASS/0 FAIL/0 SKIP. Vault PASS with2
+  existing owner-canvas warnings; final policy/diff/secret checks accompany push.
+- Independent reviewers' identified CSS readability findings corrected;
+  screenshot/owner approval remains pending. Four unchanged source-detector
+  warnings: two imperative StreamImage-src false positives and two Login
+  palette/gradient warnings outside this correction's scope.
+- App/LiveFeed, server/Engine, media pixels, RBAC/authentication, stream cleanup,
+  camera lifecycle, Production and the dirty primary checkout are unchanged.
+  Local preview uses synthetic multipart images and mocked APIs only.
+
+PR #425 stays Draft. Current main and PR #348 base remain the SHAs recorded
+above. Human visual acceptance, dependency/PR #411 reconciliation, baseline-test
+disposition and any separately authorized rollout remain pending.
 
 ## PR #348 functional-prototype handoff — 2026-10-10
 

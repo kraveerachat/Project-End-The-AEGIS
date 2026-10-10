@@ -4,6 +4,47 @@ const nav = (page, label) => page.getByRole('navigation', { name: 'Console secti
   .getByRole('button', { name: new RegExp(`^${label}(?:$| \\d+ unacknowledged$)`) })
 const stats = async request => (await request.get('/__fixture/stats')).json()
 
+// Catch the owner's reported mismatch: a recolored full-width legacy header
+// is not the reference's tall sidebar plus separate glass status bar.
+for (const scenario of ['single-camera', 'single-camera-2', 'soc-visual']) {
+  for (const theme of ['dark', 'light']) {
+    test(`reference theme ${scenario} ${theme}: desktop shell and glass material follow the supplied composition`, async ({ page, request }, info) => {
+      await page.setViewportSize({ width: 1440, height: 1000 })
+      await request.post(`/__fixture/reset?scenario=${scenario}`)
+      await page.addInitScript(theme => localStorage.setItem('aegis_shell_theme', theme), theme)
+      await page.goto('/monitor/', { waitUntil: 'domcontentloaded' })
+      await expect(page.locator('.hero .feedimg')).toBeVisible()
+      await expect(page.locator('.hero')).toHaveCSS('opacity', '1')
+      await expect(page.locator('.acbig')).toHaveCSS('opacity', '1')
+      const side = await page.locator('.side').boundingBox()
+      const header = await page.locator('.topbar').boundingBox()
+      const brand = await page.locator('.topbar-brand').boundingBox()
+      expect(Math.abs(side.y - header.y)).toBeLessThan(2)
+      expect(header.x).toBeGreaterThanOrEqual(side.x + side.width + 12)
+      expect(brand.x).toBeGreaterThanOrEqual(side.x)
+      expect(brand.x + brand.width).toBeLessThanOrEqual(side.x + side.width)
+      const material = await page.locator('.acpanel').evaluate(el => {
+        const css = getComputedStyle(el)
+        return { blur: css.backdropFilter, shadow: css.boxShadow, background: css.backgroundImage }
+      })
+      expect(material.blur).toMatch(/blur\(/)
+      expect(material.shadow).not.toBe('none')
+      expect(material.background).toContain('gradient')
+      if (theme === 'light') {
+        expect(await page.locator('.app').evaluate(el => getComputedStyle(el).backgroundImage)).toContain('linear-gradient')
+        await expect(page.locator('.clock')).toHaveCSS('color', 'rgb(244, 251, 255)')
+        expect(await page.locator('.right-zone').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+        if (scenario === 'soc-visual') {
+          await expect(page.locator('.camera-selector-heading h2')).toHaveCSS('color', 'rgb(244, 251, 255)')
+          await expect(page.locator('.camera-selector-heading > span')).toHaveCSS('color', 'rgb(203, 222, 240)')
+          await expect(page.locator('.camera-selector-heading h2 span')).toHaveCSS('color', 'rgb(203, 222, 240)')
+        }
+      }
+      await page.screenshot({ path: info.outputPath(`reference-${scenario}-${theme}.png`), fullPage: true, animations: 'disabled' })
+    })
+  }
+}
+
 function luminance(hex) {
   const [r, g, b] = hex.replace('#', '').match(/../g).map(part => {
     const channel = parseInt(part, 16) / 255
@@ -28,7 +69,7 @@ for (const theme of ['dark', 'light']) {
     expect(contrast(colors.ink, colors.surface)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(colors.muted, colors.surface)).toBeGreaterThanOrEqual(4.5)
     const endpoints = colors.selected.match(/#[a-f0-9]{6}/gi)
-    expect(endpoints).toHaveLength(2)
+    expect(endpoints.length).toBeGreaterThanOrEqual(2)
     for (const endpoint of endpoints) expect(contrast('#ffffff', endpoint)).toBeGreaterThanOrEqual(4.5)
   })
 }
@@ -158,6 +199,8 @@ for (const scenario of ['single-camera', 'single-camera-2', 'soc-visual']) {
           }
         }
         await expect(page.locator('.switch-toggle')).toHaveCount(2)
+        expect(await page.locator('.set-notice-box p').evaluate(el => getComputedStyle(el).color)).toBe(
+          await page.locator('.set-notice-box').evaluate(el => getComputedStyle(el).color))
         if (width === 1440) {
           const cards = await page.locator('.settings-grid > .set-card').all()
           const first = await cards[0].boundingBox()

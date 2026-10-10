@@ -2,17 +2,19 @@
    deliberately unchanged. Higher-specificity rules replace legacy visual
    overrides without altering App, LiveFeed or authorization orchestration. */
 html .app {
-  --monitor-canvas: #061220;
-  --monitor-surface: #0b1c30;
-  --monitor-raised: #10283f;
-  --monitor-glass: rgba(11, 28, 48, .94);
-  --monitor-line: #27445d;
+  --monitor-canvas: #050b14;
+  --monitor-surface: #091725;
+  --monitor-raised: #10243b;
+  --monitor-glass: rgba(7, 20, 34, .88);
+  --monitor-panel-fill: linear-gradient(145deg, rgba(11, 25, 43, .94), rgba(4, 19, 30, .88));
+  --monitor-edge-fill: linear-gradient(135deg, #264660, #122b42 65%, #16b6cb);
+  --monitor-line: #254860;
   --monitor-line-active: #4ebde0;
   --monitor-ink: #eff7ff;
   --monitor-muted: #b4cadc;
   --monitor-accent: #65dbfa;
   --monitor-accent-ink: #06213d;
-  --monitor-selected: linear-gradient(100deg, #1f6ad5, #08778d);
+  --monitor-selected: linear-gradient(105deg, #136ada, #064e74 70%, #087b8b);
   --monitor-success: #62edc2;
   --monitor-success-bg: #0b362f;
   --monitor-warning: #ffd27d;
@@ -20,7 +22,7 @@ html .app {
   --monitor-danger: #ffb0be;
   --monitor-danger-bg: #3f1d2a;
   --monitor-space-small: .75rem;
-  --monitor-space: 1rem;
+  --monitor-space: 1.25rem;
   --monitor-space-section: 1.5rem;
   --monitor-radius: 1rem;
   --monitor-duration: 200ms;
@@ -62,39 +64,43 @@ html .app {
   padding: var(--monitor-space);
   gap: var(--monitor-space);
   color: var(--monitor-ink);
-  background: radial-gradient(ellipse at 85% 0%, #0b3449 0%, transparent 52%), var(--monitor-canvas);
+  background: radial-gradient(ellipse at 92% 15%, #093249 0%, transparent 42%),
+    radial-gradient(ellipse at 15% 90%, #092238 0%, transparent 50%), var(--monitor-canvas);
   font-family: var(--sans);
   font-size: 1rem;
   line-height: 1.5;
   color-scheme: dark;
 }
 html.light .app {
-  --monitor-canvas: #d9f3ff;
-  --monitor-surface: #f5fbff;
-  --monitor-raised: #e3f2fb;
-  --monitor-glass: rgba(246, 252, 255, .95);
-  --monitor-line: #a3c3d7;
+  --monitor-canvas: #2589e5;
+  --monitor-surface: #e3f8ff;
+  --monitor-raised: #cceefa;
+  --monitor-glass: rgba(221, 249, 255, .9);
+  --monitor-panel-fill: linear-gradient(135deg, rgba(230, 249, 255, .96), rgba(193, 249, 245, .9));
+  --monitor-edge-fill: linear-gradient(135deg, #ebfcff, #8bcaf2 65%, #8dffe0);
+  --monitor-line: #89bfdb;
   --monitor-line-active: #1579a2;
   --monitor-ink: #0c2c4b;
   --monitor-muted: #365d78;
   --monitor-accent: #086b95;
   --monitor-accent-ink: #ffffff;
-  --monitor-selected: linear-gradient(100deg, #185ccd, #086d85);
+  --monitor-selected: linear-gradient(105deg, #0e5dba, #0a5476 70%, #096c6b);
   --monitor-success: #08634d;
   --monitor-success-bg: #d1f6e9;
   --monitor-warning: #7b4805;
   --monitor-warning-bg: #fff0d1;
   --monitor-danger: #a21f43;
   --monitor-danger-bg: #ffe7ec;
-  background: radial-gradient(ellipse at 95% 0%, #9af2d9 0%, transparent 55%),
-    radial-gradient(ellipse at 0% 20%, #8cc9fb 0%, transparent 65%), var(--monitor-canvas);
+  background: radial-gradient(ellipse at 100% 0%, rgba(116, 255, 182, .96), transparent 48%),
+    radial-gradient(ellipse at 55% 100%, rgba(32, 217, 217, .9), transparent 50%),
+    linear-gradient(120deg, #1975cd 0%, #2da4f5 55%, #32dfcf 100%);
   color-scheme: light;
 }
 html .app .glass {
   background: var(--monitor-glass);
   border-color: var(--monitor-line);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 html .app .topbar {
   min-height: 4.25rem;
@@ -109,7 +115,7 @@ html .app .topbar-brand { min-width: 0; }
 html .app .statrow { flex-wrap: wrap; justify-content: center; gap: .5rem; }
 html .app .right-zone { gap: .75rem; min-width: 0; }
 html .app .clock-wrap { padding: .375rem .625rem; border-radius: .75rem; background: var(--monitor-raised); }
-html .app .clock { color: var(--monitor-ink); font-size: .875rem; font-variant-numeric: tabular-nums; }
+html .app .clock.mono { color: var(--monitor-ink); font-size: .875rem; font-variant-numeric: tabular-nums; }
 html .app .cdate { white-space: nowrap; }
 html .app .cdate, html .app .rolechip { color: var(--monitor-muted) !important; font-size: .75rem; }
 html .app .username { color: var(--monitor-ink); font-size: .875rem; }
@@ -122,9 +128,9 @@ html .app .side {
   padding: .5rem .75rem 1rem;
   border: 1px solid var(--monitor-line);
   border-radius: var(--monitor-radius);
-  background: var(--monitor-glass);
+  background: linear-gradient(155deg, rgba(9, 25, 43, .97), rgba(5, 26, 39, .88));
   overflow-y: auto;
-  box-shadow: inset 0 -1px 0 var(--monitor-line-active);
+  box-shadow: inset 0 1px 0 rgba(118, 223, 255, .12), 0 0 8px rgba(0, 190, 220, .14);
 }
 html .app .navsec {
   font-family: var(--sans);
@@ -172,14 +178,16 @@ html .app .main { padding: 1rem .5rem; min-width: 0; background: none; border: 0
 html .app .pagehead { gap: var(--monitor-space); margin-bottom: var(--monitor-space-section); flex-wrap: wrap; }
 html .app .h1 { color: var(--monitor-ink); font: 750 1.875rem/1.2 var(--sans); letter-spacing: -.025em; text-wrap: balance; }
 html .app .sub { color: var(--monitor-muted); font-size: .875rem; line-height: 1.65; max-width: 75ch; text-wrap: pretty; }
-html .app :is(.panel, .node, .clip, .alert, .dcard, .banner) {
-  background: var(--monitor-glass) !important;
-  border-color: var(--monitor-line);
+html .app :is(.panel, .node, .clip, .alert, .dcard, .banner, .set-card, .empty, .tablewrap, .sfeed) {
+  background: var(--monitor-panel-fill) padding-box, var(--monitor-edge-fill) border-box !important;
+  border: 1px solid transparent;
   border-radius: var(--monitor-radius);
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(219, 249, 255, .12), 0 0 8px rgba(18, 172, 208, .12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 html .app .panel { padding: var(--monitor-space-section); }
-html .app .panel:hover { border-color: var(--monitor-line); box-shadow: none; }
+html .app .panel:hover { border-color: transparent; box-shadow: inset 0 1px 0 rgba(219, 249, 255, .2), 0 0 8px rgba(18, 172, 208, .2); }
 html .app .ptitle { color: var(--monitor-ink); font: 650 .9375rem/1.5 var(--sans); letter-spacing: 0; text-transform: none; margin-bottom: 1rem; }
 html .app .ptitle svg { color: var(--monitor-accent); }
 html .app .canvas { grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem); gap: var(--monitor-space); }
@@ -261,12 +269,131 @@ html .app .switch-toggle.active .switch-thumb { transform: translateX(24px); }
 html .app .switch-toggle::before { content: ''; position: absolute; inset: -6px 0; }
 html .app .info-kv-item { background: var(--monitor-raised); border-color: var(--monitor-line); gap: .75rem; flex-wrap: wrap; }
 html .app .set-notice-box { background: var(--monitor-warning-bg); border-color: var(--monitor-line); color: var(--monitor-warning); }
+html .app .set-notice-box p { color: var(--monitor-warning); }
 html .app .saved-toast { color: var(--monitor-success); background: var(--monitor-success-bg); border-color: var(--monitor-line); }
 html .app .camera-option { color: var(--monitor-ink); background: var(--monitor-glass); border-color: var(--monitor-line); box-shadow: none; }
 html .app .camera-option[aria-pressed="true"] { background: var(--monitor-raised); border-color: var(--monitor-line-active); }
 html .app .camera-option-name { color: var(--monitor-ink); }
 html .app .camera-option-selection, html .app .camera-selector-heading > span { color: var(--monitor-muted); }
 html .app .camera-option-status--live { color: var(--monitor-success); }
+/* Reference composition is presentation only: no DOM relocation, routing or
+   viewer mount changes. The existing brand is visually placed above the nav. */
+html .app::before { display: none; }
+html .app .topbar::after { display: none; }
+html .app .topbar {
+  background: linear-gradient(100deg, rgba(8, 25, 43, .94), rgba(4, 16, 29, .9));
+  border-color: #28506b;
+  box-shadow: inset 0 1px 0 rgba(194, 240, 255, .1), 0 0 8px rgba(14, 193, 228, .12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+html.light .app .topbar {
+  --monitor-ink: #f4fbff;
+  --monitor-muted: #d9efff;
+  --monitor-raised: rgba(5, 57, 106, .82);
+  --monitor-success: #72ffd1;
+  --monitor-success-bg: #085b7f;
+  --monitor-danger: #ffc2d4;
+  --monitor-danger-bg: #414d7d;
+  background: linear-gradient(100deg, rgba(65, 173, 251, .8), rgba(143, 253, 231, .5));
+  border-color: rgba(205, 255, 250, .9);
+  box-shadow: inset 0 1px 0 #b9f5ff, 0 0 8px rgba(150, 255, 230, .65);
+}
+html.light .app .right-zone { padding: .375rem .625rem; border-radius: .75rem; background: #145179; }
+html .app .side {
+  --monitor-ink: #f4fbff;
+  --monitor-muted: #cbdef0;
+  --monitor-raised: #153b5f;
+  --monitor-line: #235370;
+  --monitor-line-active: #24dce1;
+  color: var(--monitor-ink);
+  position: relative;
+}
+html.light .app .side {
+  background: linear-gradient(150deg, rgba(14, 69, 134, .93), rgba(7, 48, 96, .93) 60%, rgba(22, 159, 160, .8));
+  border-color: #6bf8db;
+  box-shadow: inset 0 1px 0 rgba(189, 244, 255, .38), 0 0 8px rgba(74, 248, 214, .5);
+}
+html .app .navsec { color: #69c8ee; padding-top: 1.5rem; }
+html .app .nav svg {
+  color: #cbdef0;
+  box-sizing: content-box; padding: .5rem; border-radius: .625rem;
+  background: linear-gradient(140deg, #143f6f, #0d2745);
+}
+html .app .nav { gap: .625rem; padding: .5rem; }
+html .app .nav.on {
+  background: var(--monitor-selected);
+  border-color: #21eddf;
+  box-shadow: inset 0 1px 0 rgba(177, 243, 255, .3), 0 0 8px rgba(0, 215, 242, .35);
+}
+html.light .app .nav.on {
+  background: var(--monitor-selected);
+  border-color: #92ffe1;
+  box-shadow: inset 0 1px 0 rgba(177, 243, 255, .45), 0 0 8px rgba(65, 255, 214, .6);
+}
+html .app .nav.on svg { background: rgba(42, 175, 255, .38); }
+html .app .sidefoot {
+  margin-top: auto; padding: 1rem; border: 1px solid rgba(70, 192, 232, .45);
+  border-radius: 1rem; background: linear-gradient(135deg, rgba(17, 59, 98, .65), rgba(12, 71, 81, .48));
+  font-size: .8125rem; line-height: 1.45;
+}
+html .app .topbar-brand > div > div:first-child {
+  border-radius: .75rem; padding: .25rem;
+  background: linear-gradient(145deg, #28ddd8, #0874ff);
+  box-shadow: inset 0 1px 0 rgba(225, 255, 255, .6), 0 0 8px rgba(0, 202, 248, .22);
+}
+html .app .topbar-brand .text-ink { color: #f4fbff !important; font-size: 1.125rem; letter-spacing: -.02em; }
+html .app .topbar-brand .text-ink-3 { color: #c7e8ff !important; font-size: .5625rem; letter-spacing: .08em; }
+html .app .topbar .statrow .pill { box-shadow: inset 0 1px 0 rgba(170, 244, 255, .08); }
+html .app .topbar .ping.ok { filter: drop-shadow(0 0 4px #19e9ac); }
+html .app .avatar { border-radius: 50%; background: linear-gradient(140deg, #b9edff, #4faff6); color: #073c65; }
+html .app .canvasL {
+  padding: 1rem; border: 1px solid transparent; border-radius: 1rem;
+  background: var(--monitor-panel-fill) padding-box, var(--monitor-edge-fill) border-box;
+  box-shadow: 0 0 8px rgba(13, 178, 221, .16);
+}
+/* The Live media frame is intentionally dark in both themes. Never filter,
+   crop, recolor or substitute the image or its Engine-rendered face labels. */
+html.light .app .canvasL {
+  background: linear-gradient(135deg, rgba(17, 61, 105, .95), rgba(7, 32, 53, .96)) padding-box,
+    linear-gradient(135deg, #88caff, #155b9c 70%, #2aabb5) border-box;
+}
+html.light .app .canvasL .camera-selector-heading h2 { color: #f4fbff; }
+html.light .app .canvasL .camera-selector-heading > span,
+html.light .app .canvasL .camera-selector-heading h2 span { color: #cbdef0; }
+html .app .hero, html .app .hero:hover { border-color: #25465d; transform: none; }
+html .app .acglow { display: none; }
+html .app .acbig { border: 1px solid #0da980; }
+html .app .accheck { -webkit-text-fill-color: currentColor; filter: none; }
+html.light .app .acbig { background: #baf4e5; border-color: #f2ffff; }
+html .app .acid { background: linear-gradient(135deg, var(--monitor-raised), var(--monitor-surface)); }
+html .app .streamlist { border: 1px solid var(--monitor-line); border-radius: .75rem; padding: .25rem .75rem; background: var(--monitor-raised); }
+html .app .streamlist .srow:last-child { border-bottom: 0; }
+html .app .empty-icon { color: var(--monitor-accent); background: var(--monitor-raised); border-color: var(--monitor-line-active); box-shadow: 0 0 8px rgba(0, 186, 218, .16); }
+html .app :is(.badge-role, .badge, .nfval, .oprole) { color: var(--monitor-ink); }
+html .app .foot { color: #e2f4ff; }
+html.light .app .pagehead :is(.h1, .sub) { color: #ffffff; text-shadow: 0 1px 2px rgba(6, 41, 91, .4); }
+html.light .app .pagehead .sub { color: #0c2c4b; text-shadow: none; }
+html.light .app .foot { color: #0c2c4b; }
+@media (min-width: 1001px) {
+  html .app {
+    display: grid; grid-template-columns: 15.5rem minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'sidebar header' 'sidebar main' 'footer footer';
+  }
+  html .app .body { display: contents; }
+  html .app .side { grid-area: sidebar; width: auto; min-height: 0; padding-top: 4.5rem; }
+  html .app .topbar { grid-area: header; grid-template-columns: minmax(0, 1fr) auto; }
+  html .app .statrow { grid-column: 1; grid-row: 1; margin: 0; width: auto; }
+  html .app .right-zone { grid-column: 2; grid-row: 1; }
+  html .app .topbar-brand {
+    position: absolute; top: 0; left: calc(-15.5rem - var(--monitor-space) + 1rem);
+    width: 13rem; min-width: 0; height: 4.25rem;
+    display: flex; align-items: center; z-index: var(--z-feed-top);
+  }
+  html .app .main { grid-area: main; overflow: auto; padding: .25rem 0 0; }
+  html .app .foot { grid-area: footer; }
+}
 /* App's existing responsive navigation is retained, including every SOC item. */
 @media (max-width: 1200px) {
   html .app .topbar { grid-template-columns: minmax(12rem, 1fr) auto; }
@@ -274,6 +401,10 @@ html .app .camera-option-status--live { color: var(--monitor-success); }
   html .app .side { width: 13.5rem; flex-basis: 13.5rem; }
   html .app .canvas { grid-template-columns: minmax(0, 1fr); }
   html .app .canvasR { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1001px) and (max-width: 1200px) {
+  html .app .side { width: auto; }
+  html .app .right-zone { grid-column: 1 / -1; justify-content: flex-end; }
 }
 @media (max-width: 900px) {
   html .app { padding: .75rem; gap: .75rem; }
@@ -302,5 +433,5 @@ html .app .camera-option-status--live { color: var(--monitor-success); }
 }
 @media (prefers-reduced-motion: reduce) {
   html .app .nav, html .app .mnavbtn { transition: none !important; transform: none !important; }
-  html .app :is(.rise, .scanline, .ring, .viewfade) { animation: none !important; }
+  html .app :is(.rise, .scanline, .ring, .viewfade, .acbig, .newflag) { animation: none !important; }
 }
