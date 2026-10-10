@@ -1,19 +1,22 @@
+import { useLocale } from '../lib/Locale.jsx'
 import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { ListTree, Maximize2, ShieldCheck, WifiOff } from 'lucide-react'
 import {
-  bboxesFor, eventText,
+  eventText,
   fmtDate, fmtTime, hasUnk, ini,
 } from '../data.js'
-import { BBox, EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
+import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import LiveFeed from '../components/LiveFeed.jsx'
 import CameraSelector from '../components/CameraSelector.jsx'
+import LatestDetectionPeople from '../components/LatestDetectionPeople.jsx'
 import { selectedCamera, cameraDetections, cameraHeartbeat } from '../lib/liveCamera.js'
 
 // ⚠️ `cameras` มาจาก GET /api/cameras — กรองผ่าน camera_assignment "ฝั่งเซิร์ฟเวอร์"
 // SOC-Responder ได้ทุกกล้อง; CCTV-Operator ได้เฉพาะกล้องที่มอบหมาย
 // วิวนี้ไม่กรองสิทธิ์เอง (และต้องไม่ทำ) — แค่ render ขอบเขตที่ได้รับ
 export default function Live({ now, link, detections, cameras, heroCam, setHeroCam, role }) {
+  const { t, lang } = useLocale()
   const heroRef = useRef(null)
   const [feedStatus, setFeedStatus] = useState(null)
 
@@ -21,8 +24,8 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
     return (
       <div className="pagehead">
         <div>
-          <h1 className="h1">Live canvas</h1>
-          <p className="sub">Connecting to AEGIS Monitor feed server...</p>
+          <h1 className="h1">{t("Live canvas")}</h1>
+          <p className="sub">{t("Connecting to AEGIS Monitor feed server...")}</p>
         </div>
       </div>
     )
@@ -39,13 +42,13 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
       <>
         <div className="pagehead">
           <div>
-            <h1 className="h1">Live canvas</h1>
-            <p className="sub">Scoped to the cameras this account is assigned server-side.</p>
+            <h1 className="h1">{t("Live canvas")}</h1>
+            <p className="sub">{t("Scoped to the cameras this account is assigned server-side.")}</p>
           </div>
         </div>
         <EmptyState
-          title="No cameras assigned"
-          hint="Contact an administrator to assign a camera."
+          title={t("No cameras assigned")}
+          hint={t("Contact an administrator to assign a camera.")}
         />
       </>
     )
@@ -54,10 +57,9 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
   // All camera-context panels derive from the same authorized selection.
   const scoped = cameraDetections(detections, cam.id)
 
-  // overlay = detection "ล่าสุดจริง" ของกล้องที่กำลังโฟกัส (ไม่มี = ไม่วาดอะไรเลย)
-  // เดิมบรรทัดนี้คือ HERO_SCENES[cam.id] ซึ่งเป็นฉากที่แต่งไว้ตายตัวต่อ camera id
+  // Recent metadata (including measured confidence) drives the panels only.
+  // Genuine exact-frame geometry and labels remain in the unchanged MJPEG.
   const heroFrame = scoped[0] ?? null
-  const heroBoxes = bboxesFor(heroFrame)
   const subjects = heroFrame?.people?.length ?? 0
   const hasUnknownNow = Boolean(heroFrame && hasUnk(heroFrame))
 
@@ -72,7 +74,7 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
   const rows = [
     ...scoped.map((d) => ({
       id: d.id, at: d.at,
-      dot: hasUnk(d) ? 'warn' : 'ok', text: eventText(d),
+      dot: hasUnk(d) ? 'warn' : 'ok', text: eventText(d, lang),
     })),
   ].sort((a, b) => b.at - a.at).slice(0, 12)
 
@@ -89,13 +91,11 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
           ตัดออกเหลือ static header — ข้อมูลสำคัญ (สถานะกล้อง) ต้องขึ้นทันที ไม่รอ 400ms */}
       <div className="pagehead">
         <div>
-          <h1 className="h1">Live canvas</h1>
+          <h1 className="h1">{t("Live canvas")}</h1>
           {/* ⚠️ เดิมบรรทัดนี้ประกาศว่า "AI auto-elevated CAM-02 on unknown detection"
               ทุกครั้งที่โฟกัส CAM-02 โดยอิง scene.aiFocus ที่ตั้งค่าไว้ตายตัวใน data.js
               — ไม่มีกลไก auto-elevate อยู่จริงในระบบเลย ตอนนี้บอกแค่ที่เป็นจริง */}
-          <p className="sub">
-            Manual focus · {cam.name}. Scoped to the cameras this account is assigned server-side.
-          </p>
+          <p className="sub">{t('Manual focus · {camera}. Scoped to the cameras this account is assigned server-side.', { camera: cam.name })}</p>
         </div>
       </div>
       <div className="canvas">
@@ -114,9 +114,8 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
             animate={{ opacity: 1 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
           >
-            {/* ⚠️ Phase B: ภาพจริงมาแทนลาย hatch แล้ว — LiveFeed วางภาพที่
-                inset:0 กินกรอบเดียวกับ .hero เป๊ะ ๆ พิกัด % ของ BBox ด้านล่างจึง
-                อ้างอิงกรอบใบเดิมไม่เปลี่ยน (ดูคอมเมนต์ .feedimg ใน index.css) */}
+            {/* Keep the original full-frame stream; do not invent geometry
+                from asynchronous detection metadata or mask camera pixels. */}
             <LiveFeed
               cameraId={cam.id}
               cameraName={cam.name}
@@ -129,16 +128,16 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
             <span className="corner tl" /><span className="corner tr" /><span className="corner bl" /><span className="corner br" />
             <div className="herotop absolute top-4 left-4 flex items-center gap-2 z-10">
               {lost ? (
-                <span className="htag lost bg-rose-950/90 border border-rose-500/50 text-rose-300 px-2 py-1 rounded font-mono text-xs font-bold">LINK LOST</span>
+                <span className="htag lost bg-rose-950/90 border border-rose-500/50 text-rose-300 px-2 py-1 rounded font-mono text-xs font-bold">{t("LINK LOST")}</span>
               ) : hasUnknownNow ? (
-                <span className="htag focus"><span className="rec" />UNKNOWN IN FRAME</span>
+                <span className="htag focus"><span className="rec" />{t("UNKNOWN IN FRAME")}</span>
               ) : (
-                <span className="htag manual">MANUAL FOCUS</span>
+                <span className="htag manual">{t("MANUAL FOCUS")}</span>
               )}
               <span className="hchip mono text-white font-mono text-xs font-semibold bg-black/40 px-2 py-1 rounded backdrop-blur-sm">{cam.id} · {cam.name}</span>
             </div>
             <div className="heroright absolute top-4 right-4 flex items-center gap-2 z-10">
-                {camBeat?.status === 'degraded' && <StaleBadge label="Link degraded" />}
+                {camBeat?.status === 'degraded' && <StaleBadge label={t("Link degraded")} />}
                 {/* ⚠️ เดิมตรงนี้ hardcode "REC • 1080p • 24fps" — ความละเอียดมาจากตาราง
                     cameras จริง ส่วน fps จริงมาจาก heartbeat (capture_fps) ถ้ายังไม่มี
                     heartbeat ก็ไม่แสดงตัวเลข fps ปลอม */}
@@ -151,7 +150,7 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
                   type="button"
                   className="herobtn"
                   onClick={toggleFullscreen}
-                  aria-label="Toggle fullscreen feed"
+                  aria-label={t("Toggle fullscreen feed")}
                   whileHover={{ scale: 1.08 }}
                   whileTap={{ scale: 0.92 }}
                   transition={{ duration: 0.15 }}
@@ -159,26 +158,23 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
                   <Maximize2 aria-hidden="true" />
                 </motion.button>
               </div>
-            {!lost && heroBoxes.map((b, i) => <BBox key={`${b.label}-${i}`} {...b} kind={b.kind} />)}
             {/* ⚠️ เดิมประกาศชื่อรุ่นโมเดล "FACE_RECOGNITION V1.3" ที่ไม่มีอยู่จริง
                 (engine ยังรัน PlaceholderRecognizer) และนับ subject จากฉากที่แต่งไว้
                 ตอนนี้นับจากคนในเฟรม detection จริง และไม่เอ่ยชื่อโมเดลใด ๆ */}
             {!lost && subjects > 0 && (
-              <span className="heroai mono">
-                LAST DETECTION · {subjects} SUBJECT{subjects === 1 ? '' : 'S'} IN FRAME
-              </span>
+              <span className="heroai mono">{t(subjects === 1 ? 'LAST DETECTION · {count} SUBJECT IN FRAME' : 'LAST DETECTION · {count} SUBJECTS IN FRAME', { count: subjects })}</span>
             )}
             <span className="herots mono">
-              {!lost && `${fmtDate(now)} ${fmtTime(now)}`}
+              {!lost && `${fmtDate(now, lang)} ${fmtTime(now)}`}
             </span>
             {lost && (
               <div className="lostwrap flex flex-col items-center justify-center gap-3" role="alert">
                 <WifiOff aria-hidden="true" />
-                <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">Camera offline</span>
-                <span className="lost-state text-slate-300">NO LIVE STREAM</span>
-                <span className="lost-s mono text-slate-300">Waiting for Detection Engine heartbeat...</span>
+                <span className="lost-t text-rose-500 font-bold tracking-widest text-lg">{t("Camera offline")}</span>
+                <span className="lost-state text-slate-300">{t("NO LIVE STREAM")}</span>
+                <span className="lost-s mono text-slate-300">{t("Waiting for Detection Engine heartbeat...")}</span>
                 <span className="lost-detail mono text-white/80"> {cam.id}</span>
-                <span className="lost-r text-slate-300">Reconnecting</span>
+                <span className="lost-r text-slate-300">{t("Reconnecting")}</span>
               </div>
             )}
           </motion.div>
@@ -203,50 +199,47 @@ export default function Live({ now, link, detections, cameras, heroCam, setHeroC
             <div className="acglow" />
             <div className="ptitle" style={{ justifyContent: 'space-between' }}>
               <span className="fx ac gap9">
-                <ShieldCheck aria-hidden="true" />
-                Access control · result
-              </span>
-              {stale ? <StaleBadge red={lost} label="Stale" /> : <span className="acdot" />}
+                <ShieldCheck aria-hidden="true" /> {t("Access control · result")} </span>
+              {stale ? <StaleBadge red={lost} label={t("Stale")} /> : <span className="acdot" />}
             </div>
-            <p className="live-camera-context">{cam.id} · {cam.name} · Latest detection</p>
+            <p className="live-camera-context">{cam.id} · {cam.name} · {t('Latest detection')}</p>
             {grantPerson ? (
               <div key={grant.id}>
-                <div className="acbig"><span className="accheck" aria-hidden="true">✓</span> Access authorized</div>
+                <div className="acbig"><span className="accheck" aria-hidden="true">✓</span> {t("Access authorized")}</div>
                 <div className="acid">
                   <div className="acav" aria-hidden="true">{ini(grantPerson.name)}</div>
                   <div>
                     <div className="acname">{grantPerson.name}</div>
-                    <div className="acrole">Authorized · Staff</div>
+                    <div className="acrole">{t("Authorized · Staff")}</div>
                   </div>
                 </div>
                 <div className="acstats">
                   <div className="acstat">
-                    <div className="acslab">Camera</div>
+                    <div className="acslab">{t("Camera")}</div>
                     <div className="acsval mono">{grant.cam}</div>
                   </div>
                   <div className="acstat">
-                    <div className="acslab">Match score</div>
+                    <div className="acslab">{t("Match score")}</div>
                     <div className="acsval mono teal">{grantPerson.conf}%</div>
                   </div>
                 </div>
-                <p className="sub">{fmtDate(grant.at)} {fmtTime(grant.at)}</p>
+                <p className="sub">{fmtDate(grant.at, lang)} {fmtTime(grant.at)}</p>
               </div>
             ) : (
               <p className="sub" style={{ margin: 0 }}>{heroFrame
-                ? 'No authorization in the latest detection.' : 'No recent detection'}</p>
+                ? t("No authorization in the latest detection.") : t("No recent detection")}</p>
             )}
+            <LatestDetectionPeople people={grantPerson ? heroFrame.people.slice(1) : heroFrame?.people} />
           </section>
           <section className="panel glass streampanel">
             <div className="ptitle" style={{ justifyContent: 'space-between' }}>
               <span className="fx ac gap9">
-                <ListTree aria-hidden="true" />
-                Event stream
-              </span>
-              {lost && <StaleBadge red label="Frozen" />}
+                <ListTree aria-hidden="true" /> {t("Event stream")} </span>
+              {lost && <StaleBadge red label={t("Frozen")} />}
             </div>
-            <p className="live-camera-context">{cam.id} · {cam.name} · Selected camera only</p>
+            <p className="live-camera-context">{cam.id} · {cam.name} · {t('Selected camera only')}</p>
             <div className="streamlist">
-              {!rows.length && <p className="sub">No recent detection</p>}
+              {!rows.length && <p className="sub">{t("No recent detection")}</p>}
               {rows.map((r, i) => (
                 <motion.div
                   key={r.id}

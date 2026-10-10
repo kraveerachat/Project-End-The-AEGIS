@@ -3,6 +3,7 @@ import { Download, RefreshCw, SearchX, ServerOff } from 'lucide-react'
 import { EmptyState } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
+import { useLocale } from '../lib/Locale.jsx'
 
 function clipDurationSeconds(clip) {
   const value = Number(clip?.durationSec)
@@ -20,27 +21,25 @@ function formatDuration(seconds) {
 }
 
 const THAILAND_TIME_ZONE = 'Asia/Bangkok'
-const thaiDate = new Intl.DateTimeFormat('th-TH-u-ca-buddhist-nu-latn', {
-  timeZone: THAILAND_TIME_ZONE,
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-})
-const thaiTime = new Intl.DateTimeFormat('th-TH-u-nu-latn', {
-  timeZone: THAILAND_TIME_ZONE,
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-})
+const archiveFormats = Object.fromEntries(Object.entries({
+  th: 'th-TH-u-ca-buddhist-nu-latn', en: 'en-GB', zh: 'zh-CN',
+}).map(([lang, locale]) => [lang, {
+  date: new Intl.DateTimeFormat(locale, {
+    timeZone: THAILAND_TIME_ZONE, day: 'numeric', month: 'short', year: 'numeric',
+  }),
+  time: new Intl.DateTimeFormat(locale, {
+    timeZone: THAILAND_TIME_ZONE, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }),
+}]))
 
-function formatThailandWindow(startMs, durationSeconds) {
+function formatThailandWindow(startMs, durationSeconds, lang) {
+  const { date, time } = archiveFormats[lang] ?? archiveFormats.en
   const start = Number(startMs)
   const end = start + clipDurationSeconds({ durationSec: durationSeconds }) * 1000
-  const startDate = thaiDate.format(start)
-  const endDate = thaiDate.format(end)
-  const startTime = thaiTime.format(start)
-  const endTime = thaiTime.format(end)
+  const startDate = date.format(start)
+  const endDate = date.format(end)
+  const startTime = time.format(start)
+  const endTime = time.format(end)
   return startDate === endDate
     ? `${startDate} · ${startTime}–${endTime}`
     : `${startDate} ${startTime} – ${endDate} ${endTime}`
@@ -53,6 +52,7 @@ function formatThailandWindow(startMs, durationSeconds) {
 // ⚠️ Phase 2: คลิปมาจาก GET /api/clips เท่านั้น (server ผูก camName ให้แล้ว) —
 // ไม่มีการ generate mock ฝั่ง client อีกต่อไป
 export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, setArcResult }) {
+  const { t, lang } = useLocale()
   const clipsApi = useApi('/api/clips', { refreshMs: 30_000 })
   const visibleIds = useMemo(() => new Set(cameras.map((c) => c.id)), [cameras])
 
@@ -72,48 +72,49 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
 
   if (state === VIEW_STATE.ERROR) {
     return (
-      <EmptyState icon={ServerOff} title="Could not load archival footage"
-        hint="The Monitor backend did not respond. Check the server, then retry."
-        action={<button type="button" className="ackbtn" onClick={clipsApi.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
+      <EmptyState icon={ServerOff} title={t('Could not load archival footage')}
+        hint={t('The Monitor backend did not respond. Check the server, then retry.')}
+        action={<button type="button" className="ackbtn" onClick={clipsApi.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Retry')}</button>} />
     )
   }
 
   if (state === VIEW_STATE.LOADING) {
-    return <EmptyState icon={ServerOff} title="Loading archival footage" hint="Retrieving the current retention window." />
+    return <EmptyState icon={ServerOff} title={t('Loading archival footage')} hint={t('Retrieving the current retention window.')} />
   }
 
   return (
     <>
       <div className="pagehead">
         <div>
-          <h1 className="h1">Archival footage</h1>
-          <p className="sub">Continuous recording rolls into 5-minute clips. Logout/session end preserves the final partial clip at its actual duration; verified clips are archived to the NAS.</p>
+          <h1 className="h1">{t('Archival footage')}</h1>
+          <p className="sub">{t('Continuous recording rolls into 5-minute clips. Logout/session end preserves the final partial clip at its actual duration; verified clips are archived to the NAS.')}</p>
         </div>
       </div>
       <div className="filterbar">
-        <label className="flbl" htmlFor="arc-cam">Camera</label>
+        <label className="flbl" htmlFor="arc-cam">{t('Camera')}</label>
         <select id="arc-cam" className="fsel" value={arcCam} onChange={(e) => setArcCam(e.target.value)}>
-          <option value="all">{cameras.length === 1 ? `${cameras[0].id} · ${cameras[0].name}` : 'All cameras'}</option>
+          <option value="all">{cameras.length === 1 ? `${cameras[0].id} · ${cameras[0].name}` : t('All cameras')}</option>
           {cameras.length > 1 && cameras.map((c) => <option key={c.id} value={c.id}>{c.id} · {c.name}</option>)}
         </select>
-        <label className="flbl" htmlFor="arc-res">Result</label>
+        <label className="flbl" htmlFor="arc-res">{t('Result')}</label>
         <select id="arc-res" className="fsel" value={arcResult} onChange={(e) => setArcResult(e.target.value)}>
-          <option value="all">All results</option>
-          <option value="auth">Authorized only</option>
-          <option value="unknown">Unknown present</option>
+          <option value="all">{t('All results')}</option>
+          <option value="auth">{t('Authorized only')}</option>
+          <option value="unknown">{t('Unknown present')}</option>
         </select>
       </div>
       {state === VIEW_STATE.SUCCESS_EMPTY || clips.length === 0 ? (
         <EmptyState
           icon={SearchX}
-          title="No clips match these filters"
-          hint="Nothing in the current retention window matches this camera and result combination."
-          action={<button type="button" className="ackbtn" onClick={reset}>Reset filters</button>}
+          title={t('No clips match these filters')}
+          hint={t('Nothing in the current retention window matches this camera and result combination.')}
+          action={<button type="button" className="ackbtn" onClick={reset}>{t('Reset filters')}</button>}
         />
       ) : (
         <div className="clipgrid">
           {clips.map((cl, i) => {
             const durationSec = clipDurationSeconds(cl)
+            const window = formatThailandWindow(cl.start, durationSec, lang)
             const videoUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/video`
             const downloadUrl = `${import.meta.env.BASE_URL}api/clips/${cl.id}/download`
             return (
@@ -124,7 +125,7 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                   <video
                     className="clipvideo"
                     src={videoUrl}
-                    aria-label={`${cl.cam} recording · ${formatThailandWindow(cl.start, durationSec)}`}
+                    aria-label={t('{camera} recording · {window}', { camera: cl.cam, window })}
                     controls
                     preload="metadata"
                   />
@@ -136,24 +137,24 @@ export default function Archive({ cameras = [], arcCam, setArcCam, arcResult, se
                 <div className="clipbody">
                   <div className="cliprow">
                     <div>
-                      <div className="clipstart mono">{formatThailandWindow(cl.start, durationSec)} · {formatDuration(durationSec)}</div>
+                      <div className="clipstart mono">{window} · {formatDuration(durationSec)}</div>
                       <div className="clipcam">
                         {cl.cam} · {cl.camName ?? cl.cam}{cl.nodeId ? ` · ${cl.nodeId}` : ''}
                       </div>
                     </div>
-                    <a className="ackbtn" href={downloadUrl} download aria-label={`Download ${cl.cam} clip · ${formatThailandWindow(cl.start, durationSec)}`}>
-                      <Download aria-hidden="true" size={13} style={{ marginRight: 6 }} />Download
+                    <a className="ackbtn" href={downloadUrl} download aria-label={t('Download {camera} clip · {window}', { camera: cl.cam, window })}>
+                      <Download aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Download')}
                     </a>
                   </div>
                   <div className="tags">
                     {cl.kind === 'unavailable' ? (
-                      <span className="tag">Detection result unavailable</span>
+                      <span className="tag">{t('Detection result unavailable')}</span>
                     ) : cl.kind === 'auth' ? (
-                      <span className="tag auth">Authorized only</span>
+                      <span className="tag auth">{t('Authorized only')}</span>
                     ) : (
                       <>
-                        {cl.hasAuthorized ? <span className="tag auth">Authorized</span> : null}
-                        <span className="tag unk">Unknown present</span>
+                        {cl.hasAuthorized ? <span className="tag auth">{t('Authorized')}</span> : null}
+                        <span className="tag unk">{t('Unknown present')}</span>
                       </>
                     )}
                   </div>

@@ -1,4 +1,5 @@
 import { Ping } from './ui.jsx'
+import { useLocale } from '../lib/Locale.jsx'
 
 const FOOT_TEXT = {
   online: { tone: 'ok', text: 'Edge AI node · online' },
@@ -12,6 +13,7 @@ const FOOT_TEXT = {
 const APP_VERSION = __APP_VERSION__
 
 export default function Footer({ link }) {
+  const { t } = useLocale()
   const status = link?.status ?? 'lost'
   const f = FOOT_TEXT[status] ?? FOOT_TEXT.lost
 
@@ -24,12 +26,12 @@ export default function Footer({ link }) {
     (best, b) => (best == null || b.lastSeenAt > best.lastSeenAt ? b : best),
     null,
   )
-  const nodeText = freshest?.nodeId ? `${freshest.nodeId} · LAN` : 'No edge node reporting'
+  const nodeText = freshest?.nodeId ? `${freshest.nodeId} · LAN` : t('No edge node reporting')
 
   return (
     <footer className="foot">
       <Ping tone={f.tone} />
-      <span className={status === 'lost' ? 'down-t' : undefined}>{f.text}</span>
+      <span className={status === 'lost' ? 'down-t' : undefined}>{t(f.text)}</span>
       <span className="mono">{nodeText}</span>
       <span className="footv mono">v{APP_VERSION}</span>
     </footer>

@@ -35,10 +35,10 @@ test('preserves bounded previews and the accepted responsive selector contract',
   assert.match(selector, /cameras\.slice\(start, start \+ 3\)/)
   assert.match(selector, /selected\s*\? streamState === 'live' && <SelectedPreview/)
   assert.match(selector, /: <LiveFeed cameraId=\{camera\.id\}/)
-  assert.match(selector, />Live previews · Choose a camera to view</)
-  assert.match(selector, /aria-label="Assigned cameras"/)
-  assert.match(selector, /aria-label="Previous cameras"/)
-  assert.match(selector, /aria-label="Next cameras"/)
+  assert.match(selector, /t\(["']Live previews · Choose a camera to view["']\)/)
+  assert.match(selector, /aria-label=\{t\(["']Assigned cameras["']\)\}/)
+  assert.match(selector, /aria-label=\{t\(["']Previous cameras["']\)\}/)
+  assert.match(selector, /aria-label=\{t\(["']Next cameras["']\)\}/)
 
   assert.match(css, /\.camera-options \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/s)
   assert.match(css, /@container \(max-width: 640px\)[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/)
@@ -51,7 +51,7 @@ test('preserves current-main MJPEG cleanup and camera-session isolation', () => 
   assert.match(liveFeed, /image\.removeAttribute\('src'\)/)
   assert.match(liveFeed, /return <FeedSession key=\{props\.cameraId\} \{\.\.\.props\} \/>/)
   assert.match(liveFeed, /if \(!props\.hasStream\)/)
-  assert.match(liveFeed, />No stream available for \{props\.cameraId\}</)
+  assert.match(liveFeed, /t\('No stream available for \{id\}', \{ id: props\.cameraId \}\)/)
 })
 
 test('preserves current-main camera selection wiring without freezing hidden hooks', () => {
@@ -64,7 +64,7 @@ test('preserves current-main camera selection wiring without freezing hidden hoo
   assert.match(app, /cameras=\{cameras\}/)
   assert.match(app, /heroCam=\{heroCam\} setHeroCam=\{setHeroCam\}/)
 
-  assert.match(live, /<h1 className="h1">Live canvas<\/h1>/)
+  assert.match(live, /<h1 className="h1">\{t\(["']Live canvas["']\)\}<\/h1>/)
   assert.match(live, /Access control · result/)
   assert.match(live, /Event stream/)
   assert.match(live, /No cameras assigned/)

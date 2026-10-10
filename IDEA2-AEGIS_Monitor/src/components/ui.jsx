@@ -1,4 +1,5 @@
 import { SearchX } from 'lucide-react'
+import { useLocale } from '../lib/Locale.jsx'
 
 export function Ping({ tone = 'ok' }) {
   const cls = tone === 'ok' ? 'png' : tone === 'amb' ? 'png amb' : 'png down'
@@ -27,18 +28,20 @@ export function FeedChrome() {
 }
 
 export function EmptyState({ icon: Icon = SearchX, title, hint, action }) {
+  const { t } = useLocale()
   return (
     <div className="empty empty--hud" role="status">
       <span className="empty-icon" aria-hidden="true"><Icon /></span>
-      <div className="empty-t">{title}</div>
-      {hint && <p className="empty-s">{hint}</p>}
+      <div className="empty-t">{t(title)}</div>
+      {hint && <p className="empty-s">{t(hint)}</p>}
       {action}
     </div>
   )
 }
 
 export function StaleBadge({ red = false, label = 'Stale' }) {
-  return <span className={red ? 'stale red' : 'stale'}>{label}</span>
+  const { t } = useLocale()
+  return <span className={red ? 'stale red' : 'stale'}>{t(label)}</span>
 }
 
 /* ── Sparkle button — primary action pop ────────────────────────── */
@@ -66,11 +69,12 @@ export function SparkleButton({ sparkles = 'hover', size = 'lg', className = '',
 }
 
 export function ThemeToggle({ theme, setTheme, t }) {
+  const { t: uiT } = useLocale()
   const dark = theme === 'dark'
   return (
     <button
       type="button"
-      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={uiT(dark ? 'Switch to light mode' : 'Switch to dark mode')}
       onClick={() => setTheme && setTheme(dark ? 'light' : 'dark')}
       className="size-9 flex items-center justify-center rounded-full text-ink-3 bg-sunken hover:text-ink hover:bg-card border border-line transition-colors duration-[var(--dur-fast)] cursor-pointer shrink-0"
     >

@@ -1,34 +1,35 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Bell, BellOff, Check, Globe, LogOut, Monitor, Moon, Shield, Sun, User, Volume2, VolumeX } from 'lucide-react'
+import { useLocale } from '../lib/Locale.jsx'
 
 const TRANSLATIONS = {
   th: {
     title: 'การตั้งค่าระบบ',
     sub: 'จัดการการแสดงผล ธีมการใช้งาน และการแจ้งเตือนสำหรับ AEGIS Monitor',
-    appearance: 'การแสดงผล & อินเทอร์เฟซ (Display)',
-    language: 'ภาษา (Language)',
+    appearance: 'การแสดงผลและอินเทอร์เฟซ',
+    language: 'ภาษา',
     langNote: 'เลือกภาษาที่ต้องการแสดงในระบบ',
-    theme: 'ธีมการใช้งาน (Theme)',
-    dark: 'โหมดมืด (Dark)',
-    light: 'โหมดสว่าง (Light)',
-    notifications: 'การแจ้งเตือน (Notifications)',
-    inAppSound: 'เสียงแจ้งเตือนในแอป (In-App Sound)',
-    desktopAlerts: 'การแจ้งเตือนบนเดสก์ท็อป (Desktop Push)',
-    snooze: 'ปิดเสียงแจ้งเตือนชั่วคราว (Snooze)',
+    theme: 'ธีมการใช้งาน',
+    dark: 'โหมดมืด',
+    light: 'โหมดสว่าง',
+    notifications: 'การแจ้งเตือน',
+    inAppSound: 'เสียงแจ้งเตือนในแอป',
+    desktopAlerts: 'การแจ้งเตือนบนเดสก์ท็อป',
+    snooze: 'ปิดเสียงแจ้งเตือนชั่วคราว',
     snoozeOff: 'เปิดปกติ',
     snooze15: '15 นาที',
     snooze1h: '1 ชั่วโมง',
     snoozeUntil: 'ปิดจนกว่าจะเปิดใหม่',
-    notifNote: 'การแจ้งเตือนเหตุการณ์ร้ายแรง (Critical Unknown Detection) จะถูกส่งเสมอโดยไม่คำนึงถึงสถานะ Snooze',
-    account: 'ข้อมูลบัญชีผู้ใช้ (Account & Session)',
+    notifNote: 'การแจ้งเตือนการตรวจจับบุคคลไม่รู้จักที่ร้ายแรงจะถูกส่งเสมอโดยไม่คำนึงถึงการปิดเสียงชั่วคราว',
+    account: 'ข้อมูลบัญชีผู้ใช้และเซสชัน',
     userName: 'ชื่อผู้ใช้งาน',
-    userRole: 'สิทธิ์การใช้งาน (Role)',
+    userRole: 'สิทธิ์การใช้งาน',
     assignedCams: 'กล้องที่รับผิดชอบ',
     sessionIp: 'IP เครื่องดำเนินการ',
     nodeStatus: 'สถานะการเชื่อมต่อ Edge Node',
-    aiEngine: 'AI Inference Engine',
-    online: 'ปกติ (Online)',
+    aiEngine: 'เอนจินประมวลผล AI',
+    online: 'ออนไลน์',
     saveSuccess: 'บันทึกการตั้งค่าเรียบร้อยแล้ว',
   },
   en: {
@@ -95,6 +96,7 @@ const TRANSLATIONS = {
 const APP_VERSION = __APP_VERSION__
 
 export default function Settings({ lang, setLang, theme, setTheme, user, cameras = [], link, onSignOut }) {
+  const { t: uiT } = useLocale()
   const beats = link?.cameras ?? []
   const liveEngines = beats.filter((b) => b.status !== 'lost').length
   const totalEngines = beats.length
@@ -124,23 +126,23 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
     hidden: {},
     show: {
       transition: {
-        staggerChildren: 0.08,
+        staggerChildren: 0,
       },
     },
   }
 
   const cardVariants = {
-    hidden: { opacity: 0, y: 16 },
+    hidden: { opacity: 1, y: 0 },
     show: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+      transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] },
     },
   }
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 1, y: 0 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, ease: 'easeOut' }}
     >
@@ -155,6 +157,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             className="saved-toast"
+            role="status"
           >
             <Check className="w-4 h-4 text-emerald-400" />
             <span>{t('saveSuccess')}</span>
@@ -172,7 +175,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Monitor className="w-5 h-5 text-cyan-400 shrink-0" />
@@ -191,6 +193,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'th' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'th'}
                 onClick={() => handleLangChange('th')}
               >
                 ไทย
@@ -198,6 +201,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'en' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'en'}
                 onClick={() => handleLangChange('en')}
               >
                 English
@@ -205,6 +209,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={lang === 'zh' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={lang === 'zh'}
                 onClick={() => handleLangChange('zh')}
               >
                 中文
@@ -223,13 +228,14 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
                 <span>{t('theme')}</span>
               </div>
               <div className="set-option-desc">
-                {theme === 'dark' ? 'AEGIS Cyber Dark Mode' : 'AEGIS Clean Light Mode'}
+                {uiT(theme === 'dark' ? 'AEGIS Cyber Dark Mode' : 'AEGIS Clean Light Mode')}
               </div>
             </div>
             <div className="seg-control">
               <button
                 type="button"
                 className={theme === 'dark' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={theme === 'dark'}
                 onClick={() => handleThemeChange('dark')}
               >
                 <Moon className="w-3.5 h-3.5 mr-1.5 inline shrink-0" />
@@ -238,6 +244,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={theme === 'light' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={theme === 'light'}
                 onClick={() => handleThemeChange('light')}
               >
                 <Sun className="w-3.5 h-3.5 mr-1.5 inline shrink-0" />
@@ -251,7 +258,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Bell className="w-5 h-5 text-amber-400 shrink-0" />
@@ -272,6 +278,8 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <button
               type="button"
               className={inAppSound ? 'switch-toggle active' : 'switch-toggle'}
+              role="switch"
+              aria-checked={inAppSound}
               onClick={() => {
                 setInAppSound(!inAppSound)
                 triggerSavedNotice()
@@ -296,6 +304,8 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <button
               type="button"
               className={desktopAlerts ? 'switch-toggle active' : 'switch-toggle'}
+              role="switch"
+              aria-checked={desktopAlerts}
               onClick={() => {
                 setDesktopAlerts(!desktopAlerts)
                 triggerSavedNotice()
@@ -317,6 +327,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === 'off' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === 'off'}
                 onClick={() => {
                   setSnooze('off')
                   triggerSavedNotice()
@@ -327,6 +338,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === '15m' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === '15m'}
                 onClick={() => {
                   setSnooze('15m')
                   triggerSavedNotice()
@@ -337,6 +349,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === '1h' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === '1h'}
                 onClick={() => {
                   setSnooze('1h')
                   triggerSavedNotice()
@@ -347,6 +360,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               <button
                 type="button"
                 className={snooze === 'until' ? 'seg-btn active' : 'seg-btn'}
+                aria-pressed={snooze === 'until'}
                 onClick={() => {
                   setSnooze('until')
                   triggerSavedNotice()
@@ -367,7 +381,6 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <User className="w-5 h-5 text-purple-400 shrink-0" />
@@ -382,7 +395,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <div className="info-kv-item">
               <span className="kv-label">{t('userRole')}</span>
               {/* role = จอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — เปลี่ยนที่นี่ไม่ได้ */}
-              <span className="badge-role font-mono">{user?.role ?? '—'}</span>
+              <span className="badge-role font-mono">{uiT(user?.role ?? '—')}</span>
             </div>
             <div className="info-kv-item">
               <span className="kv-label">{t('assignedCams')}</span>
@@ -391,7 +404,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               </span>
             </div>
             <div className="info-kv-item">
-              <span className="kv-label">{lang === 'th' ? 'ชื่อบัญชี (Username)' : 'Account username'}</span>
+              <span className="kv-label">{uiT('Account username')}</span>
               <span className="kv-val mono">{user?.username ?? '—'}</span>
             </div>
           </div>
@@ -400,17 +413,15 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <div className="set-option-meta">
               <div className="set-option-label">
                 <LogOut className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{lang === 'th' ? 'ออกจากระบบ' : 'Sign out'}</span>
+                <span>{uiT('Sign out')}</span>
               </div>
               <div className="set-option-desc">
-                {lang === 'th'
-                  ? 'ทำลายเซสชันฝั่งเซิร์ฟเวอร์ทันที'
-                  : 'Destroys the server-side session immediately'}
+                {uiT('Destroys the server-side session immediately')}
               </div>
             </div>
             <button type="button" className="signoutbtn" onClick={onSignOut}>
               <LogOut aria-hidden="true" />
-              {lang === 'th' ? 'ออกจากระบบ' : 'Sign out'}
+              {uiT('Sign out')}
             </button>
           </div>
         </motion.div>
@@ -419,11 +430,10 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         <motion.div
           className="panel glass set-card"
           variants={cardVariants}
-          whileHover={{ y: -3, boxShadow: '0 12px 30px rgba(124, 58, 237, 0.15)' }}
         >
           <div className="set-card-header">
             <Shield className="w-5 h-5 text-cyan-400 shrink-0" />
-            <h2 className="set-card-title">System Status</h2>
+            <h2 className="set-card-title">{uiT('System Status')}</h2>
           </div>
 
           {/* ⚠️ เดิมสองแถวล่างนี้ hardcode "Online" (เขียว) และ "Running v1.3" (ฟ้า)
@@ -431,7 +441,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               เวอร์ชันโมเดลที่ไม่มีอยู่จริง ตอนนี้อ่านจาก /api/link (camera_heartbeat) */}
           <div className="info-kv-grid">
             <div className="info-kv-item">
-              <span className="kv-label">System Version</span>
+              <span className="kv-label">{uiT('System Version')}</span>
               <span className="kv-val mono">AEGIS Monitor v{APP_VERSION}</span>
             </div>
             <div className="info-kv-item">
@@ -442,7 +452,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
                 </span>
               ) : (
                 <span className="kv-val status-tag mono">
-                  {link?.status === 'degraded' ? 'degraded' : 'unreachable'}
+                  {uiT(link?.status === 'degraded' ? 'degraded' : 'unreachable')}
                 </span>
               )}
             </div>
@@ -451,11 +461,11 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               {liveEngines > 0 ? (
                 <span className="kv-val status-tag cyan mono">
                   <span className="dot-pulse cyan" />
-                  running · {liveEngines}/{totalEngines}
+                  {uiT('running · {live}/{total}', { live: liveEngines, total: totalEngines })}
                 </span>
               ) : (
                 <span className="kv-val mono" style={{ opacity: 0.55 }}>
-                  no engine reporting
+                  {uiT('no engine reporting')}
                 </span>
               )}
             </div>
