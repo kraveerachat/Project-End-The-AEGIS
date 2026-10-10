@@ -1,0 +1,5 @@
+# Rollback compare returns the current pointer and Core process identity to OLD;
+# release catalog is preserved because the immutable NEW release is retained.
+host.symlink./opt/aegis-idea3/current.target
+svc.aegis-idea3-core.service.MainPID
+svc.aegis-idea3-core.service.ExecMainStartTimestamp

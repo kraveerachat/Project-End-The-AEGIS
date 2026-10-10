@@ -9263,43 +9263,34 @@ Canonical design: `IDEA3-AEGIS_Lockdown/docs/superpowers/specs/2026-10-10-idea3-
 |---|---|---|---|---|---|---|---|
 | ICS-S1 | Inactive-detector upgrade design and pure offline contract | DRAFT PR #426 OPEN; INDEPENDENT REVIEW REQUESTED | `25 passed`, including independent review regressions for distinct OLD/NEW IDs, payload closure, manifest format, and sums order; Ruff PASS; AST parse PASS; diff check PASS; vault validator PASS with 2 existing canvas owner-data warnings; collaboration policy PASS; GitHub Collaboration guardrails PASS on prior posted head; independent code review found no remaining actionable issue | branch `feat/idea3-inactive-core-successor-contract`, base `dbf00185331474053f46486fcefa795a46f5b821` | repository-only; no production mutation | review exact final PR head; human merge only | keep live executor blocked |
 
-## IDEA3 governed inactive-detector Core upgrade successor — 2026-10-10
+## IDEA3 governed inactive-detector Core upgrade successor — 2026-10-11
 
-Current task `AEGIS_IDEA3_GOVERNED_CORE_UPGRADE_NEXT_STAGE` uses verified main
-`ca7f66f56626b6ab396566ce891baef7b1e60cdc` (PR #429 merge), branch
-`feat/idea3-icu-governed-core-upgrade`, Draft PR #430; independent reviews pending. The owner approved OLD release
-`954ce1c191885e9e90198a6f54a3d990bcf144fc` as `EXACT_RELEASE` for design only;
-rollback execution and Core upgrade remain unauthorized. OLD guard, file-count,
-sums and manifest values are owner-attested; the release artifact is not in this
-repository/workspace for independent reinspection. The existing NEW candidate
-at the supplied evidence path was not rebuilt; its sums and manifest file hashes
-matched the supplied values, with source main `728c2d9b` and runtime closure
-owner-reported PASS.
+Current task `AEGIS_IDEA3_ICU_GOVERNED_CORE_UPGRADE_EXECUTOR` is based on
+merged PR #430, authoritative main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
+Implementation branch: `feat/idea3-icu-governed-executor`. ICu is registered
+after CTv and before Recovery, with a separate exact-main frozen runner, exact
+authority validation, exclusive one-attempt marker, durable write-ahead journal,
+read-only release/unit preflight, and pinned exact-OLD rollback logic. Existing
+OLD/NEW release IDs and digest pins are reused; the NEW release is not rebuilt.
 
-The pinned-evidence checker reports consistency only. Proposed unique stage
-`ICu` is unregistered and has no live executor. Installed Detector dependencies
-are `Requires=Core` and `After=Core`; actual effect of a plain Core restart on an
-inactive Detector is **NOT PROVEN**. This blocks live execution. The follow-on
-offline evaluator validates exact release pins, installed unit/drop-in digest
-evidence, inactive Detector state, separate authority fields, one-attempt and
-write-ahead journal declarations, exact-release rollback, PRE/POST service
-preservation, and prohibited effects. A synthetic systemd PASS cannot satisfy
-the restart-effect gate; even a claimed installed-unit observation remains
-unauthenticated input. The evaluator does not write a marker or journal and
-never enables execution. ICu remains unregistered; its persistent marker,
-journal, frozen runner, authorization parser, and rollback executor remain
-unimplemented. No Core restart, Detector lifecycle, marker, CTu/CTv, Recovery,
-network, or Production action was performed. CTu/CTv remain consumed immutable
-FAIL; Recovery authorization remains NO.
+The live runner keeps `SYSTEMD_RESTART_EFFECT_PROVEN=NO` as a fixed blocker.
+Actual installed-unit restart behavior remains **NOT_PROVEN**; the runner refuses
+before attempt-marker creation, installation, pointer switch, or restart. No
+Production mutation, Core restart, Detector start/stop, MQTT dispatch, CUT, or
+RESTORE occurred. The inactive Detector state is guarded as loaded/inactive/
+dead/disabled/PID 0 and compared across the permitted Core-owned changes. CTu
+and CTv remain immutable consumed FAIL. Recovery remains blocked and its gate is
+unchanged. No IDEA1/IDEA2/shared-surface path changed.
 
-Production mutation allowed: NO. This session adds only a pure offline
-readiness evaluator. It is intentionally not an ICu executor and cannot create
-the one-attempt marker or durable journal. LIVE remains blocked pending safe
-evidence for the actual installed-unit restart consequence, fresh host release
-and unit checks, persistent marker/journal implementation and review, independent
-Security/Governance approval, and separate execution authorization.
+`ICu` repository implementation is complete for independent Security and
+functional review. Human review must include ticking the PR GitHub Review
+Checklist. This branch does not authorize live execution; actual restart-effect
+proof, fresh host preflight, and separate human live authorization remain
+required. The independent offline executor tests do not repeat the merged
+readiness suite.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | MERGED in PR #429 at `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | 40 focused tests passed on PR #429 | base `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | offline design/checker only | ICu operational implementation | keep ICu unregistered and live executor blocked |
-| ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | PARTIAL / LOCAL VERIFIED; Draft PR #430; reviews pending | 43 focused tests passed; Ruff, AST parse, diff check, and vault validation pass (2 existing canvas warnings); synthetic restart PASS remains NOT PROVEN; no live-capable runner | branch `feat/idea3-icu-governed-core-upgrade` from merged main `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | no Production, systemd, authority-marker, or service mutation | independent exact-head review; future implementation of marker/journal writer and frozen runner | keep ICu unregistered; no live authorization |
+| ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | MERGED in PR #429 at `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | 40 focused tests passed on PR #429 | base `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | offline design/checker only | ICu operational implementation | keep live execution blocked |
+| ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | MERGED in PR #430 at `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | merged readiness evidence retained in PR #430 | authoritative main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | readiness contract only | governed ICu executor | keep live execution blocked |
+| ICu-S3 | Implement governed ICu stage, frozen runner, exact authority, marker/journal, preflight, and exact-release rollback | IMPLEMENTED; scoped PR pending | offline executor suite and shell syntax checks; installed-unit restart effect remains NOT_PROVEN | branch `feat/idea3-icu-governed-executor`, based on PR #430 merge tree | repository-only; no live/Production action | independent Security and functional review; human merge | preserve fixed restart blocker; no live execution |

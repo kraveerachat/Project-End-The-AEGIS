@@ -7,7 +7,7 @@ represented as executed or authorized from source alone:
 
 * ``LVR`` is an owner-runbook ceremony, not a registered stage: the stage gate
   must refuse it as an unknown stage (fail closed), never accept it.
-* The registry order is ``... CTv Recovery L8 L9`` with nothing between them.
+* The registry order is ``... CTv ICu Recovery L8 L9``; ICu is distinct from CTu/CTv and does not clear Recovery's failed predecessor gate.
 * L8 alone carries ``recovery_authorization``; without it the record is
   malformed. No other downstream stage may carry it.
 * For L8 and L9 the gate can never print ``LIVE_STAGE_AUTHORIZED=YES`` and never
@@ -69,10 +69,11 @@ def _never_authorizes_live(output: str) -> bool:
     return "LIVE_STAGE_AUTHORIZED=NO" in output and "LIVE_STAGE_AUTHORIZED=YES" not in output
 
 
-def test_registry_order_places_recovery_then_l8_then_l9_with_nothing_between() -> None:
+def test_registry_order_places_icu_before_recovery_then_l8_then_l9() -> None:
     order = _stages()
     assert order[-3:] == ["Recovery", "L8", "L9"]
-    assert order.index("CTv") + 1 == order.index("Recovery")
+    assert order.index("CTv") + 1 == order.index("ICu")
+    assert order.index("ICu") + 1 == order.index("Recovery")
     assert order.count("L8") == order.count("L9") == order.count("Recovery") == 1
 
 
