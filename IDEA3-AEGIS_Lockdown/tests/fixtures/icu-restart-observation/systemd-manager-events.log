@@ -1,0 +1,2 @@
+2026-10-11T02:36:04+07:00 archlinux systemd[1]: aegis-idea3-core.service: Deactivated successfully.
+2026-10-11T02:36:04+07:00 archlinux systemd[1]: aegis-idea3-core.service: Consumed 22.816s CPU time over 6h 20min 4.960s wall clock time, 38.2M memory peak, 7.8M read from disk, 112K written to disk.
