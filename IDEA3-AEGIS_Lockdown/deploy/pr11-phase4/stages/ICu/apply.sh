@@ -16,13 +16,13 @@ python3 "$HERE/p4-icu-upgrade.py" assert-journal --path "$AEGIS_ICU_JOURNAL" --p
 [ -d "$AEGIS_ICU_SOURCE_DIR" ] || fail PREBUILT_RELEASE_SOURCE_MISSING
 TARGET=/opt/aegis-idea3/releases/idea3-core-728c2d9b-20261010
 [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] || fail NEW_RELEASE_ALREADY_EXISTS
-python3 "$HERE/p4-icu-upgrade.py" journal --path "$AEGIS_ICU_JOURNAL" --phase installing || fail JOURNAL_INSTALLING_FAILED
+python3 "$HERE/p4-icu-upgrade.py" journal --path "$AEGIS_ICU_JOURNAL" --phase installing --set release_install_started_by_attempt=true || fail JOURNAL_INSTALLING_FAILED
 python3 "$HERE/p4-l7-install-release.py" install --release-id idea3-core-728c2d9b-20261010 \
   --source "$AEGIS_ICU_SOURCE_DIR" --logical-path "$TARGET" --evidence "$AEGIS_ICU_WORK_DIR/install-evidence.tsv" || fail RELEASE_INSTALL_FAILED
 python3 "$HERE/p4-icu-upgrade.py" journal --path "$AEGIS_ICU_JOURNAL" --phase installed --set release_owned_by_attempt=true || fail JOURNAL_INSTALLED_FAILED
 TEMP=/opt/aegis-idea3/.current-icu-next
 [ ! -e "$TEMP" ] && [ ! -L "$TEMP" ] || fail SWITCH_TEMP_EXISTS
-python3 "$HERE/p4-icu-upgrade.py" journal --path "$AEGIS_ICU_JOURNAL" --phase switching_current || fail JOURNAL_SWITCHING_FAILED
+python3 "$HERE/p4-icu-upgrade.py" journal --path "$AEGIS_ICU_JOURNAL" --phase switching_current --set current_switch_started_by_attempt=true || fail JOURNAL_SWITCHING_FAILED
 ln -s "$TARGET" "$TEMP"
 mv -Tf "$TEMP" /opt/aegis-idea3/current
 sync -f /opt/aegis-idea3

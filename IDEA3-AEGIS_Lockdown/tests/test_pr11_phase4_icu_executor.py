@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / "deploy/pr11-phase4"
 TOOL = DEPLOY / "p4-icu-upgrade.py"
@@ -179,18 +181,37 @@ def test_freezer_refuses_wrong_main_and_repository_local_output() -> None:
 
 def test_write_ahead_journal_is_atomic_durable_and_binds_exact_release_pins(tmp_path: Path) -> None:
     journal = tmp_path / "icu-journal.json"
-    ICU.write_ahead_journal(journal, "installing")
+    ICU.write_ahead_journal(journal, "attempt_marker_pending", {"preflight": {"baseline": "exact"}})
+    ICU.write_ahead_journal(journal, "attempt_consumed")
+    ICU.write_ahead_journal(journal, "installing", {"release_install_started_by_attempt": True})
+    ICU.write_ahead_journal(journal, "installed", {"release_owned_by_attempt": True})
+    ICU.write_ahead_journal(journal, "switching_current", {"current_switch_started_by_attempt": True})
+    ICU.write_ahead_journal(journal, "current_switched", {"current_owned_by_attempt": True})
+    ICU.write_ahead_journal(journal, "core_restart_started", {"forward_restart_invocations": 1})
     payload = ICU.read_journal(journal)
     assert payload["stage"] == "ICu"
-    assert payload["phase"] == "installing"
+    assert payload["phase"] == "core_restart_started"
     assert payload["old_release_id"] == "954ce1c191885e9e90198a6f54a3d990bcf144fc"
     assert payload["new_release_id"] == "idea3-core-728c2d9b-20261010"
+    assert payload["preflight"] == {"baseline": "exact"}
+    assert payload["release_owned_by_attempt"] is True
+    assert payload["current_switch_started_by_attempt"] is True
+    assert payload["current_owned_by_attempt"] is True
+    assert payload["forward_restart_invocations"] == 1
     assert not list(tmp_path.glob(".icu-journal.json.*.tmp"))
-    ICU.write_ahead_journal(journal, "switching_current", {"current_owned_by_attempt": False})
-    advanced = ICU.read_journal(journal)
-    assert advanced["phase"] == "switching_current"
+    advanced = ICU.write_ahead_journal(journal, "core_restarted")
+    assert advanced["phase"] == "core_restarted"
     assert advanced["expected_main"] == ICU.EXPECTED_MAIN
-    assert advanced["current_owned_by_attempt"] is False
+    assert advanced["current_owned_by_attempt"] is True
+    assert advanced["forward_restart_invocations"] == 1
+    with pytest.raises(ICU.ICuRefused, match="TRANSITION_REFUSED"):
+        ICU.write_ahead_journal(journal, "attempt_consumed")
+    with pytest.raises(ICU.ICuRefused, match="OWNERSHIP_REVERSAL"):
+        ICU.write_ahead_journal(journal, "forward_failed", {"current_owned_by_attempt": False})
+    with pytest.raises(ICU.ICuRefused, match="FIELD_REFUSED"):
+        ICU.write_ahead_journal(journal, "forward_failed", {"expected_main": "0" * 40})
+    with pytest.raises(ICU.ICuRefused, match="PREFLIGHT_REWRITE_REFUSED"):
+        ICU.write_ahead_journal(journal, "forward_failed", {"preflight": {"baseline": "changed"}})
 
 
 def test_apply_handler_requires_consumed_attempt_journal() -> None:
@@ -232,42 +253,105 @@ def test_unknown_restart_effect_refuses_before_marker_and_any_mutation(tmp_path:
     assert backend.mutations == []
 
 
-def test_rollback_requires_exact_old_release_and_never_commands_detector(tmp_path: Path) -> None:
-    class Backend:
-        def __init__(self) -> None:
-            self.operations: list[tuple[str, str]] = []
+class _ExecutorBackend:
+    def __init__(self, failure: str) -> None:
+        self.failure = failure
+        self.current = ICU.OLD_RELEASE_ID
+        self.installed = False
+        self.operations: list[tuple[str, str]] = []
+        self.detector_commands: list[str] = []
+        self.preserved = {key: "UNCHANGED" for key in ICU.PRESERVED_KEYS}
 
-        def validate_rollback_preflight(self, release_id: str) -> bool:
-            return release_id == ICU.OLD_RELEASE_ID
+    def preflight(self) -> dict[str, object]:
+        return {
+            "restart_effect": "NOT_PROVEN",
+            "current_release_id": ICU.OLD_RELEASE_ID,
+            "core_active_state": "active",
+            "detector_state": "loaded/inactive/dead/disabled/pid0/process0",
+            "ctu_ctv_history": "FAIL_IMMUTABLE_CONSUMED",
+            "recovery_authorized": "NO",
+            "preserved_services": dict(self.preserved),
+        }
 
-        def switch_current(self, expected: str, target: str) -> None:
-            assert expected == ICU.NEW_RELEASE_ID
-            self.operations.append(("switch", target))
+    def install_existing_release(self, release_id: str, _sums: str, _manifest: str) -> None:
+        assert release_id == ICU.NEW_RELEASE_ID
+        self.operations.append(("install", release_id))
+        if self.failure == "before_install":
+            raise RuntimeError("injected failure before install")
+        self.installed = True
 
-        def restart_core_once(self, release_id: str) -> None:
-            self.operations.append(("restart_core", release_id))
+    def switch_current(self, expected: str, target: str) -> None:
+        assert self.current == expected
+        self.operations.append(("switch", target))
+        if target == ICU.NEW_RELEASE_ID and self.failure == "before_pointer_switch":
+            raise RuntimeError("injected failure before pointer switch")
+        self.current = target
+        if target == ICU.NEW_RELEASE_ID and self.failure == "after_pointer_switch":
+            raise RuntimeError("injected failure after pointer switch")
 
-        def verify_rollback_and_preservation(self, release_id: str) -> bool:
-            return release_id == ICU.OLD_RELEASE_ID
+    def restart_core_once(self, release_id: str) -> None:
+        self.operations.append(("restart_core", release_id))
+        if release_id == ICU.NEW_RELEASE_ID and self.failure == "during_core_restart":
+            raise RuntimeError("injected failure during Core restart")
 
-        def detector_command(self, *_args: object) -> None:
-            raise AssertionError("the Detector is never a command target")
+    def verify_new_core_and_preservation(self, before: dict[str, str]) -> dict[str, object]:
+        return {"detector_unchanged": True, "preserved_services": before}
 
-    backend = Backend()
-    journal = {
-        "stage": "ICu",
-        "phase": "forward_failed",
-        "old_release_id": ICU.OLD_RELEASE_ID,
-        "new_release_id": ICU.NEW_RELEASE_ID,
-        "current_owned_by_attempt": True,
-        "forward_restart_invocations": 1,
-        "rollback_restart_invocations": 0,
-    }
+    def current_release_id(self) -> str:
+        return self.current
+
+    def validate_rollback_preflight(self, release_id: str) -> bool:
+        return release_id == ICU.OLD_RELEASE_ID
+
+    def verify_rollback_and_preservation(self, release_id: str) -> bool:
+        return (release_id == ICU.OLD_RELEASE_ID and self.current == ICU.OLD_RELEASE_ID
+                and self.preserved == {key: "UNCHANGED" for key in ICU.PRESERVED_KEYS})
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_switches", "expected_restarts", "expected_install"),
+    [
+        ("before_install", 0, 0, False),
+        ("before_pointer_switch", 1, 0, True),
+        ("after_pointer_switch", 2, 0, True),
+        ("during_core_restart", 2, 2, True),
+    ],
+)
+def test_executor_failure_rolls_back_only_attempt_owned_state_and_never_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+    expected_switches: int, expected_restarts: int, expected_install: bool,
+) -> None:
+    # Exercise otherwise unreachable state transitions with a fake backend. The
+    # module default and frozen runner remain hard-blocked for any live use.
+    monkeypatch.setattr(ICU, "SYSTEMD_RESTART_EFFECT_PROVEN", True)
+    assert ICU.SYSTEMD_RESTART_EFFECT_PROVEN is True
+    backend = _ExecutorBackend(failure)
+    marker = tmp_path / "ICU-GLOBAL-ATTEMPT-CONSUMED"
     journal_path = tmp_path / "icu-journal.json"
-    ICU.write_ahead_journal(journal_path, "forward_failed", journal)
-    ICU.rollback(backend, journal, journal_path)
-    assert backend.operations == [("switch", ICU.OLD_RELEASE_ID), ("restart_core", ICU.OLD_RELEASE_ID)]
-    assert journal["rollback_restart_invocations"] == 1
-    persisted = ICU.read_journal(journal_path)
-    assert persisted["phase"] == "rolled_back"
-    assert persisted["rollback_restart_invocations"] == 1
+
+    with pytest.raises(RuntimeError, match="injected failure"):
+        ICU.execute(backend, marker, journal_path)
+
+    journal = ICU.read_journal(journal_path)
+    assert journal["stage"] == "ICu"
+    assert journal["old_release_id"] == ICU.OLD_RELEASE_ID
+    assert journal["new_release_id"] == ICU.NEW_RELEASE_ID
+    assert journal["phase"] == "rolled_back"
+    assert journal["release_owned_by_attempt"] is expected_install
+    assert backend.current == ICU.OLD_RELEASE_ID
+    assert sum(op[0] == "switch" for op in backend.operations) == expected_switches
+    assert sum(op[0] == "restart_core" for op in backend.operations) == expected_restarts
+    assert backend.detector_commands == []
+    assert journal["forward_restart_invocations"] == (1 if failure == "during_core_restart" else 0)
+    assert journal["rollback_restart_invocations"] == (1 if failure == "during_core_restart" else 0)
+    assert marker.exists()
+
+    operations_before_retry = list(backend.operations)
+    with pytest.raises(ICU.ICuRefused, match="ATTEMPT_ALREADY_CONSUMED"):
+        ICU.execute(backend, marker, journal_path)
+    assert backend.operations == operations_before_retry
+
+
+def test_executor_default_keeps_restart_effect_blocked() -> None:
+    assert ICU.SYSTEMD_RESTART_EFFECT_PROVEN is False
+    assert "readonly SYSTEMD_RESTART_EFFECT_PROVEN=NO" in RUNNER.read_text()

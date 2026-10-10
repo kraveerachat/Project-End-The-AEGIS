@@ -194,5 +194,8 @@ def test_a_cross_stage_authorization_cannot_be_replayed_for_l9(tmp_path: Path) -
 @pytest.mark.skipif(RECOVERY_STAGE_PY is None, reason="no recovery acceptance module")
 def test_recovery_acceptance_never_claims_lvr_l8_or_l9() -> None:
     text = "\n".join(p.read_text() for p in (DEPLOY / "recovery-acceptance").glob("*.py"))
-    assert re.search(r'"LVR_PROVEN":\s*"NO"', text) or "LVR_PROVEN" not in text
-    assert not re.search(r'"(L8_ACCEPTANCE|L9_PROVEN|LVR_PROVEN)":\s*"(YES|PASS)"', text)
+    guard = re.search(r"(?ms)^CONTRADICTIONS\s*=\s*\(.*?^\)", text)
+    assert guard and re.search(r'\("LVR_PROVEN",\s*"YES"\)', guard.group(0))
+    claims = re.sub(r"(?ms)^CONTRADICTIONS\s*=\s*\(.*?^\)\s*", "", text)
+    assert re.search(r'"LVR_PROVEN":\s*"NO"', claims) or "LVR_PROVEN" not in claims
+    assert not re.search(r'"(L8_ACCEPTANCE|L9_PROVEN|LVR_PROVEN)":\s*"(YES|PASS)"', claims)

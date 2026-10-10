@@ -33,6 +33,28 @@ PRESERVED_KEYS = {
     "database", "ctu_ctv_markers", "recovery_markers",
 }
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
+JOURNAL_STATE_FIELDS = {
+    "preflight", "release_install_started_by_attempt", "release_owned_by_attempt",
+    "current_switch_started_by_attempt", "current_owned_by_attempt",
+    "current_restored_by_attempt", "forward_restart_invocations",
+    "rollback_restart_invocations",
+}
+JOURNAL_TRANSITIONS = {
+    "attempt_marker_pending": {"attempt_consumed"},
+    "attempt_consumed": {"installing", "forward_failed"},
+    "installing": {"installed", "forward_failed"},
+    "installed": {"switching_current", "forward_failed"},
+    "switching_current": {"current_switched", "forward_failed"},
+    "current_switched": {"core_restart_started", "forward_failed"},
+    "core_restart_started": {"core_restarted", "forward_failed"},
+    "core_restarted": {"complete", "forward_failed"},
+    "forward_failed": {"rollback_switching_current", "rollback_no_pointer_change"},
+    "rollback_switching_current": {"rollback_current_restored"},
+    "rollback_current_restored": {"rollback_core_restart_started", "rolled_back"},
+    "rollback_core_restart_started": {"rollback_core_restarted"},
+    "rollback_core_restarted": {"rolled_back"},
+    "rollback_no_pointer_change": {"rolled_back"},
+}
 
 
 class ICuRefused(RuntimeError):
@@ -78,7 +100,77 @@ def _base_journal(phase: str) -> dict[str, Any]:
         "new_sums_sha256": NEW_SUMS_SHA256,
         "new_manifest_sha256": NEW_MANIFEST_SHA256,
         "phase": phase,
+        "release_install_started_by_attempt": False,
+        "release_owned_by_attempt": False,
+        "current_switch_started_by_attempt": False,
+        "current_owned_by_attempt": False,
+        "current_restored_by_attempt": False,
+        "forward_restart_invocations": 0,
+        "rollback_restart_invocations": 0,
     }
+
+
+def _validate_state_update(previous: dict[str, Any], update: dict[str, Any]) -> None:
+    if set(update) - JOURNAL_STATE_FIELDS:
+        raise ICuRefused("ICU_JOURNAL_FIELD_REFUSED")
+    for key, value in update.items():
+        if key in {"release_install_started_by_attempt", "release_owned_by_attempt",
+                   "current_switch_started_by_attempt", "current_owned_by_attempt",
+                   "current_restored_by_attempt"}:
+            if not isinstance(value, bool):
+                raise ICuRefused("ICU_JOURNAL_BOOLEAN_INVALID")
+            if previous.get(key) is True and value is False:
+                raise ICuRefused("ICU_JOURNAL_OWNERSHIP_REVERSAL")
+        elif key.endswith("_invocations"):
+            if isinstance(value, bool) or value not in {0, 1}:
+                raise ICuRefused("ICU_JOURNAL_COUNTER_INVALID")
+            if value < previous.get(key, 0):
+                raise ICuRefused("ICU_JOURNAL_COUNTER_REVERSAL")
+        elif key == "preflight":
+            if not isinstance(value, dict):
+                raise ICuRefused("ICU_JOURNAL_PREFLIGHT_INVALID")
+            if "preflight" in previous and previous["preflight"] != value:
+                raise ICuRefused("ICU_JOURNAL_PREFLIGHT_REWRITE_REFUSED")
+    merged = dict(previous)
+    merged.update(update)
+    if merged["release_owned_by_attempt"] and not merged["release_install_started_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_RELEASE_WITHOUT_INSTALL_INTENT")
+    if merged["current_switch_started_by_attempt"] and not merged["release_owned_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_SWITCH_WITHOUT_RELEASE_OWNERSHIP")
+    if merged["current_owned_by_attempt"] and not merged["release_owned_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_CURRENT_WITHOUT_RELEASE_OWNERSHIP")
+    if merged["current_owned_by_attempt"] and not merged["current_switch_started_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_CURRENT_WITHOUT_SWITCH_INTENT")
+    if merged["current_restored_by_attempt"] and not merged["current_owned_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_RESTORE_WITHOUT_CURRENT_OWNERSHIP")
+    if merged["forward_restart_invocations"] and not merged["current_owned_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_RESTART_WITHOUT_CURRENT_OWNERSHIP")
+    if merged["rollback_restart_invocations"] and not merged["forward_restart_invocations"]:
+        raise ICuRefused("ICU_JOURNAL_ROLLBACK_RESTART_WITHOUT_FORWARD_RESTART")
+
+
+def _validate_update_phase(previous: dict[str, Any], phase: str, update: dict[str, Any]) -> None:
+    _validate_state_update(previous, update)
+    phase_for_true = {
+        "release_install_started_by_attempt": "installing",
+        "release_owned_by_attempt": "installed",
+        "current_switch_started_by_attempt": "switching_current",
+        "current_owned_by_attempt": "current_switched",
+        "current_restored_by_attempt": "rollback_current_restored",
+    }
+    for key, expected_phase in phase_for_true.items():
+        if update.get(key) is True and previous.get(key) is not True and phase != expected_phase:
+            # Reconciliation after an interrupted symlink replacement proves the attempt's ownership.
+            if not (key == "current_owned_by_attempt" and phase == "rollback_current_restored"):
+                raise ICuRefused("ICU_JOURNAL_OWNERSHIP_PHASE_MISMATCH")
+    if (update.get("forward_restart_invocations") == 1
+            and previous.get("forward_restart_invocations") != 1
+            and phase != "core_restart_started"):
+        raise ICuRefused("ICU_JOURNAL_RESTART_PHASE_MISMATCH")
+    if (update.get("rollback_restart_invocations") == 1
+            and previous.get("rollback_restart_invocations") != 1
+            and phase != "rollback_core_restart_started"):
+        raise ICuRefused("ICU_JOURNAL_ROLLBACK_RESTART_PHASE_MISMATCH")
 
 
 def write_ahead_journal(path: Path, phase: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -86,20 +178,31 @@ def write_ahead_journal(path: Path, phase: str, state: dict[str, Any] | None = N
     path = Path(path)
     if not re.fullmatch(r"[a-z_]+", phase):
         raise ICuRefused("ICU_JOURNAL_PHASE_INVALID")
-    if state is None and Path(path).exists():
-        data = read_journal(Path(path))
+    path = Path(path)
+    if path.is_symlink():
+        raise ICuRefused("ICU_JOURNAL_SYMLINK_REFUSED")
+    if path.exists():
+        data = read_journal(path)
+        if phase not in JOURNAL_TRANSITIONS.get(data["phase"], set()):
+            raise ICuRefused("ICU_JOURNAL_TRANSITION_REFUSED")
+        if phase == "forward_failed":
+            data["failed_from_phase"] = data["phase"]
+        update = state or {}
+        _validate_update_phase(data, phase, update)
+        data.update(update)
         data["phase"] = phase
     else:
+        if phase != "attempt_marker_pending":
+            raise ICuRefused("ICU_JOURNAL_INITIAL_PHASE_INVALID")
         data = _base_journal(phase)
-    if state:
-        data.update(state)
+        update = state or {}
+        _validate_update_phase(data, phase, update)
+        data.update(update)
     if (data.get("expected_main") != EXPECTED_MAIN
             or data.get("old_release_id") != OLD_RELEASE_ID
             or data.get("new_release_id") != NEW_RELEASE_ID):
         raise ICuRefused("ICU_JOURNAL_PIN_MISMATCH")
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.is_symlink():
-        raise ICuRefused("ICU_JOURNAL_SYMLINK_REFUSED")
     temp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(temp, flags, 0o600)
@@ -125,9 +228,36 @@ def read_journal(path: Path) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="ascii"))
     except (OSError, UnicodeError, ValueError) as exc:
         raise ICuRefused("ICU_JOURNAL_UNREADABLE") from exc
-    pins = _base_journal(data.get("phase", "invalid")) if isinstance(data, dict) else {}
-    if not isinstance(data, dict) or any(data.get(key) != value for key, value in pins.items() if key != "phase"):
+    pins = _base_journal("ignored")
+    required_keys = set(pins)
+    allowed_keys = required_keys | JOURNAL_STATE_FIELDS | {"failed_from_phase"}
+    if (not isinstance(data, dict) or not required_keys <= set(data) or set(data) - allowed_keys
+            or any(data.get(key) != value for key, value in pins.items()
+                   if key not in JOURNAL_STATE_FIELDS and key != "phase")):
         raise ICuRefused("ICU_JOURNAL_PIN_MISMATCH")
+    _validate_state_update(pins, {key: data[key] for key in JOURNAL_STATE_FIELDS if key in data})
+    if data.get("phase") not in JOURNAL_TRANSITIONS and data.get("phase") not in {
+        "attempt_marker_pending", "attempt_consumed", "complete", "rolled_back",
+        "forward_failed", "rollback_current_restored", "rollback_core_restart_started",
+        "rollback_core_restarted", "rollback_no_pointer_change",
+    }:
+        raise ICuRefused("ICU_JOURNAL_PHASE_INVALID")
+    if "failed_from_phase" in data and data["failed_from_phase"] not in JOURNAL_TRANSITIONS:
+        raise ICuRefused("ICU_JOURNAL_FAILURE_PHASE_INVALID")
+    if data["phase"] in {"current_switched", "core_restart_started", "core_restarted", "complete"}:
+        if not data["current_owned_by_attempt"] or not data["release_owned_by_attempt"]:
+            raise ICuRefused("ICU_JOURNAL_PHASE_OWNERSHIP_CONTRADICTION")
+    if data["phase"] in {"core_restart_started", "core_restarted", "complete"}:
+        if data["forward_restart_invocations"] != 1:
+            raise ICuRefused("ICU_JOURNAL_PHASE_RESTART_CONTRADICTION")
+    if data["phase"] == "rollback_core_restart_started" and data["rollback_restart_invocations"] != 1:
+        raise ICuRefused("ICU_JOURNAL_PHASE_ROLLBACK_RESTART_CONTRADICTION")
+    if data["phase"] == "rolled_back" and data["current_owned_by_attempt"] and not data["current_restored_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_PHASE_ROLLBACK_CONTRADICTION")
+    if data["phase"] == "forward_failed" and data.get("failed_from_phase") in {
+        "current_switched", "core_restart_started", "core_restarted", "complete",
+    } and not data["current_owned_by_attempt"]:
+        raise ICuRefused("ICU_JOURNAL_FAILURE_OWNERSHIP_CONTRADICTION")
     return data
 
 
@@ -232,60 +362,89 @@ def execute(backend: Any, marker: Path, journal_path: Path | None = None) -> dic
     validate_preflight(facts)
     # This intentionally remains unreachable while the actual installed-unit consequence is NOT_PROVEN.
     journal = Path(journal_path) if journal_path else Path(marker).with_name("icu-journal.json")
+    marker = Path(marker)
+    if marker.exists() or marker.is_symlink():
+        raise ICuRefused("ICU_ATTEMPT_ALREADY_CONSUMED")
+    initial = {
+        "preflight": facts,
+        "release_install_started_by_attempt": False,
+        "release_owned_by_attempt": False,
+        "current_switch_started_by_attempt": False,
+        "current_owned_by_attempt": False,
+        "current_restored_by_attempt": False,
+        "forward_restart_invocations": 0,
+        "rollback_restart_invocations": 0,
+    }
+    write_ahead_journal(journal, "attempt_marker_pending", initial)
     consume_attempt_marker(Path(marker))
-    state = {"preflight": facts, "forward_restart_invocations": 0, "rollback_restart_invocations": 0,
-             "current_owned_by_attempt": False, "release_owned_by_attempt": False}
-    write_ahead_journal(journal, "preflight_passed", state)
+    state = write_ahead_journal(journal, "attempt_consumed")
     try:
-        write_ahead_journal(journal, "installing", state)
+        state = write_ahead_journal(journal, "installing", {"release_install_started_by_attempt": True})
         backend.install_existing_release(NEW_RELEASE_ID, NEW_SUMS_SHA256, NEW_MANIFEST_SHA256)
-        state["release_owned_by_attempt"] = True
-        write_ahead_journal(journal, "installed", state)
-        write_ahead_journal(journal, "switching_current", state)
+        state = write_ahead_journal(journal, "installed", {"release_owned_by_attempt": True})
+        state = write_ahead_journal(journal, "switching_current", {"current_switch_started_by_attempt": True})
         backend.switch_current(OLD_RELEASE_ID, NEW_RELEASE_ID)
-        state["current_owned_by_attempt"] = True
-        write_ahead_journal(journal, "current_switched", state)
-        write_ahead_journal(journal, "core_restart_started", state)
+        state = write_ahead_journal(journal, "current_switched", {"current_owned_by_attempt": True})
+        state = write_ahead_journal(journal, "core_restart_started", {"forward_restart_invocations": 1})
         backend.restart_core_once(NEW_RELEASE_ID)
-        state["forward_restart_invocations"] = 1
-        write_ahead_journal(journal, "core_restarted", state)
+        state = write_ahead_journal(journal, "core_restarted")
         result = backend.verify_new_core_and_preservation(facts["preserved_services"])
         if not result.get("detector_unchanged") or result.get("preserved_services") != facts["preserved_services"]:
             raise ICuRefused("ICU_POST_STATE_OR_PRESERVATION_MISMATCH")
-        write_ahead_journal(journal, "complete", state)
+        state = write_ahead_journal(journal, "complete")
         return state
     except Exception:
-        state["phase"] = "forward_failed"
-        write_ahead_journal(journal, "forward_failed", state)
+        state = write_ahead_journal(journal, "forward_failed")
         rollback(backend, state, journal)
         raise
 
 
 def rollback(backend: Any, journal: dict[str, Any], journal_path: Path | None = None) -> None:
     """Restore only this attempt's exact OLD target; never issue Detector commands."""
-    if journal.get("stage") != "ICu" or journal.get("old_release_id") != OLD_RELEASE_ID:
+    pins = _base_journal("ignored")
+    if any(journal.get(key) != value for key, value in pins.items()
+           if key not in JOURNAL_STATE_FIELDS and key != "phase"):
         raise ICuRefused("ICU_ROLLBACK_JOURNAL_NOT_OWNED")
-    if not journal.get("current_owned_by_attempt"):
-        raise ICuRefused("ICU_ROLLBACK_CURRENT_NOT_OWNED")
     if journal.get("rollback_restart_invocations") != 0:
         raise ICuRefused("ICU_ROLLBACK_RESTART_ALREADY_USED")
+    if journal.get("phase") != "forward_failed":
+        raise ICuRefused("ICU_ROLLBACK_PHASE_REFUSED")
+    if journal.get("forward_restart_invocations", 0) and not journal.get("current_owned_by_attempt"):
+        raise ICuRefused("ICU_ROLLBACK_RESTART_WITHOUT_CURRENT_OWNERSHIP")
     if not backend.validate_rollback_preflight(OLD_RELEASE_ID):
         raise ICuRefused("ICU_EXACT_OLD_RELEASE_ROLLBACK_PREFLIGHT_FAILED")
     path = Path(journal_path) if journal_path else None
 
-    def record(phase: str) -> None:
-        journal["phase"] = phase
+    def record(phase: str, **changes: Any) -> None:
+        journal.update(changes)
         if path is not None:
-            write_ahead_journal(path, phase, journal)
+            updated = write_ahead_journal(
+                path, phase, {key: journal[key] for key in JOURNAL_STATE_FIELDS if key in journal}
+            )
+            journal.clear()
+            journal.update(updated)
+        else:
+            journal["phase"] = phase
 
-    record("rollback_switching_current")
-    backend.switch_current(NEW_RELEASE_ID, OLD_RELEASE_ID)
-    journal["current_owned_by_attempt"] = False
-    record("rollback_current_restored")
+    current_owned = journal.get("current_owned_by_attempt") is True
+    switch_started = journal.get("current_switch_started_by_attempt") is True
+    current_release = backend.current_release_id()
+    if current_release == NEW_RELEASE_ID and (current_owned or switch_started):
+        if not journal.get("release_owned_by_attempt"):
+            raise ICuRefused("ICU_ROLLBACK_CURRENT_NOT_OWNED")
+        record("rollback_switching_current")
+        backend.switch_current(NEW_RELEASE_ID, OLD_RELEASE_ID)
+        changes = {"current_restored_by_attempt": True}
+        if not current_owned:
+            changes["current_owned_by_attempt"] = True
+        record("rollback_current_restored", **changes)
+    else:
+        if current_release != OLD_RELEASE_ID or (current_owned and not journal.get("current_restored_by_attempt")):
+            raise ICuRefused("ICU_ROLLBACK_CURRENT_NOT_OLD")
+        record("rollback_no_pointer_change")
     if journal.get("forward_restart_invocations", 0) > 0:
-        record("rollback_core_restart_started")
+        record("rollback_core_restart_started", rollback_restart_invocations=1)
         backend.restart_core_once(OLD_RELEASE_ID)
-        journal["rollback_restart_invocations"] = 1
         record("rollback_core_restarted")
     if not backend.verify_rollback_and_preservation(OLD_RELEASE_ID):
         raise ICuRefused("ICU_ROLLBACK_VERIFICATION_FAILED")
@@ -316,7 +475,7 @@ def _main() -> int:
         if args.command == "consume-marker":
             consume_attempt_marker(args.path)
         elif args.command == "journal":
-            allowed = {"release_owned_by_attempt", "current_owned_by_attempt", "forward_restart_invocations", "rollback_restart_invocations"}
+            allowed = JOURNAL_STATE_FIELDS - {"preflight"}
             state: dict[str, Any] = {}
             for item in args.set:
                 key, sep, value = item.partition("=")
@@ -326,7 +485,7 @@ def _main() -> int:
                     if value not in {"0", "1"}:
                         raise ICuRefused("ICU_JOURNAL_COUNTER_INVALID")
                     state[key] = int(value)
-                elif value in {"true", "false"}:
+                elif key.endswith("_by_attempt") and value in {"true", "false"}:
                     state[key] = value == "true"
                 else:
                     raise ICuRefused("ICU_JOURNAL_BOOLEAN_INVALID")
