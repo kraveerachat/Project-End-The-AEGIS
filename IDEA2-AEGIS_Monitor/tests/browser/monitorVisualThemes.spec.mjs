@@ -123,7 +123,7 @@ test('theme and language presentation changes preserve the existing Operator vie
     await expect(controls.first().getByRole('button', { name: language, exact: true })).toHaveAttribute('aria-pressed', 'true')
   }
   expect(await stats(request)).toEqual(before)
-  await page.locator('header').getByRole('button', { name: 'Sign out', exact: true }).click()
+  await page.locator('header').getByRole('button', { name: '退出登录', exact: true }).click()
   await expect.poll(async () => (await stats(request)).active).toEqual([])
 })
 

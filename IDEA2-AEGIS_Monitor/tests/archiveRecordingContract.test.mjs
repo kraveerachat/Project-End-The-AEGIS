@@ -39,7 +39,7 @@ test('Archive displays measured duration, real video, and a same-origin download
   assert.match(archive, /api\/clips\/\$\{cl\.id\}\/video/)
   assert.match(archive, /api\/clips\/\$\{cl\.id\}\/download/)
   assert.match(archive, /<video[\s\S]*src=\{videoUrl\}[\s\S]*controls/)
-  assert.match(archive, />Download\s*</)
+  assert.match(archive, /\{t\('Download'\)\}/)
   assert.doesNotMatch(archive, /SEG_TOTAL_SEC\s*=\s*600/)
 })
 

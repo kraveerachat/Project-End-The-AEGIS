@@ -1,34 +1,35 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Bell, BellOff, Check, Globe, LogOut, Monitor, Moon, Shield, Sun, User, Volume2, VolumeX } from 'lucide-react'
+import { useLocale } from '../lib/Locale.jsx'
 
 const TRANSLATIONS = {
   th: {
     title: 'การตั้งค่าระบบ',
     sub: 'จัดการการแสดงผล ธีมการใช้งาน และการแจ้งเตือนสำหรับ AEGIS Monitor',
-    appearance: 'การแสดงผล & อินเทอร์เฟซ (Display)',
-    language: 'ภาษา (Language)',
+    appearance: 'การแสดงผลและอินเทอร์เฟซ',
+    language: 'ภาษา',
     langNote: 'เลือกภาษาที่ต้องการแสดงในระบบ',
-    theme: 'ธีมการใช้งาน (Theme)',
-    dark: 'โหมดมืด (Dark)',
-    light: 'โหมดสว่าง (Light)',
-    notifications: 'การแจ้งเตือน (Notifications)',
-    inAppSound: 'เสียงแจ้งเตือนในแอป (In-App Sound)',
-    desktopAlerts: 'การแจ้งเตือนบนเดสก์ท็อป (Desktop Push)',
-    snooze: 'ปิดเสียงแจ้งเตือนชั่วคราว (Snooze)',
+    theme: 'ธีมการใช้งาน',
+    dark: 'โหมดมืด',
+    light: 'โหมดสว่าง',
+    notifications: 'การแจ้งเตือน',
+    inAppSound: 'เสียงแจ้งเตือนในแอป',
+    desktopAlerts: 'การแจ้งเตือนบนเดสก์ท็อป',
+    snooze: 'ปิดเสียงแจ้งเตือนชั่วคราว',
     snoozeOff: 'เปิดปกติ',
     snooze15: '15 นาที',
     snooze1h: '1 ชั่วโมง',
     snoozeUntil: 'ปิดจนกว่าจะเปิดใหม่',
-    notifNote: 'การแจ้งเตือนเหตุการณ์ร้ายแรง (Critical Unknown Detection) จะถูกส่งเสมอโดยไม่คำนึงถึงสถานะ Snooze',
-    account: 'ข้อมูลบัญชีผู้ใช้ (Account & Session)',
+    notifNote: 'การแจ้งเตือนการตรวจจับบุคคลไม่รู้จักที่ร้ายแรงจะถูกส่งเสมอโดยไม่คำนึงถึงการปิดเสียงชั่วคราว',
+    account: 'ข้อมูลบัญชีผู้ใช้และเซสชัน',
     userName: 'ชื่อผู้ใช้งาน',
-    userRole: 'สิทธิ์การใช้งาน (Role)',
+    userRole: 'สิทธิ์การใช้งาน',
     assignedCams: 'กล้องที่รับผิดชอบ',
     sessionIp: 'IP เครื่องดำเนินการ',
     nodeStatus: 'สถานะการเชื่อมต่อ Edge Node',
-    aiEngine: 'AI Inference Engine',
-    online: 'ปกติ (Online)',
+    aiEngine: 'เอนจินประมวลผล AI',
+    online: 'ออนไลน์',
     saveSuccess: 'บันทึกการตั้งค่าเรียบร้อยแล้ว',
   },
   en: {
@@ -95,6 +96,7 @@ const TRANSLATIONS = {
 const APP_VERSION = __APP_VERSION__
 
 export default function Settings({ lang, setLang, theme, setTheme, user, cameras = [], link, onSignOut }) {
+  const { t: uiT } = useLocale()
   const beats = link?.cameras ?? []
   const liveEngines = beats.filter((b) => b.status !== 'lost').length
   const totalEngines = beats.length
@@ -226,7 +228,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
                 <span>{t('theme')}</span>
               </div>
               <div className="set-option-desc">
-                {theme === 'dark' ? 'AEGIS Cyber Dark Mode' : 'AEGIS Clean Light Mode'}
+                {uiT(theme === 'dark' ? 'AEGIS Cyber Dark Mode' : 'AEGIS Clean Light Mode')}
               </div>
             </div>
             <div className="seg-control">
@@ -393,7 +395,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <div className="info-kv-item">
               <span className="kv-label">{t('userRole')}</span>
               {/* role = จอแสดงผลของสิ่งที่เซิร์ฟเวอร์ตัดสินมา — เปลี่ยนที่นี่ไม่ได้ */}
-              <span className="badge-role font-mono">{user?.role ?? '—'}</span>
+              <span className="badge-role font-mono">{uiT(user?.role ?? '—')}</span>
             </div>
             <div className="info-kv-item">
               <span className="kv-label">{t('assignedCams')}</span>
@@ -402,7 +404,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               </span>
             </div>
             <div className="info-kv-item">
-              <span className="kv-label">{lang === 'th' ? 'ชื่อบัญชี (Username)' : 'Account username'}</span>
+              <span className="kv-label">{uiT('Account username')}</span>
               <span className="kv-val mono">{user?.username ?? '—'}</span>
             </div>
           </div>
@@ -411,17 +413,15 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
             <div className="set-option-meta">
               <div className="set-option-label">
                 <LogOut className="w-4 h-4 text-slate-400 shrink-0" />
-                <span>{lang === 'th' ? 'ออกจากระบบ' : 'Sign out'}</span>
+                <span>{uiT('Sign out')}</span>
               </div>
               <div className="set-option-desc">
-                {lang === 'th'
-                  ? 'ทำลายเซสชันฝั่งเซิร์ฟเวอร์ทันที'
-                  : 'Destroys the server-side session immediately'}
+                {uiT('Destroys the server-side session immediately')}
               </div>
             </div>
             <button type="button" className="signoutbtn" onClick={onSignOut}>
               <LogOut aria-hidden="true" />
-              {lang === 'th' ? 'ออกจากระบบ' : 'Sign out'}
+              {uiT('Sign out')}
             </button>
           </div>
         </motion.div>
@@ -433,7 +433,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
         >
           <div className="set-card-header">
             <Shield className="w-5 h-5 text-cyan-400 shrink-0" />
-            <h2 className="set-card-title">System Status</h2>
+            <h2 className="set-card-title">{uiT('System Status')}</h2>
           </div>
 
           {/* ⚠️ เดิมสองแถวล่างนี้ hardcode "Online" (เขียว) และ "Running v1.3" (ฟ้า)
@@ -441,7 +441,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               เวอร์ชันโมเดลที่ไม่มีอยู่จริง ตอนนี้อ่านจาก /api/link (camera_heartbeat) */}
           <div className="info-kv-grid">
             <div className="info-kv-item">
-              <span className="kv-label">System Version</span>
+              <span className="kv-label">{uiT('System Version')}</span>
               <span className="kv-val mono">AEGIS Monitor v{APP_VERSION}</span>
             </div>
             <div className="info-kv-item">
@@ -452,7 +452,7 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
                 </span>
               ) : (
                 <span className="kv-val status-tag mono">
-                  {link?.status === 'degraded' ? 'degraded' : 'unreachable'}
+                  {uiT(link?.status === 'degraded' ? 'degraded' : 'unreachable')}
                 </span>
               )}
             </div>
@@ -461,11 +461,11 @@ export default function Settings({ lang, setLang, theme, setTheme, user, cameras
               {liveEngines > 0 ? (
                 <span className="kv-val status-tag cyan mono">
                   <span className="dot-pulse cyan" />
-                  running · {liveEngines}/{totalEngines}
+                  {uiT('running · {live}/{total}', { live: liveEngines, total: totalEngines })}
                 </span>
               ) : (
                 <span className="kv-val mono" style={{ opacity: 0.55 }}>
-                  no engine reporting
+                  {uiT('no engine reporting')}
                 </span>
               )}
             </div>

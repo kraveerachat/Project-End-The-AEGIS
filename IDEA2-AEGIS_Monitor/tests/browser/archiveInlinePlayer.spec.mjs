@@ -44,7 +44,7 @@ test('Archive plays each scoped clip in its fixed card media region, without an 
 
   await expect(cards.nth(0)).toContainText('5:00')
   await expect(cards.nth(0)).toContainText('entry-z · Main entrance · node-a')
-  await expect(cards.nth(0)).toContainText('5 ต.ค. 2569')
+  await expect(cards.nth(0)).toContainText('5 Oct 2026')
   await expect(cards.nth(0)).toContainText('21:23:00')
   await expect(cards.nth(0)).toContainText('Authorized only')
   await expect(cards.nth(1)).toContainText('1:23')

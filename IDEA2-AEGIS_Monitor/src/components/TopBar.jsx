@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { Bell, LogOut } from 'lucide-react'
 import { Ping } from './ui.jsx'
 import { AegisLockup } from './AegisMark.jsx'
+import { useLocale } from '../lib/Locale.jsx'
 
 const initialsOf = (name) =>
   String(name ?? '')
@@ -32,6 +33,7 @@ export default function TopBar({
   theme = 'dark', clockText, dateText, linkStatus, link, unacked,
   showBell = true, onBell, user, onSignOut,
 }) {
+  const { t } = useLocale()
   const status = linkStatus ?? 'lost'
   const beats = link?.cameras ?? []
   const live = beats.filter((b) => b.status !== 'lost')
@@ -39,17 +41,17 @@ export default function TopBar({
   // latency ของ inference จริง (ms) — เฉลี่ยข้ามกล้องที่ยังมีชีวิต
   const lat = live.map((b) => b.latencyMs).filter((v) => v != null)
   const latText = lat.length
-    ? `Inference · ${(lat.reduce((a, b) => a + b, 0) / lat.length).toFixed(0)} ms`
-    : 'Inference · unavailable'
+    ? t('Inference · {ms} ms', { ms: (lat.reduce((a, b) => a + b, 0) / lat.length).toFixed(0) })
+    : t('Inference · unavailable')
 
   // engine ถือว่า "running" ก็ต่อเมื่อมี heartbeat สดอย่างน้อยหนึ่งตัว
   const aiRunning = live.length > 0
   const aiText = status === 'lost' && !aiRunning
-    ? 'AI engine: unknown'
-    : `AI engine: running (${live.length}/${beats.length || live.length})`
+    ? t('AI engine: unknown')
+    : t('AI engine: running ({live}/{total})', { live: live.length, total: beats.length || live.length })
 
   const pills = {
-    node: { text: NODE_TEXT[status], tone: NODE_TONE[status], cls: NODE_CLS[status] },
+    node: { text: t(NODE_TEXT[status]), tone: NODE_TONE[status], cls: NODE_CLS[status] },
     ai: {
       text: aiText,
       tone: aiRunning ? 'ok' : 'down',
@@ -98,7 +100,7 @@ export default function TopBar({
               type="button"
               className="iconbtn"
               onClick={onBell}
-              aria-label={unacked > 0 ? `Alerts — ${unacked} awaiting acknowledgment` : 'Alerts'}
+              aria-label={unacked > 0 ? t('Alerts — {count} awaiting acknowledgment', { count: unacked }) : t('Alerts')}
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
             >
@@ -115,7 +117,7 @@ export default function TopBar({
           <div className="avatar" aria-hidden="true">{initialsOf(user?.displayName)}</div>
           <div className="usermeta">
             <span className="username">{user?.displayName ?? '—'}</span>
-            <span className="rolechip">{user?.role ?? '—'}</span>
+            <span className="rolechip">{t(user?.role ?? '—')}</span>
           </div>
         </div>
 
@@ -125,7 +127,7 @@ export default function TopBar({
           type="button"
           className="iconbtn"
           onClick={onSignOut}
-          aria-label="Sign out"
+          aria-label={t('Sign out')}
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.92 }}
         >

@@ -1,11 +1,13 @@
+import { useLocale } from '../lib/Locale.jsx'
 // ⚠️ Sidebar ไม่รู้จัก "รายการเมนูทั้งหมด" อีกต่อไป — รับ sections ที่สร้างจาก
 // เมนูของเซิร์ฟเวอร์ (ผ่าน buildSections) แล้ว render เท่าที่ได้รับเท่านั้น
 // วิวที่ role ไม่มีสิทธิ์ไม่เคยมาถึง component นี้ จึงไม่มีวันอยู่ใน DOM
 // canLinkTest = role นี้ยิง POST /api/link/outage ได้ไหม (SOC-Responder เท่านั้น)
 // — ใช้ตัดสินแค่ว่าจะ "โฆษณา" คีย์ลัด L หรือไม่ ตัวควบคุมจริงคือ requireRole ฝั่งเซิร์ฟเวอร์
 export default function Sidebar({ sections, view, setView, unacked, viewCount = 0, canLinkTest = false }) {
+  const { t, lang } = useLocale()
   return (
-    <nav className="side glass" aria-label="Console sections">
+    <nav className="side glass" aria-label={t("Console sections")}>
       {sections.map((sec) => (
         <div key={sec.label} style={{ display: 'contents' }}>
           <div className="navsec">{sec.label}</div>
@@ -23,18 +25,15 @@ export default function Sidebar({ sections, view, setView, unacked, viewCount = 
                 <Icon aria-hidden="true" />
                 {item.label}
                 {item.badge && unacked > 0 && (
-                  <span className="unread" aria-label={`${unacked} unacknowledged`}>{unacked}</span>
+                  <span className="unread" aria-label={t('{count} unacknowledged', { count: unacked })}>{unacked}</span>
                 )}
               </button>
             )
           })}
         </div>
       ))}
-      <div className="sidefoot">
-        AEGIS Monitor · standalone edge deployment. Operators and camera assignments are managed within this app.
-        <div className="kbdrow" aria-hidden="true">
-          <kbd>1</kbd>–<kbd>{viewCount || 1}</kbd> views
-          {canLinkTest && <> · <kbd>L</kbd> link test</>}
+      <div className="sidefoot"> {t("AEGIS Monitor · standalone edge deployment. Operators and camera assignments are managed within this app.")} <div className="kbdrow" aria-hidden="true">
+          <kbd>1</kbd>–<kbd>{viewCount || 1}</kbd> {t("views")} {canLinkTest && <> · <kbd>{t("L")}</kbd> {t("link test")}</>}
         </div>
       </div>
     </nav>
@@ -42,8 +41,9 @@ export default function Sidebar({ sections, view, setView, unacked, viewCount = 
 }
 
 export function MobileNav({ sections, view, setView, unacked }) {
+  const { t, lang } = useLocale()
   return (
-    <nav className="mobilenav" aria-label="Console sections">
+    <nav className="mobilenav" aria-label={t("Console sections")}>
       {sections.flatMap((s) => s.items).map((item) => {
         const Icon = item.icon
         const on = view === item.id
@@ -58,7 +58,7 @@ export function MobileNav({ sections, view, setView, unacked }) {
             <Icon aria-hidden="true" />
             {item.label}
             {item.badge && unacked > 0 && (
-              <span className="unread" aria-label={`${unacked} unacknowledged`}>{unacked}</span>
+              <span className="unread" aria-label={t('{count} unacknowledged', { count: unacked })}>{unacked}</span>
             )}
           </button>
         )

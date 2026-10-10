@@ -21,7 +21,7 @@ Task: UI-only Dark/Light redesign and removal of synthetic Monitor face boxes.
 Branch: `codex/idea2-monitor-themes-face-overlay`
 Owner: pub
 PR: [#425](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/425), Draft, stacked on PR #348
-Current state: REFERENCE-THEME SOURCE VERIFIED / OWNER VISUAL ACCEPTANCE PENDING; dependency acceptance pending
+Current state: OWNER THEME VISUAL ACCEPTANCE RECEIVED / WHOLE-APP LOCALE SOURCE VERIFIED; dependency and human integration acceptance pending
 Started: 2026-10-10
 Initial implementation/evidence checkpoint: `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` (historical; owner rejected the initial visual preview)
 Production mutation allowed: NO
@@ -44,6 +44,7 @@ existing Archive and passive SOC behavior; the new PR must remain stacked.
 |---|---|---|---|---|---|---|---|
 | S1 | Impeccable critique, shared tokens/layout/motion and synthetic-overlay removal | SOURCE COMPLETE | offline real React/Edge fixtures; independent UI re-review | `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` | browser61/61; affected31/31; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner reviews Draft |
 | S2 | Owner-reference theme correction only: shared CSS and existing browser tests | SOURCE VERIFIED; owner visual acceptance pending | two reference images; independent contrast critique; actual Edge screenshots | same PR #425 continuation | full browser67/67; final affected51/51; focused30/30; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner checks Light/Dark preview |
+| S3 | Owner-approved TH/EN/ZH whole-app presentation and truthful Live overlay continuation | SOURCE VERIFIED; owner accepted S2 theme | real React/mock browser matrix for SOC/operator/operator2; independent locale/security review | same PR #425 continuation; existing receipt immutable | browser78/78; affected41/41; full Monitor241 PASS/1 inherited FAIL/109 SKIP; build PASS | new locale human review; stack/PR411 reconciliation; baseline disposition | owner reviews Draft/isolated preview |
 
 ### Session S1 plan
 
@@ -122,6 +123,60 @@ remains unchanged; fixture results are not owner visual or hardware acceptance.
 PR #425 stays Draft. Current main and PR #348 base remain the SHAs recorded
 above. Human visual acceptance, dependency/PR #411 reconciliation, baseline-test
 disposition and any separately authorized rollout remain pending.
+
+### Whole-app language continuation evidence (S3)
+
+The owner accepted the corrected theme preview and requested that the Settings
+language buttons apply immediately to every permitted page for SOC, operator
+and operator2. Shared TH/EN/ZH catalogs now localize navigation, chrome, Live,
+Archive, Detection, Alerts, Nodes, Operators, Diagnostics, Settings, login and
+known dialogs/error copy. Locale-specific dates are presentation only; Archive
+retains the Asia/Bangkok timezone and exact clip duration. Preference persists
+in the existing browser storage; unsupported values fall back to Thai. Names,
+camera/Node IDs, external unknown text, API/filter values and authorization
+remain canonical. Browser selection does not change another user's authority.
+
+App/Login/LiveFeed are now changed for presentation only, unlike historical
+S1/S2. LocaleProvider has no language-dependent key; stream URL, media keys,
+effects, retry/cleanup callbacks, server-supplied menu IDs and session/camera
+lifecycle remain unchanged. No server/Engine/AI/recording/DB/runtime changes.
+No synthetic rectangle is rendered on either Operator or SOC Live. Genuine
+Admin/Unknown boxes/labels remain in the unchanged Engine pixels, with measured
+confidence preserved in scoped metadata. No physical-camera result is claimed.
+
+- Locale RED: initial navigation tests0 PASS/2 expected FAIL; separate Archive
+  and admin catalog REDs2 and3 expected FAIL. Catalog GREEN10 PASS/0 FAIL/0 SKIP.
+- Affected locale/design/liveCamera/UI-freeze/viewer-demand/stream/theme tests:
+  41 PASS/0 FAIL/0 SKIP. Full Monitor:241 PASS/1 unchanged baseline Archive
+  assertion FAIL/109 conditional PostgreSQL SKIP (351 total). The failing test
+  still expects recorder.submit_detection while the exact base Engine uses
+  submit_annotated; no Engine edit or false full-suite PASS.
+- The nine role/language browser cases verify every permitted page, exact menu
+  translations, narrow390px layout, saved preference/new tab, logout release
+  and unchanged Operator viewer connections. Extra preview and invalid-pref
+  tests cover unchanged selected-canvas behavior and safe fallback. Full browser
+  suite78 PASS/0 FAIL/0 SKIP; synthetic media/mock APIs only. Locale changes do
+  not create new Operator stream connections; logout releases all viewers.
+- Vite build PASS:2084 modules; CSS160.54kB/gzip36.37,
+  JS468.34kB/gzip145.31. Governance61 PASS/0 FAIL/0 SKIP.
+- Vault and collaboration policy PASS; diff/staged diff checks PASS; full
+  task added-content secret-pattern scan0 hits. No generated media/build files,
+  dependencies or credentials staged; the existing receipt is unchanged.
+- Independent locale/UI and security source re-review: no unresolved Critical,
+  Important or Minor findings. Missing preview locale binding and misleading
+  camera-load error copy corrected before final verification. Reviews do not
+  prove runtime/hardware acceptance or replace human integration approval.
+- No Production, Machine A/C, physical camera/microphone/GPU, backend/security,
+  theme-design, dependency lockfile or dirty primary checkout mutation. Keep
+  Draft. This is the same task/PR; the original single receipt is immutable;
+  later evidence is maintained here and in the PR, not a second receipt.
+
+Final fetch observed main moved to
+`ca7f66f56626b6ab396566ce891baef7b1e60cdc`; changes since the prior observed
+main are IDEA3 source/status/receipts only, not IDEA2 or shared runtime.
+PR348 base remains `1531183f01afcf5964f4e051cf8e66df29e16e98`.
+The stacked dependency was not rewritten or merged here; main/dependency
+reconciliation remains a human integration gate.
 
 ## PR #348 functional-prototype handoff — 2026-10-10
 

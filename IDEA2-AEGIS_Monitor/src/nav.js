@@ -7,6 +7,7 @@
 import {
   Activity, Archive, Cctv, LayoutGrid, ListVideo, Settings, ShieldAlert, Users,
 } from 'lucide-react'
+import { translate } from './lib/i18n.js'
 
 const DISPLAY = {
   live:        { label: 'Live canvas',       icon: Cctv },
@@ -32,18 +33,18 @@ const GROUP_LABELS = {
  * แปลงเมนูจากเซิร์ฟเวอร์ ([{ id, labelKey, group }]) เป็น sections สำหรับ Sidebar
  * รายการที่ client ไม่รู้จัก (id แปลก) ถูกทิ้ง — ไม่เดา ไม่ประดิษฐ์เมนูเอง
  */
-export function buildSections(menu) {
+export function buildSections(menu, lang = 'en') {
   const sections = []
   for (const item of menu ?? []) {
     const d = DISPLAY[item.id]
     if (!d) continue
-    const label = GROUP_LABELS[item.group] ?? item.group
+    const label = translate(lang, GROUP_LABELS[item.group] ?? item.group)
     let sec = sections.find((s) => s.label === label)
     if (!sec) {
       sec = { label, items: [] }
       sections.push(sec)
     }
-    sec.items.push({ id: item.id, label: d.label, icon: d.icon, badge: d.badge })
+    sec.items.push({ id: item.id, label: translate(lang, d.label), icon: d.icon, badge: d.badge })
   }
   return sections
 }

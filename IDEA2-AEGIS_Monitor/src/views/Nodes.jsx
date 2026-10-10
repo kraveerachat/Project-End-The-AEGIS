@@ -5,6 +5,7 @@ import { EmptyState, FeedChrome, StaleBadge } from '../components/ui.jsx'
 import { useApi } from '../lib/hooks.js'
 import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.jsx'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
+import { useLocale } from '../lib/Locale.jsx'
 
 // ⚠️ กรอบภาพสด: ใช้ proxy เดียวกับ Live canvas (GET /api/cameras/:id/stream) —
 //    ไม่ต่อตรงไปหา Detection Engine เด็ดขาด เหมือนทุกจุดที่แสดงภาพกล้องในระบบนี้
@@ -12,6 +13,7 @@ import { getViewState, VIEW_STATE } from '../lib/viewState.js'
 //    เต็มรูปแบบ) เพราะที่นี่เป็นแค่ thumbnail ภาพรวมของทั้ง fleet ไม่ใช่จอเฝ้าดูหลัก
 //    — โหลดพังก็แค่ตกกลับไปโชว์ placeholder เฉย ๆ ไม่ต้อง retry loop
 function NodeThumb({ camera }) {
+  const { t } = useLocale()
   const [broken, setBroken] = useState(false)
   const [nonce, setNonce] = useState(0)
 
@@ -34,7 +36,7 @@ function NodeThumb({ camera }) {
         <img
           key={nonce}
           src={`${import.meta.env.BASE_URL}api/cameras/${camera.id}/stream?t=${nonce}`}
-          alt={`${camera.id} live preview`}
+          alt={t('{camera} live preview', { camera: camera.id })}
           draggable={false}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           onError={() => setBroken(true)}
@@ -52,6 +54,7 @@ function NodeThumb({ camera }) {
 // ฝั่งเซิร์ฟเวอร์ (permissions.js) — ไม่มี client-side role check ที่ไหน CCTV-Operator
 // ไม่เคยได้รับวิวนี้ใน DOM เลย และ POST /api/operators ยังบังคับ requireRole ซ้ำอีกชั้น
 export default function Nodes() {
+  const { t } = useLocale()
   const api = useApi('/api/nodes', { refreshMs: 30_000 })
   const state = getViewState(api, (data) => (data?.cameras ?? []).length === 0)
   // null = ปิด · 'form' = ฟอร์มเพิ่ม operator · { username, tempPassword } = โชว์รหัสครั้งเดียว
@@ -88,9 +91,9 @@ export default function Nodes() {
 
   if (state === VIEW_STATE.ERROR) {
     return (
-      <EmptyState icon={ServerOff} title="Could not load nodes"
-        hint="The Monitor backend did not respond. Check the server, then retry."
-        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
+      <EmptyState icon={ServerOff} title={t('Could not load nodes')}
+        hint={t('The Monitor backend did not respond. Check the server, then retry.')}
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Retry')}</button>} />
     )
   }
 
@@ -101,7 +104,7 @@ export default function Nodes() {
 
   const resolve = (camId) => {
     const v = assignments[camId]
-    if (v === 'SOC') return { name: 'SOC-Team', active: true }
+    if (v === 'SOC') return { name: 'SOC-Team', active: true, isSoc: true }
     if (!v) return null
     const op = operators.find((o) => o.id === v)
     return op ? { name: op.name, active: op.active } : null
@@ -120,8 +123,8 @@ export default function Nodes() {
         <PageHead link={link} onAdd={() => setModal('form')} />
         <EmptyState
           icon={ServerOff}
-          title="No cameras registered"
-          hint="No camera nodes are connected to this deployment yet."
+          title={t('No cameras registered')}
+          hint={t('No camera nodes are connected to this deployment yet.')}
         />
         {modals}
       </>
@@ -140,31 +143,31 @@ export default function Nodes() {
               <div className="nodebody">
                 <div className="nodename">
                   {c.name}
-                  {c.online && <span className="recwrap"><span className="rec" />REC</span>}
+                  {c.online && <span className="recwrap"><span className="rec" />{t('REC')}</span>}
                 </div>
                 <div className="nodefields">
-                  <div className="nfield"><span className="nflab">Camera ID</span><span className="nfval mono">{c.id}</span></div>
-                  <div className="nfield"><span className="nflab">Zone</span><span className="nfval">{c.zone}</span></div>
-                  <div className="nfield"><span className="nflab">Resolution</span><span className="nfval mono">{c.res}</span></div>
+                  <div className="nfield"><span className="nflab">{t('Camera ID')}</span><span className="nfval mono">{c.id}</span></div>
+                  <div className="nfield"><span className="nflab">{t('Zone')}</span><span className="nfval">{c.zone}</span></div>
+                  <div className="nfield"><span className="nflab">{t('Resolution')}</span><span className="nfval mono">{c.res}</span></div>
                   <div className="nfield">
-                    <span className="nflab">Assigned to</span>
+                    <span className="nflab">{t('Assigned to')}</span>
                     {op ? (
                       <span
                         className={op.active ? 'assigned' : 'assigned un'}
-                        title={op.active ? undefined : 'Suspended — alerts route to SOC-Team'}
+                        title={op.active ? undefined : t('Suspended — alerts route to SOC-Team')}
                       >
                         <span className="av" aria-hidden="true">{ini(op.name)}</span>
-                        {op.name}{!op.active && ' · suspended'}
+                        {op.isSoc ? t('SOC-Team') : op.name}{!op.active && t(' · suspended')}
                       </span>
                     ) : (
-                      <span className="assigned un">Unassigned</span>
+                      <span className="assigned un">{t('Unassigned')}</span>
                     )}
                   </div>
                   <div className="nfield">
-                    <span className="nflab">Status</span>
+                    <span className="nflab">{t('Status')}</span>
                     <span className={c.online ? 'statustag on' : 'statustag off'}>
                       <span className={c.online ? 'tdot on' : 'tdot off'} />
-                      {c.online ? 'Online' : 'Offline'}
+                      {t(c.online ? 'Online' : 'Offline')}
                     </span>
                   </div>
                 </div>
@@ -179,17 +182,18 @@ export default function Nodes() {
 }
 
 function PageHead({ link, onAdd }) {
+  const { t } = useLocale()
   return (
     <div className="pagehead">
       <div>
-        <h1 className="h1">Nodes &amp; routing</h1>
-        <p className="sub">Connected cameras and their responsible operator, per central RBAC assignment.</p>
+        <h1 className="h1">{t('Nodes & routing')}</h1>
+        <p className="sub">{t('Connected cameras and their responsible operator, per central RBAC assignment.')}</p>
       </div>
       <div className="pagehead-actions">
-        {link && link.status !== 'online' && <StaleBadge red={link.status === 'lost'} label="Status may be stale" />}
+        {link && link.status !== 'online' && <StaleBadge red={link.status === 'lost'} label={t('Status may be stale')} />}
         {onAdd && (
           <button type="button" className="ackbtn" onClick={onAdd}>
-            <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />Add operator
+            <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Add operator')}
           </button>
         )}
       </div>
