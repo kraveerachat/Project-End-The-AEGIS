@@ -9273,27 +9273,26 @@ authority validation, exclusive one-attempt marker, durable write-ahead journal,
 read-only release/unit preflight, and pinned exact-OLD rollback logic. Existing
 OLD/NEW release IDs and digest pins are reused; the NEW release is not rebuilt.
 
-The live runner keeps `SYSTEMD_RESTART_EFFECT_PROVEN=NO` as a fixed blocker.
-Actual installed-unit restart behavior remains **NOT_PROVEN**; the runner refuses
-before attempt-marker creation, installation, pointer switch, or restart. No
+At PR #431 merge, the live runner kept `SYSTEMD_RESTART_EFFECT_PROVEN=NO` as a
+fixed blocker. It refused before attempt-marker creation, installation, pointer
+switch, or restart. No
 Production mutation, Core restart, Detector start/stop, MQTT dispatch, CUT, or
 RESTORE occurred. The inactive Detector state is guarded as loaded/inactive/
 dead/disabled/PID 0 and compared across the permitted Core-owned changes. CTu
 and CTv remain immutable consumed FAIL. Recovery remains blocked and its gate is
 unchanged. No IDEA1/IDEA2/shared-surface path changed.
 
-`ICu` repository implementation is complete for independent Security and
-functional review. Human review must include ticking the PR GitHub Review
-Checklist. This branch does not authorize live execution; actual restart-effect
-proof, fresh host preflight, and separate human live authorization remain
-required. The independent offline executor tests do not repeat the merged
-readiness suite.
+PR #431's repository implementation received independent Security and functional
+review and merged. That merge did not authorize live execution. Actual archived
+restart-effect proof, fresh host preflight, and separate human live
+authorization remain required. The independent offline executor tests did not
+repeat the merged readiness suite.
 
 | ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
 | ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | MERGED in PR #429 at `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | 40 focused tests passed on PR #429 | base `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | offline design/checker only | ICu operational implementation | keep live execution blocked |
 | ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | MERGED in PR #430 at `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | merged readiness evidence retained in PR #430 | authoritative main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | readiness contract only | governed ICu executor | keep live execution blocked |
-| ICu-S3 | Implement governed ICu stage, frozen runner, exact authority, marker/journal, preflight, and exact-release rollback | IMPLEMENTED; Draft PR #431 OPEN; independent reviews requested | ICu 12 PASS; affected batch 1,107 PASS / 1 xfailed / 1 unrelated Recovery assertion FAIL; shell syntax and diff checks PASS; installed-unit restart effect remains NOT_PROVEN | branch `feat/idea3-icu-governed-executor` at `12ae81903f9445a14f07901e251c7753757ff026`, based on PR #430 merge tree | repository-only; no live/Production action | independent Security and functional review; human merge | preserve fixed restart blocker; no live execution |
+| ICu-S3 | Implement governed ICu stage, frozen runner, exact authority, marker/journal, preflight, and exact-release rollback | MERGED in PR #431 at `52afbf16a4094b81ed03a0c8847d7e038af9bb3e` | ICu 12 PASS; affected batch 1,107 PASS / 1 xfailed / 1 unrelated Recovery assertion FAIL; shell syntax and diff checks PASS; installed-unit restart effect remained NOT_PROVEN | branch `feat/idea3-icu-governed-executor` at `12ae81903f9445a14f07901e251c7753757ff026`, based on PR #430 merge tree | repository-only; no live/Production action | archived restart proof and separate LIVE authority | no live execution from PR #431 |
 
 ### ICu restart evidence integration — 2026-10-11
 
