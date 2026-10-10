@@ -21,12 +21,15 @@ Task: existing PR2 Recording / Archive; branch
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub.
 Starting reviewed HEAD: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
 Current main: `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
-State: LOCAL SOURCE VERIFIED; independent correction review PASS; exact-head CI handoff pending.
+State: SOURCE CORRECTION HANDOFF; independent correction review PASS. Source
+checkpoint `3325b7eafa09ca6725de6e3aae38b0ee7807cc27` published normally and
+exact-head Collaboration guardrails PASS (run2261 /38075719231). Final evidence
+commit/CI is tracked in PR #344; human/main/operational gates remain pending.
 Production mutation allowed: NO. PR remains Draft; no merge authorization.
 
 | Session | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
 |---|---|---|---|---|---|---|---|
-| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | LOCAL VERIFIED / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Starting HEAD 9ee7cd82 | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Normal push to existing Draft PR and exact-head CI |
+| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | SOURCE HANDOFF / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Source 3325b7ea; CI run2261 PASS | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Human review of exact final PR head; separate main-reconciliation decision |
 
 ### Plan and scope
 
@@ -83,6 +86,9 @@ Machine A/C or PR #348 change. Main reconciliation remains separately reviewed.
   Direct current-main comparison fails policy: the unreconciled branch lacks
   competing main-only paths/receipts (414 comparison paths). This is an existing
   reconciliation gate, not permission to modify those paths or waive guards.
+- Exact source-head CI run2261 uses recorded base `1128e525`, not current
+  observed main `4ebade39`. CI PASS must not be presented as current-main
+  reconciliation acceptance. Both source defects are closed; PR stays Draft.
 
 ## PR #344 functional-prototype handoff — 2026-10-10
 

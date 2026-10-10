@@ -120,6 +120,22 @@ PR scope; its documentation-only statements do not describe the new correction.
   Live path, NAS transfer logic, PR #348 or runtime change. Historical 84/0/6 stays
   historical. PRODUCTION_MUTATION=NO; MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO.
 
+## October 11 source checkpoint and GitHub handoff
+
+- Normal commit/push: `3325b7eafa09ca6725de6e3aae38b0ee7807cc27` on the same
+  `feat/idea2-pr2-recording-archive-5min-download` branch. Remote branch and
+  `refs/pull/344/head` independently match. Draft/open state retained.
+- GitHub Collaboration guardrails run2261 /38075719231 — PASS at that exact
+  source checkpoint. Jobs confirm collaboration-policy and Vault steps success.
+  Recorded run base is `1128e5253d72171bc04e9c48d50a05d044390476`; this does not
+  supersede the separate observed-main `4ebade39` reconciliation blocker.
+- Existing GitHub Review Checklist updated only for verified source/test/policy
+  evidence. Container build, real DB, current-main reconciliation, human review,
+  integration approval and Ready/merge authorization remain unchecked.
+- This final evidence-only correction is recorded in the same still-unmerged
+  task receipt; final documentation HEAD/CI will be pinned in PR #344. No test
+  count or historical runtime claim is rewritten. No further source behavior change.
+
 ## Shared surfaces touched
 - `.env.example` — existing optional IDEA2 clip-storage destination; infrastructure integration review required.
 - `docker-compose.yml` — existing optional IDEA2 storage destination/mount alignment; infrastructure integration review required.
