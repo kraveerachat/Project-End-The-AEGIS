@@ -9294,3 +9294,29 @@ readiness suite.
 | ICu-S1 | Bind approved rollback design and current release pins; specify fail-closed inactive Detector successor | MERGED in PR #429 at `ca7f66f56626b6ab396566ce891baef7b1e60cdc` | 40 focused tests passed on PR #429 | base `728c2d9b56d2d8b0b5933202ca20f45e6687602b` | offline design/checker only | ICu operational implementation | keep live execution blocked |
 | ICu-S2 | Add offline-only ICu readiness validation for pins, installed units, inactive Detector, authority, marker/journal declarations, rollback, preservation, and effect provenance | MERGED in PR #430 at `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | merged readiness evidence retained in PR #430 | authoritative main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` | readiness contract only | governed ICu executor | keep live execution blocked |
 | ICu-S3 | Implement governed ICu stage, frozen runner, exact authority, marker/journal, preflight, and exact-release rollback | IMPLEMENTED; Draft PR #431 OPEN; independent reviews requested | ICu 12 PASS; affected batch 1,107 PASS / 1 xfailed / 1 unrelated Recovery assertion FAIL; shell syntax and diff checks PASS; installed-unit restart effect remains NOT_PROVEN | branch `feat/idea3-icu-governed-executor` at `12ae81903f9445a14f07901e251c7753757ff026`, based on PR #430 merge tree | repository-only; no live/Production action | independent Security and functional review; human merge | preserve fixed restart blocker; no live execution |
+
+### ICu restart evidence integration — 2026-10-11
+
+PR #431 is merged at `52afbf16a4094b81ed03a0c8847d7e038af9bb3e`.
+Current task `AEGIS_IDEA3_ICU_RESTART_EVIDENCE_INTEGRATION` uses branch
+`feat/idea3-icu-evidence-review`, owner `music`, and a scoped Draft PR.
+Production mutation is not allowed. The executor now requires a byte-checked
+installed-unit restart archive, pinned installed-unit and observation digests,
+and separate exact-main Authorization/K3 before its one-attempt marker. The
+frozen runner derives its exact main from a clean checkout containing PR #431,
+so a later reviewed merge does not require another hard-coded main update.
+Journal, rollback, inactive Detector, and Recovery boundaries remain in force.
+
+The supplied observation directory contains four bounded log/snapshot files,
+including unchanged shared snapshots and no Detector lifecycle events. It does
+not contain archived Core/Detector PRE/POST `systemctl show` output, restart exit
+status, or the historical unit snapshot. Consequently the new archive gate
+returns `ICU_RESTART_OBSERVATION_INCOMPLETE`; the reported PID transition and
+PASS_LOCAL are not independently reproducible from retained bytes. No second
+restart or host test is permitted to fill that gap. LIVE remains blocked; a
+separately reviewed complete archive, fresh host preflight, and distinct human
+upgrade authorization would be required before any execution.
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| ICu-S4 | Bind archived restart evidence and current-main provenance within existing ICu executor | PARTIAL; Draft review | 29 focused offline tests PASS; shell syntax, Ruff I/F, and diff check PASS; supplied archive gate FAIL as designed | `e38de8e6` (after implementation `801c0a31`) | Repository-only; no Production mutation or attempt | Missing retained PRE/POST and restart-result bytes; independent Security/Governance and functional review | Keep Draft and LIVE blocked; human review checklist and separate future authority |
