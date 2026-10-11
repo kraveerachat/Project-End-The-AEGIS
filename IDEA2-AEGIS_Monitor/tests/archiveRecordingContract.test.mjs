@@ -26,7 +26,10 @@ test('strict Archive footage burns the same detector annotation path used by Liv
   const recorder = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/segment_recorder.py')
   const stream = source('../IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/stream_hub.py')
 
-  assert.match(engine, /recorder\.submit_detection\(result, frame\)/)
+  // Strict recording and Live consume the same fully rendered detector frame.
+  // The frame/sequence mismatch guard must run before any rendering or fan-out.
+  assert.match(engine, /if result\.frame_seq != frame\.seq:[\s\S]*?return[\s\S]*?if cfg\.capture_on_demand:\s*annotated = annotate_detection_frame\(result, frame\)\s*recorder\.submit_annotated\(annotated\)\s*if stream is not None:\s*stream\.submit_annotated\(annotated\)/)
+  assert.doesNotMatch(engine, /recorder\.submit_detection\(result, frame\)/)
   assert.match(engine, /if not cfg\.capture_on_demand:[\s\S]*Sink\("record"/)
   assert.match(recorder, /annotate_detection_frame\(result, frame\)/)
   assert.match(stream, /def annotate_detection_frame\(result: DetectionResult, frame: Frame\)/)
