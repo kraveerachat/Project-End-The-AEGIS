@@ -1,15 +1,17 @@
 """
 NASSyncWorker — durable off-load of finalized segments to the Local NAS.
 
-For every ~10-minute segment the recorder finalizes, this worker:
+For every finalized segment the recorder emits, this worker:
 
-1. Computes a local checksum (SHA-256) up front.
-2. Ensures the remote directory exists, then transfers the file with
+1. Converts the default OpenCV mp4v file to browser-compatible H.264/yuv420p
+   with fast-start metadata before the file is eligible for Archive.
+2. Computes a local checksum (SHA-256) over those final bytes.
+3. Ensures the remote directory exists, then transfers the file with
    ``rsync`` (default) or ``scp`` via :mod:`subprocess`.
-3. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
+4. **Verifies** the copy landed intact — by re-hashing on the NAS over SSH
    (``checksum``) or comparing byte size (``size``). Unverified success is
    forbidden; a successful transfer exit code alone is never sufficient.
-4. Deletes the local file **only if** verification passed.
+5. Deletes the local file **only if** verification passed.
 
 Transfers are retried with exponential backoff. A segment that never verifies
 is **kept on local disk** and logged loudly — we would rather run the edge disk
@@ -32,6 +34,7 @@ import hashlib
 import os
 import queue
 import shlex
+import shutil
 import subprocess
 import threading
 from typing import List, Optional
@@ -120,6 +123,16 @@ class NASSyncWorker(threading.Thread):
             return
 
         basename = os.path.basename(path)
+
+        # Archive's <video> must receive broadly playable bytes. The default
+        # OpenCV mp4v output is not accepted as an archived success: if ffmpeg
+        # is missing or H.264 conversion fails, retain the local source and
+        # publish no clip row rather than presenting an unplayable video.
+        if not self._prepare_browser_playback(path):
+            log.error("browser-compatible H.264 preparation failed for %s — KEPT local", basename)
+            self._metrics.on_nas_result(ok=False, when_wall=utc_now_iso())
+            return
+
         remote_path = f"{self._cfg.nas_dest_dir.rstrip('/')}/{basename}"
 
         local_hash = None
@@ -182,7 +195,57 @@ class NASSyncWorker(threading.Thread):
         except OSError as exc:
             log.error("synced but could not delete local %s: %s", basename, exc)
 
-    # -- transfer & verify primitives -------------------------------------
+    # -- archive preparation / transfer / verify primitives ---------------
+    def _prepare_browser_playback(self, path: str) -> bool:
+        """Make default mp4v recording bytes safe for browser <video> playback.
+
+        Already-H.264-like fourcc values are left untouched. For the default
+        mp4v path, ffmpeg/libx264 is mandatory: failure keeps the original local
+        file and prevents NAS/DB publication, so Archival footage never claims
+        a clip that the browser cannot play.
+        """
+        fourcc = self._cfg.segment_fourcc.strip().lower()
+        if fourcc in {"h264", "avc1", "x264"}:
+            return True
+        if self._cfg.segment_extension.strip().lower() != "mp4":
+            log.error("unsupported archive container .%s", self._cfg.segment_extension)
+            return False
+
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            log.error("ffmpeg unavailable; cannot create browser-compatible H.264 archive")
+            return False
+
+        tmp_path = path + ".h264tmp.mp4"
+        cmd = [
+            ffmpeg, "-y", "-i", path,
+            "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            tmp_path,
+        ]
+        rc, _out, err = self._run(cmd, timeout=self._cfg.nas_transfer_timeout_s)
+        if rc != 0 or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) <= 0:
+            log.error("ffmpeg H.264 transcode failed for %s: %s", os.path.basename(path), err[-300:])
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+            return False
+        try:
+            os.replace(tmp_path, path)
+        except OSError as exc:
+            log.error("could not replace source with H.264 archive %s: %s", os.path.basename(path), exc)
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+            return False
+        return True
+
     def _transfer(self, local_path: str, remote_path: str):
         target = f"{self._cfg.nas_user}@{self._cfg.nas_host}:{remote_path}"
         if self._cfg.nas_method == "rsync":

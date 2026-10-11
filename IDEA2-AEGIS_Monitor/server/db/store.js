@@ -426,7 +426,7 @@ export async function insertClip(input, ingestAuth = { kind: 'legacy_unverified'
   if (!filePath) return { error: 'file_path required', status: 400 }
   const started = input?.startedAt ? new Date(input.startedAt) : null
   if (!started || Number.isNaN(started.getTime())) return { error: 'invalid started_at', status: 400 }
-  const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 600
+  const durationSec = Number.isFinite(Number(input?.durationSec)) ? Math.max(0, Math.round(Number(input.durationSec))) : 300
   const storedOnNas = Boolean(input?.storedOnNas)
   const physicalCameraId = ingestAuth?.kind === 'ed25519'
     ? Number(ingestAuth.verifiedNode?.physicalCameraId)
@@ -703,6 +703,7 @@ export async function listClips(visibleIds) {
             ) AS has_unknown
        FROM clips c
       WHERE c.camera_id = ANY($1)
+        AND c.stored_on_nas = TRUE
       ORDER BY c.started_at DESC
       LIMIT 60`,
     [ids],

@@ -139,7 +139,7 @@ class EngineConfig:
     yolo_gate_ttl_s: float = 2.0
 
     # --- Recording (SegmentRecorder) -------------------------------------
-    segment_seconds: int = 600  # ~10 minutes per file
+    segment_seconds: int = 300  # 5 minutes per full clip
     segment_dir: str = "./segments"
     segment_fourcc: str = "mp4v"
     segment_extension: str = "mp4"
@@ -169,7 +169,7 @@ class EngineConfig:
     nas_method: str = "rsync"  # "rsync" | "scp"
     nas_user: Optional[str] = None
     nas_host: Optional[str] = None
-    nas_dest_dir: str = "/volume1/aegis/segments"
+    nas_dest_dir: str = "/opt/aegis/data/monitor-clips"
     nas_ssh_port: int = 22
     nas_ssh_key: Optional[str] = None  # path to private key, else agent/default
     nas_verify: str = "checksum"  # "checksum" | "size"; unverified success forbidden
