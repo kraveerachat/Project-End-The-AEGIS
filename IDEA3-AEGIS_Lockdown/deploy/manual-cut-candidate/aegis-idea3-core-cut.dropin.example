@@ -1,0 +1,9 @@
+# SOURCE-ONLY. NOT INSTALLED.
+# Candidate drop-in for aegis-idea3-core.service.
+# The required environment fragment contains paths and numeric identities only;
+# the CUT secret is never stored in it. Transport group membership is NOT
+# command authorization.
+[Service]
+EnvironmentFile=/etc/aegis-idea3/manual-cut.env
+SupplementaryGroups=aegis-idea3-cut
+ReadWritePaths=/run/aegis-idea3-cut
