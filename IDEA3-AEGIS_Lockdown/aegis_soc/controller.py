@@ -79,6 +79,7 @@ class AegisCommandController:
         origin: str = "unknown",
         authorize_restore: bool = False,
         not_after: float | None = None,
+        pre_publish: Callable[[dict], None] | None = None,
     ) -> CommandResult:
         """Issue an allow-listed command or safely simulate it.
 
@@ -86,6 +87,11 @@ class AegisCommandController:
         already completed its human recovery/authentication flow *and* an
         origin on this controller's allowlist. Startup, restart, reconnect,
         shutdown, Telegram, and dispatch paths therefore fail closed.
+
+        ``pre_publish`` (optional) runs immediately before the publish with the
+        reserved ``msg_id``/``seq``; if it raises, nothing is published and the
+        result is ``AUDIT_UNAVAILABLE``. It is how a caller makes a durable
+        pre-dispatch record part of the same atomic decision as the dispatch.
         """
         if action not in ALLOWED_COMMANDS:
             raise ValueError(f"Unsupported AEGIS command: {action}")
@@ -107,11 +113,25 @@ class AegisCommandController:
             return CommandResult(action, True, False, True, None, detail)
 
         if self.legacy:
-            return self._issue_legacy(action, safe_context, level)
-        return self._issue_v1(action, safe_context, level, not_after)
+            return self._issue_legacy(action, safe_context, level, pre_publish)
+        return self._issue_v1(action, safe_context, level, not_after, pre_publish)
 
-    def _issue_legacy(self, action: str, safe_context: str, level: str) -> CommandResult:
+    def _run_pre_publish(self, action: str, safe_context: str, pre_publish, info: dict) -> CommandResult | None:
+        if pre_publish is None:
+            return None
+        try:
+            pre_publish(info)
+        except Exception:
+            return self._reject(
+                action, f"Durable pre-dispatch audit unavailable; not sent: {safe_context}", "AUDIT_UNAVAILABLE",
+            )
+        return None
+
+    def _issue_legacy(self, action: str, safe_context: str, level: str, pre_publish=None) -> CommandResult:
         payload, nonce = security.create_secure_payload(action, "cmd")
+        refused = self._run_pre_publish(action, safe_context, pre_publish, {"msg_id": nonce, "seq": None})
+        if refused is not None:
+            return refused
         if not self.mqtt.publish(config.TOPIC_CMD, payload):
             return self._reject(action, f"MQTT unavailable; not sent: {safe_context}", "MQTT_UNAVAILABLE")
         self._audit_log("COMMAND_SENT", safe_context, level)
@@ -123,7 +143,9 @@ class AegisCommandController:
         except Exception:
             self._audit_log("PROTOCOL_STORE_WRITE_FAILED", "unpublished command could not be marked", db.WARN)
 
-    def _issue_v1(self, action: str, safe_context: str, level: str, not_after: float | None) -> CommandResult:
+    def _issue_v1(
+        self, action: str, safe_context: str, level: str, not_after: float | None, pre_publish=None,
+    ) -> CommandResult:
         context = self.protocol
         if context is None:
             return self._reject(action, f"Protocol v1 is not configured; not sent: {safe_context}", "PROTOCOL_NOT_CONFIGURED")
@@ -156,6 +178,13 @@ class AegisCommandController:
         except (TypeError, ValueError):
             self._mark_not_published(reserved.msg_id)
             return self._reject(action, f"Command could not be encoded; not sent: {safe_context}", "PROTOCOL_ENCODE_FAILED")
+
+        refused = self._run_pre_publish(
+            action, safe_context, pre_publish, {"msg_id": reserved.msg_id, "seq": reserved.seq},
+        )
+        if refused is not None:
+            self._mark_not_published(reserved.msg_id)
+            return refused
 
         if not self.mqtt.publish(topic, payload):
             self._mark_not_published(reserved.msg_id)

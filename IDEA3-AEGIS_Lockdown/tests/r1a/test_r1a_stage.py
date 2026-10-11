@@ -50,7 +50,7 @@ def stages() -> list[str]:
 def test_r1a_is_registered_exactly_once_between_r1i_and_l8() -> None:
     order = stages()
     assert order.count("R1A") == 1
-    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("L8") < order.index("L9")
+    assert order.index("F1u") < order.index("R1I") < order.index("R1A") < order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("L8") < order.index("L9")
     assert order[order.index("R1I") + 1] == "R1A" and order[order.index("R1A") + 1:order.index("R1A") + 4] == ["R1Du", "R1D", "R1Dv"]  # R1A is followed by the historical-disposition stages, then R1B
 
 
@@ -66,7 +66,7 @@ def test_r1a_handler_surface_is_complete_and_registered() -> None:
 
 
 def test_documented_operational_order_names_r1a_and_recovery_stays_after_it() -> None:
-    assert "F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B -> Recovery R2-R8" in P4_LIB.read_text()  # R1A stays in history; R1B is the successor stage
+    assert "F1u -> R1I -> R1A (historical consumed FAIL) -> R1Du -> R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B (immutable FAIL at windowrecord) -> R1Bv -> Recovery R2-R8" in P4_LIB.read_text()  # R1A stays in history; R1B is the successor stage
     readme = (P4 / "README.md").read_text()
     assert "R1I -> R1A" in readme and "Recovery R2-R8" in readme
 

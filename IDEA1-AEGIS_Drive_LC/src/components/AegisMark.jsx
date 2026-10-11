@@ -60,16 +60,16 @@ export function AegisMark({ size = 32, theme = 'light', className = '' }) {
 /** Mark + wordmark lockup matching CCTV-Operator layout style. */
 export function AegisLockup({ markSize = 36, theme = 'light', title = 'AEGIS Drive_LC', sub = 'SECURE NAS · NEXT-GEN HUD' }) {
   return (
-    <div className="flex items-center gap-3 min-w-0">
-      <div className="shrink-0 flex items-center justify-center" style={{ width: markSize, height: markSize }}>
+    <div className="aegis-lockup flex items-center gap-3 min-w-0">
+      <div className="aegis-lockup-mark shrink-0 flex items-center justify-center" style={{ width: markSize, height: markSize }}>
         <AegisMark size={markSize} theme={theme} />
       </div>
       <div className="min-w-0">
-        <div lang="en" className="font-bold text-[16px] tracking-[0.02em] text-ink leading-tight truncate">
+        <div lang="en" className="aegis-lockup-title font-bold text-[16px] tracking-[0.02em] text-ink leading-tight truncate">
           {title}
         </div>
         {sub && (
-          <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-[0.14em] mt-0.5 truncate">
+          <div className="aegis-lockup-sub text-[10px] font-semibold text-ink-3 uppercase tracking-[0.14em] mt-0.5 truncate">
             {sub}
           </div>
         )}

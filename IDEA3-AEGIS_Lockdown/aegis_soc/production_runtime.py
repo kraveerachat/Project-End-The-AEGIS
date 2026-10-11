@@ -171,6 +171,7 @@ class ProductionSettings:
         base_environment: Mapping[str, str],
         *,
         core_status_url: str,
+        runtime_token: str | None = None,
     ) -> dict[str, str]:
         environment = dict(base_environment)
         environment.pop("AEGIS_CONTROL_TOKEN", None)
@@ -190,6 +191,7 @@ class ProductionSettings:
                 "AEGIS_WEB_STATIC_DIR": str(self.static_dir),
                 "AEGIS_BIND_HOST": self.bind_host,
                 "AEGIS_IDEA3_RUNTIME_STATUS_URL": core_status_url,
+                "AEGIS_IDEA3_RUNTIME_TOKEN": runtime_token or "",
             }
         )
         return environment

@@ -88,7 +88,7 @@ function LockedVaultPreview({ t, onUnlock }) {
     <section
       data-testid="locked-vault-preview"
       aria-labelledby="locked-vault-preview-title"
-      className="relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
+      className="neo-vault-locked relative isolate min-h-[340px] overflow-hidden rounded-[var(--r-card)] bg-sunken px-5 py-8 sm:px-8"
     >
       <div aria-hidden="true" className="absolute inset-0 overflow-hidden opacity-70">
         {LOCKED_VAULT_AMBIENT_BLOCKS.map((shape, index) => (
@@ -102,7 +102,7 @@ function LockedVaultPreview({ t, onUnlock }) {
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-[276px] max-w-[520px] flex-col items-center justify-center text-center">
-        <span aria-hidden="true" className="flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
+        <span aria-hidden="true" className="neo-vault-lock-icon flex size-14 items-center justify-center rounded-[16px] bg-card text-accent shadow-[0_3px_8px_rgb(15_23_42_/_0.08)]">
           <Lock size={24} strokeWidth={1.6} />
         </span>
         <h2 id="locked-vault-preview-title" className="mt-5 text-[18px] font-semibold tracking-[-0.01em] text-ink">
@@ -1108,10 +1108,10 @@ export function Vault({
 
   /* persistent, calm callout — identical in both modes (legacy + tree UI); this warning never goes away */
   const vaultCallout = (
-    <div className="flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
+    <div className="neo-callout neo-vault-callout flex items-center gap-3 rounded-[var(--r-tile)] px-4 py-3 mb-5" style={{ background: 'var(--warn-soft)' }}>
       <TriangleAlert size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0" />
       <div className="min-w-0">
-        <p className="text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
+        <p className="neo-callout-lead text-[12.5px] font-semibold tracking-[0.04em]" style={{ color: 'var(--warn)' }}>
           {t('vaultWarning')}
         </p>
         <p className="text-[12px] text-ink-2 mt-0.5">{t('vaultSecurityBanner')}</p>
@@ -1197,7 +1197,7 @@ export function Vault({
   return (
     <div className="vault-pane-content">
       {vaultCallout}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
+      <div className="neo-toolbar neo-vault-status flex items-center gap-3 mb-5 flex-wrap">
         <Chip tone={unlocked ? 'ok' : 'neutral'}>
           {unlocked ? <LockOpen size={11} strokeWidth={2} /> : <Lock size={11} strokeWidth={2} />}
           {unlocked ? t('vaultUnlocked') : (configured ? t('vaultLocked') : t('vaultSetupNeeded'))}

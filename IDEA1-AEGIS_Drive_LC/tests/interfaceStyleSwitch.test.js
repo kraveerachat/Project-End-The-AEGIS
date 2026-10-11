@@ -153,6 +153,7 @@ test('successful style save happens before logout and returns to the unchanged L
       language: 'en',
       density: 'comfortable',
       interfaceStyle: 'neo',
+      navigationPosition: 'left',
     }])
     assert.ok(document.getElementById('login-username'), 'successful save returns to the existing Login screen')
     assert.equal(document.documentElement.dataset.uiStyle, undefined)

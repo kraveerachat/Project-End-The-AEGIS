@@ -56,6 +56,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_density TEXT NOT NULL DEFAULT 'com
   CHECK (ui_density IN ('comfortable', 'compact'));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_interface_style TEXT NOT NULL DEFAULT 'classic'
   CHECK (ui_interface_style IN ('classic', 'neo'));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_navigation_position TEXT NOT NULL DEFAULT 'left'
+  CHECK (ui_navigation_position IN ('left', 'top', 'bottom'));
 
 -- ── Per-account security settings (see migrations/007_security_settings.sql) ──
 -- vault_autolock_minutes is the idle budget for an UNLOCKED Vault screen. The

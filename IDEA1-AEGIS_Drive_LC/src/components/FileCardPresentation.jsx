@@ -25,6 +25,8 @@ export const FileCardShell = forwardRef(function FileCardShell({
       data-card-layout={layout}
       data-selected={selected ? 'true' : undefined}
       data-menu-open={menuOpen ? 'true' : undefined}
+      data-hovered={hovered ? 'true' : undefined}
+      data-drop-target={dropTarget ? 'true' : undefined}
       className={`relative bg-card border rounded-[var(--r-tile)] select-none transition-[transform,box-shadow,border-color,background-color] duration-[var(--dur-fast)] ${shellClasses({ kind, layout })} ${className}`}
       style={{
         borderColor: dropTarget ? 'var(--accent)' : selected ? 'var(--accent)' : hovered ? 'var(--accent-soft)' : 'var(--line)',

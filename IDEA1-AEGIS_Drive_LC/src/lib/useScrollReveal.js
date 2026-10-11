@@ -34,12 +34,7 @@ export function useScrollReveal(rootRef, key, enabled) {
       return undefined
     }
 
-    const targets = [...root.querySelectorAll('[data-reveal]')]
-    if (targets.length === 0) return undefined
-
     const doc = root.ownerDocument ?? document
-    doc.documentElement.dataset.neoReveal = 'on'
-
     const reveal = (el) => { el.dataset.revealed = 'true' }
 
     const observer = new window.IntersectionObserver((entries) => {
@@ -53,13 +48,41 @@ export function useScrollReveal(rootRef, key, enabled) {
       // never arrive at a card that is still fading in.
     }, { root, rootMargin: '0px 0px 12% 0px', threshold: 0.01 })
 
-    for (const el of targets) observer.observe(el)
+    // A screen's sections are not always in the DOM when the screen key
+    // changes: the transition skeleton replaces the first render and the real
+    // sections mount again as NEW nodes ~400ms later. Watching only the first
+    // query stranded those later nodes under the armed from-state, so every
+    // [data-reveal] node that appears while this screen is active is tracked.
+    const targets = []
+    const failsafes = []
+    const watchNew = () => {
+      let added = false
+      for (const el of root.querySelectorAll('[data-reveal]')) {
+        if (targets.includes(el)) continue
+        targets.push(el)
+        observer.observe(el)
+        added = true
+      }
+      if (!added) return
+      doc.documentElement.dataset.neoReveal = 'on'
+      // Failsafe: whatever has not been reported on by now is shown regardless.
+      failsafes.push(setTimeout(() => targets.forEach(reveal), 1200))
+    }
 
-    // Failsafe: whatever has not been reported on by now is shown regardless.
-    const failsafe = setTimeout(() => targets.forEach(reveal), 1200)
+    watchNew()
+    let frame = 0
+    const mutations = typeof window.MutationObserver === 'function'
+      ? new window.MutationObserver(() => {
+        if (frame) return
+        frame = window.requestAnimationFrame(() => { frame = 0; watchNew() })
+      })
+      : null
+    mutations?.observe(root, { childList: true, subtree: true })
 
     return () => {
-      clearTimeout(failsafe)
+      failsafes.forEach(clearTimeout)
+      if (frame) window.cancelAnimationFrame(frame)
+      mutations?.disconnect()
       observer.disconnect()
       // Leaving the attribute set would hide the next screen's sections until
       // its own observer caught up, so the from-state is disarmed on teardown.

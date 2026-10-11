@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-10
+updated: 2026-10-12
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -177,6 +177,30 @@ main are IDEA3 source/status/receipts only, not IDEA2 or shared runtime.
 PR348 base remains `1531183f01afcf5964f4e051cf8e66df29e16e98`.
 The stacked dependency was not rewritten or merged here; main/dependency
 reconciliation remains a human integration gate.
+
+### Main reconciliation checkpoint — 2026-10-12
+
+- PR #344 merged as `a419941cfccb72ce73f0c29cdde17e70df9ebdc2`; PR #348 merged as `42eff6b85ce0b581b6fc7a202e7a5839b7f25da1`.
+- This task is being reconciled onto the exact merged main instead of the historical PR #348 head. Preserve both prior merge histories and the owner's local visual acceptance of theme, three languages, and synthetic rectangle removal.
+- PR #411 remains separate, unmerged: its Engine-side exact-frame confidence-label enhancement is not incorporated or represented as deployed by PR #425. The Monitor-side synthetic bbox removal overlaps and must not be duplicated.
+- Offline/fixture tests do not constitute real-camera or Production validation. CI, regression, reviewer and rollout gates must be re-evaluated at the new exact head. No Production mutation or merge authority.
+
+## PR #348 after PR #344 merge — 2026-10-11
+
+PR #344 was merged by the human owner into `main` at
+`a419941cfccb72ce73f0c29cdde17e70df9ebdc2`. The current PR #348
+reconciliation retains the existing multi-node/alias/recording source,
+preserves the full PR #344 FFmpeg/H.264 and legacy CFR previous-frame
+correction, and incorporates main-only governance, IDEA1, IDEA3 and
+immutable receipts without replacing historical evidence.
+
+PR #348 is still **Draft**. Post-reconciliation source, browser,
+disposable-PostgreSQL and governance checks require fresh exact-head
+evidence; independent human functional/shared-integration approval and
+repository-protection verification remain pending. Neither this source
+reconciliation nor the historical Machine A/C evidence is Production
+deployment authorization.
+
 
 ## PR #348 functional-prototype handoff — 2026-10-10
 
@@ -404,7 +428,127 @@ MN-P2 evidence: Windows multi-node provisioning source package is prepared and s
 
 
 MN-P3 evidence: multi-node acceptance preparation is source-complete. A local Windows collector, bundle verifier, and acceptance checklist were added and statically verified with 5/5 tests PASS; the PowerShell collector parses with zero errors and its source contains no sensitive-runtime read markers. The collector is intentionally bounded to local lifecycle metadata and `127.0.0.1:8077/health`; it does not open the camera, read private keys/configuration, contact Production, mutate Twingate, or perform server registration. This preparation does not prove Machine B/C hardware acceptance, account alias routing, cross-node physical-camera isolation, event alias attribution, reboot lifecycle, or Production acceptance. Those claims remain PENDING until target hardware execution.
-## Current task — PR2 Recording / Archive 5-minute clips + NAS playback/download (2026-10-05)
+## PR #344 two-blocker correction — 2026-10-11
+
+Task: existing PR2 Recording / Archive; branch
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub.
+Starting reviewed HEAD: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+Current main: `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
+State: SOURCE CORRECTION HANDOFF; independent correction review PASS. Source
+checkpoint `3325b7eafa09ca6725de6e3aae38b0ee7807cc27` published normally and
+exact-head Collaboration guardrails PASS (run2261 /38075719231). Final evidence
+commit/CI is tracked in PR #344; human/main/operational gates remain pending.
+Production mutation allowed: NO. PR remains Draft; no merge authorization.
+
+| Session | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | SOURCE HANDOFF / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Source 3325b7ea; CI run2261 PASS | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Human review of exact final PR head; separate main-reconciliation decision |
+
+### Plan and scope
+
+1. Baseline the existing offline Recorder/NAS tests in an isolated worktree.
+2. Add distinct-image RED tests: A at t=0, B at t=30; surplus-frame
+   dropping, rollover/resolution/session-boundary reset and separate recorders.
+3. Keep one previous-image snapshot per segment; use it only for missing CFR
+   slots and put the incoming image at its target slot. Reset at segment boundaries.
+4. Add only the FFmpeg runtime package to the supported Engine Dockerfile.
+   Test real temporary mp4v-to-H.264 conversion and fail-closed source retention.
+5. Run affected/full offline Engine and Monitor tests, build/codec checks where
+   available, collaboration/Vault/diff/secret validation and exact-head CI.
+6. Preserve this task's one unmerged receipt and historical evidence; update
+   current-session evidence and maintain the same Draft PR for independent review.
+
+Owned source paths: Engine Dockerfile, recorder and focused Engine tests.
+Canonical status and the current unmerged task receipt are evidence paths.
+No new shared surface is planned; inherited `.env.example` and
+`docker-compose.yml` declarations remain. No microphone/audio feature,
+Producer Authority, Live, RBAC, Monitor implementation, NAS/DB runtime,
+Machine A/C or PR #348 change. Main reconciliation remains separately reviewed.
+
+### Current correction evidence and limitations
+
+- Docker installs the minimal `ffmpeg` runtime package and checks the executable
+  and `libx264` encoder during image build; non-root `USER aegis` is unchanged.
+- Recorder holds an owned previous-image snapshot per segment. Past slots use
+  past content, including between-slot captures. Fast-source surplus dropping,
+  measured partial duration and 300-second rotation stay unchanged. Held state
+  resets on rollover, resolution change and finalization; separate recorder
+  instances do not share it. No demand/session/authority code changed.
+- Synthetic video-only mp4v converted using actual FFmpeg 8.1.2; ffprobe reports
+  non-empty H.264/yuv420p MP4, 12 frames /1s, and full decode succeeds. Actual
+  invalid-media failure, missing FFmpeg and empty output retain source material
+  and prevent transfer/Monitor publication. No microphone/audio feature added.
+- Offline Engine full: 308 PASS /0 FAIL /0 SKIP. Monitor full: 188 PASS /0 FAIL
+  /59 conditional PostgreSQL SKIP; focused Monitor: 58 PASS /0 FAIL /7 SKIP,
+  including Machine A symmetry 6/6. Focused recorder/NAS/viewer: 27 PASS.
+  Governance: 61 PASS. Monitor build: PASS. Vault: PASS with two existing canvas
+  warnings. Docker daemon is unavailable: container build/codec acceptance is
+  NOT RUN, and host codec evidence is not container acceptance.
+- Main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` is not merged/rebased here.
+  Real DB migration tests, hardware, deployed Archive/Download/seek, capacity,
+  integration acceptance and required repository protection remain pending.
+  Inherited `-an` and NAS-before-Monitor-ack behavior remain explicitly unchanged.
+  October 10's 84 PASS /0 FAIL /6 SKIP and historical runtime claims stay historical.
+- Fresh read-only correction review: Critical 0 /Important 0 /Minor 0. The
+  reviewer's optional dropped-frame/reused-buffer test was added and passes;
+  ten timeline tests and final Engine rerun verify it. Human functional and
+  shared integration approval are not substituted by agent source review.
+- Final `git diff --check`, staged diff check and added-content secret-pattern
+  scan pass (zero secret hits plus content review). Collaboration policy passes
+  against PR merge-base `1128e5253d72171bc04e9c48d50a05d044390476` (23 paths).
+  Direct current-main comparison fails policy: the unreconciled branch lacks
+  competing main-only paths/receipts (414 comparison paths). This is an existing
+  reconciliation gate, not permission to modify those paths or waive guards.
+- Exact source-head CI run2261 uses recorded base `1128e525`, not current
+  observed main `4ebade39`. CI PASS must not be presented as current-main
+  reconciliation acceptance. Both source defects are closed; PR stays Draft.
+
+## PR #344 functional-prototype handoff — 2026-10-10
+
+The functional owner declares IDEA2's accepted Functional Prototype scope
+CLOSED on 2026-10-10. This is an owner scope decision, not GitHub approval,
+merge authorization, exact-head Production deployment proof, or completion of
+every security/performance/operational gate. PR #344 remains Draft for independent
+human and integration review. Source evidence checkpoint:
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`; observed current main:
+`dbf00185331474053f46486fcefa795a46f5b821`; PR comparison merge-base:
+`1128e5253d72171bc04e9c48d50a05d044390476`.
+
+Historical owner-reported Machine A onsite acceptance remains unchanged:
+continuous authenticated CONNECTED=True / DEMAND=True / VIEWERS=1 across the
+300-second boundary; clip ID4 duration300s and logout partial ID5 duration83s,
+both stored_on_nas=true after SCP/checksum/file/DB verification. Storage was
+`/opt/aegis/data/monitor-clips`, mounted read-only at `/nas/clips`. The Engine
+returned idle; the historical Monitor evidence reported RestartCount=0.
+`CLIP_STORAGE_INGEST_VERIFIED=YES`; a separate remote NAS appliance is not proven.
+
+Additional owner evidence on 2026-10-10: a newly uploaded CAM-01 clip appeared
+in the real Archival Footage page of the integrated system. Runtime provenance
+is not pinned to isolated PR #344 source, so this is INTEGRATED_RUNTIME_ACCEPTANCE,
+not exact-head source acceptance. Download, audio playback, seeking, exhaustive
+negative RBAC/session/camera-scope acceptance, migration006 deployment and
+capacity/retention remain unverified or undecided. No new runtime test was run
+by this handoff.
+
+Source limitations are explicit: PR #344's mp4v conversion still uses `-an`,
+and NAS success/local deletion do not wait for acknowledged Monitor publication.
+Neither real microphone capture nor end-to-end audio preservation is claimed
+for this exact revision. Later stacked/local runtime changes must not be
+silently attributed to #344. No implementation is changed here.
+
+Fresh offline handoff verification: NAS4/4 and viewer/recording9/9 PASS;
+Archive/migration tests10 PASS /0 FAIL /6 conditional PostgreSQL SKIP;
+governance61/61 PASS; Vault PASS with two existing owner-canvas warnings.
+Full suites/browser/hardware were not rerun for this documentation-only change;
+earlier results below remain historical. One partial task-handoff receipt is
+added; existing receipts are untouched. Current source, integration surfaces
+`.env.example` and `docker-compose.yml`, actual main drift, and unresolved gates
+require human disposition before Ready. Merge #344 first, then separately
+authorize #348 reconciliation; no automatic base change or dependency merge.
+PRODUCTION_MUTATION=NO; MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO;
+MERGE_AUTHORIZED=NO.
+
+## Historical task checkpoints — PR2 Recording / Archive (2026-10-05)
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:
