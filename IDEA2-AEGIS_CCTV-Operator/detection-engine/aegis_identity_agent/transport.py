@@ -89,6 +89,7 @@ class AgentTransport:
                 },
                 timeout=self.config.http_timeout,
                 verify=self.config.tls_verify,
+                allow_redirects=False,
             )
         except SequenceExhausted:
             self._sessions.invalidate()

@@ -44,6 +44,42 @@ test('hash_binding_is_keyed_and_redacted', (t) => {
 
 const access = { userId: 1, nodeId: 'node-a', physicalCameraId: 1, logicalCameraId: 'CAM-01', keyVersion: 1 }
 
+test('committed acquire and renew return the database-computed expiry, release explicit retirement', async () => {
+  let committed = false
+  const statements = []
+  const dbExpiry = new Date('2026-10-06T00:00:23.456Z')
+  const dbNow = new Date('2026-10-06T00:00:00.000Z')
+  const client = { async query(sql) {
+    statements.push(sql)
+    if (sql.startsWith('SELECT id, active')) return { rows: [{ active: true, role: 'CCTV-Operator', must_reset_password: false }] }
+    if (sql.startsWith('SELECT node_id')) return { rows: [{ node_id: 'node-a', active: true, key_version: 1 }] }
+    if (sql.startsWith('SELECT physical_camera_id, node_id')) return { rows: [{ node_id: 'node-a', active: true }] }
+    if (sql.startsWith('SELECT mode')) return { rows: [{ mode: 'fixed', fixed_camera_id: 'CAM-01' }] }
+    if (sql.startsWith('SELECT user_id')) return { rows: [{ user_id: 1 }] }
+    if (sql.startsWith('SELECT producer_generation::text')) return { rows: [] }
+    if (sql.startsWith('INSERT INTO camera_producer_epochs')) return { rows: [{ producer_generation: '51' }], rowCount: 1 }
+    if (sql.includes('RETURNING') && (sql.includes('INSERT INTO camera_producer_demands') || sql.includes('SET lease_expires_at = clock_timestamp()'))) {
+      return { rowCount: 1, rows: [{ lease_expires_at: dbExpiry, db_now: dbNow }] }
+    }
+    if (sql.startsWith('SELECT released_at')) return { rows: [{ released_at: dbNow }] }
+    return { rowCount: 1, rows: [] }
+  } }
+  const service = createProducerLifecycle({ secret, transact: async fn => {
+    const value = await fn(client)
+    committed = true
+    return value
+  } })
+  const acquired = await service.acquire({ access, sessionBinding: binding })
+  assert.equal(committed, true)
+  assert.equal(acquired.leaseExpiresAtMs, dbExpiry.getTime())
+  assert.equal(acquired.dbNowMs, dbNow.getTime())
+  const renewed = await service.renew({ handle: acquired, access, sessionBinding: binding })
+  assert.equal(renewed.leaseExpiresAtMs, dbExpiry.getTime())
+  assert.equal(renewed.dbNowMs, dbNow.getTime())
+  assert.deepEqual(await service.release(renewed), { released: true, epochRetired: true })
+  assert.ok(statements.some(sql => /RETURNING.*lease_expires_at/s.test(sql)))
+})
+
 test('invalid_authority_and_binding_fail_before_transaction', async () => {
   const service = createProducerLifecycle({ secret, transact: () => assert.fail('must not reach DB') })
   for (const badAccess of [null, { ...access, keyVersion: undefined }, { ...access, physicalCameraId: -1 }, { ...access, userId: 1.5 }]) {

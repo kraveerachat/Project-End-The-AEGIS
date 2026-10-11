@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import secrets
 import signal
 import socket
 import sys
@@ -36,6 +37,7 @@ from aegis_engine.local_api import LocalEventAPI  # noqa: E402
 from aegis_engine.metrics import MetricsRegistry  # noqa: E402
 from aegis_engine.models import Frame  # noqa: E402
 from aegis_engine.stream_hub import StreamHub  # noqa: E402
+from aegis_engine.demand_grant import sign_payload  # noqa: E402
 
 
 PROTECTED_PORTS = {8077, 8078, 18078}
@@ -151,6 +153,15 @@ def _contract_probe() -> int:
             headers={
                 "X-Detection-Engine-Key": engine.key,
                 "X-Aegis-Producer-Generation": "1",
+                "X-Aegis-Logical-Camera-Id": "CAM-01",
+                "X-Aegis-Demand-Grant": sign_payload({
+                    "v": 1, "action": "attach", "jti": secrets.token_urlsafe(32),
+                    "demandOwnerId": secrets.token_urlsafe(32), "producerGeneration": "1",
+                    "logicalCameraId": "CAM-01", "nodeId": "machine-a-node", "physicalCameraId": 1,
+                    "engineBootId": engine._stream.producer_boot_id, "userId": "2",
+                    "sessionBindingHash": "v1:" + "a" * 64,
+                    "expiresAtMs": int(time.time() * 1000) + 29000,
+                }, engine.key),
             },
         )
         response = connection.getresponse()

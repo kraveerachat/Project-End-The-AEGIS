@@ -12,6 +12,7 @@ from aegis_engine.local_api import LocalEventAPI, _DisconnectAwareStreamingRespo
 from aegis_engine.metrics import MetricsRegistry
 from aegis_engine.models import DetectionResult, Frame
 from aegis_engine.stream_hub import StreamHub
+import test_producer_generation_contract as contract
 
 
 class StreamLifecycleRegressionTests(unittest.TestCase):
@@ -100,6 +101,8 @@ class StreamLifecycleRegressionTests(unittest.TestCase):
             response = await endpoint(Request({'type': 'http', 'headers': [
                 (b'x-detection-engine-key', b'test-key'),
                 (b'x-aegis-producer-generation', b'1'),
+                (b'x-aegis-logical-camera-id', b'CAM-01'),
+                contract.ProducerGenerationContractTests.grant_header(hub, 1),
             ]}))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(hub.viewers, 0)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import math
 import re
@@ -15,6 +16,11 @@ MAX_RESPONSE_BYTES = 4 * 1024
 PIPE_OPERATIONS = frozenset({"heartbeat", "detection", "alert", "clip"})
 
 _CAMERA_RE = re.compile(r"^CAM-[0-9]{2,3}$")
+_GENERATION_RE = re.compile(r"^[1-9][0-9]*$")
+_TIMESTAMP_RE = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+)
 _FORBIDDEN_FIELDS = frozenset({
     "nodeid", "physicalcameraid", "sessionid", "signature", "requestnonce",
     "canonicalpayload", "privatekey", "rawbytestosign", "url", "method",
@@ -95,6 +101,16 @@ def _camera(value: Any) -> None:
         raise PipeProtocolError("cameraId is not canonical")
 
 
+def _generation(value: Any) -> None:
+    if (
+        not isinstance(value, str)
+        or _GENERATION_RE.fullmatch(value) is None
+        or len(value) > 19
+        or int(value) > 9223372036854775807
+    ):
+        raise PipeProtocolError("producerGeneration is not canonical BIGINT")
+
+
 def _reject_authority_fields(value: Any) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -128,8 +144,14 @@ def _validate_heartbeat(payload: dict[str, Any]) -> None:
 
 
 def _validate_detection(payload: dict[str, Any]) -> None:
-    _closed(payload, required={"cameraId", "entities"}, optional={"frameId", "at"})
+    _closed(
+        payload,
+        required={"cameraId", "entities"},
+        optional={"frameId", "at", "producerGeneration"},
+    )
     _camera(payload["cameraId"])
+    if "producerGeneration" in payload:
+        _generation(payload["producerGeneration"])
     entities = payload["entities"]
     if not isinstance(entities, list) or len(entities) > 64:
         raise PipeProtocolError("entities must be a bounded list")
@@ -148,12 +170,18 @@ def _validate_detection(payload: dict[str, Any]) -> None:
     if "at" in payload:
         _text(payload["at"], label="at", maximum=64, nullable=True)
 
-
 def _validate_alert(payload: dict[str, Any]) -> None:
-    _closed(payload, required={
-        "cameraId", "severity", "alertType", "title", "snapshotPath", "telegramSent",
-    })
+    _closed(
+        payload,
+        required={
+            "cameraId", "severity", "alertType", "title",
+            "snapshotPath", "telegramSent",
+        },
+        optional={"producerGeneration"},
+    )
     _camera(payload["cameraId"])
+    if "producerGeneration" in payload:
+        _generation(payload["producerGeneration"])
     if payload["severity"] not in {"amber", "red"}:
         raise PipeProtocolError("severity is invalid")
     _text(payload["alertType"], label="alertType", maximum=64)
@@ -162,17 +190,37 @@ def _validate_alert(payload: dict[str, Any]) -> None:
     if not isinstance(payload["telegramSent"], bool):
         raise PipeProtocolError("telegramSent must be boolean")
 
-
 def _validate_clip(payload: dict[str, Any]) -> None:
     _closed(payload, required={
         "cameraId", "startedAt", "durationSec", "filePath", "storedOnNas",
-    })
-    _camera(payload["cameraId"])
+    }, optional={"producerGeneration", "endedAt"})
+    if "producerGeneration" in payload:
+        alias = payload["cameraId"]
+        if (not isinstance(alias, str) or len(alias) > 64
+                or re.fullmatch(r"CAM-[0-9]+", alias, flags=re.ASCII) is None):
+            raise PipeProtocolError("cameraId is not canonical")
+    else:
+        _camera(payload["cameraId"])
     _text(payload["startedAt"], label="startedAt", maximum=64)
     _number(payload["durationSec"], label="durationSec")
     _text(payload["filePath"], label="filePath", maximum=1024)
     if not isinstance(payload["storedOnNas"], bool):
         raise PipeProtocolError("storedOnNas must be boolean")
+    has_generation = "producerGeneration" in payload
+    if has_generation != ("endedAt" in payload):
+        raise PipeProtocolError("strict clip metadata must be paired")
+    if has_generation:
+        generation = payload["producerGeneration"]
+        if (not isinstance(generation, str) or _GENERATION_RE.fullmatch(generation) is None
+                or len(generation) > 19 or int(generation) > 9223372036854775807):
+            raise PipeProtocolError("producerGeneration is not canonical BIGINT")
+        ended_at = payload["endedAt"]
+        if not isinstance(ended_at, str) or _TIMESTAMP_RE.fullmatch(ended_at) is None:
+            raise PipeProtocolError("endedAt is not a timestamp with timezone")
+        try:
+            datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise PipeProtocolError("endedAt is not a valid timestamp") from exc
 
 
 _VALIDATORS = {

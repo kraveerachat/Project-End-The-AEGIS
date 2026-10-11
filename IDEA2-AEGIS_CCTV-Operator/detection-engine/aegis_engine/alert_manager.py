@@ -29,6 +29,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
 try:
@@ -44,6 +45,18 @@ from .models import DetectionResult, DetectionStatus, Frame, utc_now_iso
 log = get_logger("AlertManager")
 
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendPhoto"
+
+_THAILAND_TZ = timezone(timedelta(hours=7))
+
+
+def _format_thailand_time(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return str(value)
+        return parsed.astimezone(_THAILAND_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return str(value)
 
 
 @dataclass
@@ -116,19 +129,29 @@ class AlertManager(threading.Thread):
     def _build_payload(self, result: DetectionResult, snapshot_path: str) -> dict:
         unknowns = [e for e in result.entities if e.status is DetectionStatus.UNKNOWN]
         top_conf = max((e.confidence for e in unknowns), default=0.0)
-        return {
+        payload = {
             "type": "alert",
             "severity": "warning",
             "reason": "unknown_face",
             "node_id": self._cfg.node_id,
             "camera_id": result.camera_id,
-            "camera_label": self._cfg.camera_label,
+            # A strict attributed event must never reuse the static physical
+            # camera label for a different authenticated logical alias.
+            # Legacy events retain the configured descriptive label.
+            "camera_label": (
+                result.camera_id
+                if result.producer_generation is not None
+                else self._cfg.camera_label
+            ),
             "unknown_count": len(unknowns),
             "confidence": round(top_conf, 1),
             "frame_seq": result.frame_seq,
             "snapshot": os.path.abspath(snapshot_path),
             "timestamp": utc_now_iso(),
         }
+        if result.producer_generation is not None:
+            payload["producer_generation"] = result.producer_generation
+        return payload
 
     def _make_snapshot(self, result: DetectionResult, frame: Frame):
         """Draw boxes on a copy of the frame, encode JPEG, and persist it."""
@@ -189,7 +212,7 @@ class AlertManager(threading.Thread):
             f"Node: {job.payload['node_id']}\n"
             f"Count: {job.payload['unknown_count']} · "
             f"Conf: {job.payload['confidence']}%\n"
-            f"Time: {job.payload['timestamp']}"
+            f"Time: {_format_thailand_time(job.payload['timestamp'])}"
         )
         telegram_sent = False
         if self._dry_run:
@@ -220,6 +243,7 @@ class AlertManager(threading.Thread):
             title="Unknown person detected",
             snapshot_path=payload.get("snapshot"),
             telegram_sent=telegram_sent,
+            producer_generation=payload.get("producer_generation"),
         )
 
     def _send_telegram(self, jpeg: bytes, caption: str) -> bool:

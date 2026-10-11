@@ -231,6 +231,7 @@ export async function getUserById(id) {
       username: r.username,
       displayName: r.display_name,
       role: r.role,
+      active: r.active,
       passwordHash: r.password_hash,
       mustResetPassword: r.must_reset_password,
     }

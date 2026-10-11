@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import http from 'node:http'
 import { register } from 'node:module'
 import test from 'node:test'
+import { createHmac } from 'node:crypto'
 
 register(new URL('./fixtures/physicalLinkRouteLoader.mjs', import.meta.url))
 
@@ -108,14 +109,18 @@ test('strict /api/link serializes live association denial before any heartbeat l
   assert.equal(fixture.logicalLinkCalls, 0)
 })
 
-test('strict stream rejects redirects before the Engine credential reaches another origin', async (t) => {
+for (const redirectPhase of ['boot', 'stream']) test(`strict ${redirectPhase} rejects redirects before the Engine credential reaches another origin`, async (t) => {
   const fixture = globalThis.__physicalLinkFixture
+  fixture.assignmentChecks.length = 0
+  fixture.acquireCalls.length = 0
+  fixture.releaseCalls.length = 0
   const originalSource = fixture.source
   const originalKey = process.env.DETECTION_ENGINE_API_KEY
   let redirectedRequests = 0
   let redirectedCredential
   let originGeneration
   let originCredential
+  let originGrant
 
   const redirectTarget = http.createServer((req, res) => {
     redirectedRequests += 1
@@ -127,8 +132,19 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
   await once(redirectTarget, 'listening')
 
   const redirector = http.createServer((req, res) => {
+    if (req.url === '/producer/control') { res.writeHead(204); res.end(); return }
+    if (req.url === '/producer/boot' && redirectPhase === 'stream') {
+      const claims = { engineBootId: Buffer.alloc(32, 7).toString('base64url'),
+        nodeId: 'machine-a-node', nonce: req.headers['x-aegis-clock-nonce'], engineNowMs: Date.now() }
+      const raw = Buffer.from(JSON.stringify(claims, Object.keys(claims).sort()))
+      const key = createHmac('sha256', 'test-only-redirect-sentinel').update('AEGIS-demand-grant-v1-key').digest()
+      const mac = createHmac('sha256', key).update('aegis-producer-clock-v1\n').update(raw).digest('base64url')
+      res.end(`${raw.toString('base64url')}.${mac}`)
+      return
+    }
     originCredential = req.headers['x-detection-engine-key']
     originGeneration = req.headers['x-aegis-producer-generation']
+    originGrant = req.headers['x-aegis-demand-grant']
     const { port } = redirectTarget.address()
     res.writeHead(302, { Location: `http://127.0.0.1:${port}/capture` })
     res.end()
@@ -169,9 +185,10 @@ test('strict stream rejects redirects before the Engine credential reaches anoth
   const response = await requestJson(monitor, '/api/cameras/CAM-01/stream')
   assert.equal(redirectedRequests, 0)
   assert.equal(redirectedCredential, undefined)
-  assert.equal(response.status, 504)
+  assert.equal(response.status, redirectPhase === 'boot' ? 503 : 504)
   assert.equal(originCredential, 'test-only-redirect-sentinel')
-  assert.equal(originGeneration, '9007199254740993')
+  assert.equal(originGeneration, redirectPhase === 'boot' ? undefined : '9007199254740993')
+  assert.equal(typeof originGrant, redirectPhase === 'boot' ? 'undefined' : 'string')
   assert.deepEqual(fixture.assignmentChecks, [[2, 'CAM-01']])
   assert.equal(fixture.acquireCalls.length, 1)
   assert.deepEqual(fixture.releaseCalls, fixture.acquireCalls)

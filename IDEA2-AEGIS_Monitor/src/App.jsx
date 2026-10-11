@@ -5,6 +5,7 @@ import Sidebar, { MobileNav } from './components/Sidebar.jsx'
 import Footer from './components/Footer.jsx'
 import Login from './screens/Login.jsx'
 import Live from './views/Live.jsx'
+import SocLive from './views/SocLive.jsx'
 import Archive from './views/Archive.jsx'
 import Detection from './views/Detection.jsx'
 import Alerts from './views/Alerts.jsx'
@@ -17,6 +18,7 @@ import { fmtDate, fmtTime } from './data.js'
 import { buildSections, viewOrderOf } from './nav.js'
 import { fetchMe, fetchCameras, logout as apiLogout } from './lib/auth.js'
 import { selectedCamera } from './lib/liveCamera.js'
+import { useApi } from './lib/hooks.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
 import { maintainLocalNodeAssociation } from './lib/localNode.js'
 import { readShellTheme, resolveShellTheme, SHELL_THEME_KEY, isValidShellTheme } from './lib/shellTheme.js'
@@ -106,6 +108,10 @@ export default function App() {
   // ตัวจำลองฝั่ง client ถูกถอนทิ้ง; alerts ถูก fetch เฉพาะ role ที่มีวิวนั้น
   const { now, link, detections, detApi, alerts, alertsApi, sysEvents, ackAlert, toggleOutage } =
     useMonitorEngine({ enabled: Boolean(session), hasAlerts: has('alerts') })
+  // SOC observes only Monitor-owned Operator sources. Logical /api/link does
+  // not authorize an SOC camera viewer and must not drive this selection.
+  const activeViewsApi = useApi(session?.role === 'SOC-Responder' && has('live')
+    ? '/api/live/active-views' : null, { refreshMs: 2000 })
 
   // Alerts เป็นวิวของ SOC-Responder เท่านั้น — operator ไม่มีแม้แต่ badge/กระดิ่ง
   const unacked = has('alerts') ? alerts.filter((a) => !a.acked).length : 0
@@ -216,13 +222,13 @@ export default function App() {
 
   const visibleCams = cameras ?? []
   const keepOperatorLive = operatorLive && (view === 'live' || liveOwner === session)
-  const liveView = (
-    <Live
+  const liveView = session.role === 'SOC-Responder'
+    ? <SocLive now={now} activeViews={activeViewsApi.data?.views ?? null} error={activeViewsApi.error} />
+    : <Live
       now={now} link={link} detections={detections} sysEvents={sysEvents}
       cameras={cameras} heroCam={heroCam} setHeroCam={setHeroCam}
       role={session.role}
     />
-  )
 
   return (
     <MotionConfig reducedMotion="user">

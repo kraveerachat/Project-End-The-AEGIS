@@ -23,6 +23,7 @@ events are produced by worker threads and bridged onto that loop by
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 from collections import deque
 from contextlib import asynccontextmanager
@@ -49,6 +50,7 @@ except Exception as exc:  # pragma: no cover
     ) from exc
 
 from .stream_hub import StaleProducerGenerationError, StreamHub
+from .demand_grant import DemandGrantError, verify_grant, sign_payload
 
 log = get_logger("LocalEventAPI")
 
@@ -56,6 +58,7 @@ log = get_logger("LocalEventAPI")
 # engine<->Monitor boundary; the browser never sees it (Monitor proxies).
 _KEY_HEADER = "x-detection-engine-key"
 _PRODUCER_GENERATION_HEADER = b"x-aegis-producer-generation"
+_LOGICAL_CAMERA_ID_HEADER = b"x-aegis-logical-camera-id"
 _MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807
 _MJPEG_BOUNDARY = "aegisframe"
 
@@ -210,7 +213,7 @@ class LocalEventAPI:
             CORSMiddleware,
             allow_origins=["*"],
             allow_methods=["GET"],
-            allow_headers=["*"],
+            allow_headers=["Content-Type"],
         )
 
         @app.get("/")
@@ -332,6 +335,67 @@ class LocalEventAPI:
                 )
             return value
 
+        def _logical_camera_id(req: "Request", generation: int | None) -> str | None | Response:
+            values = [
+                value for name, value in req.scope.get("headers", ())
+                if name.lower() == _LOGICAL_CAMERA_ID_HEADER
+            ]
+            if not values and generation is None and not cfg.capture_on_demand:
+                return None
+            if (
+                generation is None
+                or len(values) != 1
+                or len(values[0]) > 64
+                or re.fullmatch(rb"CAM-[0-9]+", values[0]) is None
+            ):
+                return Response(
+                    status_code=400,
+                    content='{"error":"invalid logical camera id"}',
+                    media_type="application/json",
+                )
+            return values[0].decode("ascii")
+
+        def _grant(req):
+            values = [value for name, value in req.scope.get("headers", ())
+                      if name.lower() == b"x-aegis-demand-grant"]
+            if len(values) != 1 or stream_hub is None:
+                raise DemandGrantError("invalid demand grant")
+            return verify_grant(values[0], secret=cfg.detection_engine_api_key,
+                boot_id=stream_hub.producer_boot_id, node_id=cfg.node_id,
+                now_ms=int(stream_hub.authority_now_ms()))
+
+        @app.get("/producer/boot")
+        async def producer_boot(request: "Request"):
+            denied = _authorized(request)
+            if denied is not None:
+                return denied
+            values = [value for name, value in request.scope.get("headers", ())
+                      if name.lower() == b"x-aegis-clock-nonce"]
+            if stream_hub is None or len(values) != 1 or re.fullmatch(rb"[0-9a-f]{64}", values[0]) is None:
+                return Response(status_code=403)
+            payload = {"engineBootId": stream_hub.producer_boot_id,
+                       "nodeId": cfg.node_id, "nonce": values[0].decode(),
+                       "engineNowMs": int(stream_hub.authority_now_ms())}
+            return Response(content=sign_payload(payload, cfg.detection_engine_api_key,
+                            b"aegis-producer-clock-v1\n"), media_type="text/plain",
+                            headers={"Cache-Control": "no-store"})
+
+        @app.post("/producer/control")
+        async def producer_control(request: "Request"):
+            denied = _authorized(request)
+            if denied is not None:
+                return denied
+            try:
+                claims = _grant(request)
+                if claims["action"] == "attach":
+                    raise DemandGrantError("invalid demand grant")
+                stream_hub.control_demand(claims)
+                return Response(status_code=204)
+            except DemandGrantError:
+                return Response(status_code=403)
+            except StaleProducerGenerationError:
+                return Response(status_code=409)
+
         @app.get("/stream.mjpg")
         async def stream_mjpg(request: "Request"):
             denied = _authorized(request)
@@ -340,12 +404,22 @@ class LocalEventAPI:
             producer_generation = _producer_generation(request)
             if isinstance(producer_generation, Response):
                 return producer_generation
+            logical_camera_id = _logical_camera_id(request, producer_generation)
+            if isinstance(logical_camera_id, Response):
+                return logical_camera_id
             if stream_hub is None:
                 return Response(status_code=503, content='{"error":"stream not enabled"}',
                                 media_type="application/json")
             if producer_generation is not None:
                 try:
-                    stream_hub.prepare_producer_generation(producer_generation)
+                    claims = _grant(request)
+                    if (claims["producerGeneration"] != str(producer_generation)
+                        or claims["logicalCameraId"] != logical_camera_id):
+                        raise DemandGrantError("invalid demand grant")
+                    reservation = stream_hub.reserve_demand(claims)
+                except DemandGrantError:
+                    return Response(status_code=403, content='{"error":"invalid demand grant"}',
+                                    media_type="application/json")
                 except StaleProducerGenerationError:
                     return Response(
                         status_code=409,
@@ -359,10 +433,11 @@ class LocalEventAPI:
                 idle = 0
                 has_sent_frame = False
                 try:
-                    lease = stream_hub.add_viewer(
-                        producer_generation=producer_generation
+                    lease = stream_hub.attach_demand(reservation) if producer_generation is not None else stream_hub.add_viewer(
+                        producer_generation=producer_generation,
+                        logical_camera_id=logical_camera_id,
                     )
-                except StaleProducerGenerationError:
+                except (StaleProducerGenerationError, DemandGrantError):
                     # A newer producer can supersede this request after route
                     # preflight but before Starlette begins iterating the body.
                     # End the already-created response without demand or an

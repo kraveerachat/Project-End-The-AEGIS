@@ -11,7 +11,7 @@ from __future__ import annotations
 import signal
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional, Sequence, TYPE_CHECKING
 
 from .config import EngineConfig
@@ -52,6 +52,49 @@ class EngineComponents:
 ComponentFactory = Callable[
     [EngineContext, Optional["FaceRecognizer"]], EngineComponents
 ]
+
+
+def annotate_detection_frame(result: DetectionResult, frame: Frame) -> Frame:
+    """Render one copy for strict Live + Archive fan-out."""
+    from .stream_hub import annotate_detection_frame as render_detection_frame
+
+    return render_detection_frame(result, frame)
+
+
+def _attributed_results_for_frame(
+    result: DetectionResult,
+    frame: Frame,
+    recording_authority,
+    *,
+    strict: bool,
+) -> tuple[DetectionResult, ...]:
+    """Bind one physical inference result to frame-time logical authority.
+
+    Strict capture-on-demand mode never trusts the static AEGIS_CAMERA_ID for
+    event identity. The same physical frame may legitimately belong to more
+    than one authenticated logical alias, so emit one immutable result per
+    authorized (generation, alias) context in deterministic order.
+
+    No authority means no attributed event.
+    """
+    if not strict:
+        return (result,)
+
+    if recording_authority is None:
+        return ()
+
+    contexts = recording_authority.active_intervals_for_frame(
+        frame.captured_at
+    )
+
+    return tuple(
+        replace(
+            result,
+            camera_id=alias,
+            producer_generation=generation,
+        )
+        for generation, alias in sorted(contexts)
+    )
 
 
 class DetectionEngine:
@@ -111,6 +154,7 @@ class DetectionEngine:
         from .local_api import LocalEventAPI
         from .monitor_client import MonitorClient
         from .nas_sync import NASSyncWorker
+        from .recording_authority import RecordingAuthority
         from .segment_recorder import SegmentRecorder
         from .stream_hub import StreamHub
         from .video_catcher import OverflowPolicy, Sink, VideoCatcher
@@ -118,10 +162,22 @@ class DetectionEngine:
         cfg = context.config
         metrics = context.metrics
         stop_event = context.stop_event
-        record_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.record_queue_size)
-        detect_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=cfg.detect_queue_size)
+        # Legacy always-on recording retains its configured buffer.
+        # Strict Archive holds only a small number of rendered full frames.
+        record_queue_size = (
+            min(cfg.record_queue_size, 2)
+            if cfg.capture_on_demand
+            else cfg.record_queue_size
+        )
+        record_queue: "queue.Queue[Frame]" = queue.Queue(
+            maxsize=record_queue_size
+        )
+        detect_queue: "queue.Queue[Frame]" = queue.Queue(
+            maxsize=cfg.detect_queue_size
+        )
         stream_queue: "queue.Queue[Frame]" = queue.Queue(maxsize=1)
         capture_demand = threading.Event() if cfg.capture_on_demand else None
+        recording_authority = RecordingAuthority() if cfg.capture_on_demand else None
 
         # Monitor owns persistence. The edge runtime never receives a DB credential.
         identity_agent = (
@@ -148,16 +204,53 @@ class DetectionEngine:
                 stream_queue,
                 stop_event=stop_event,
                 capture_demand_event=capture_demand,
+                recording_authority=recording_authority,
             )
             if cfg.stream_enabled else None
         )
+        nas = NASSyncWorker(cfg, metrics, stop_event=stop_event, monitor=monitor)
+        recorder = SegmentRecorder(
+            cfg,
+            metrics,
+            record_queue,
+            on_segment=nas.submit,
+            stop_event=stop_event,
+            capture_demand_event=capture_demand,
+            recording_authority=recording_authority,
+        )
 
         def publish_detection(result: DetectionResult, frame: Frame) -> None:
-            # Stream the exact frame that produced these boxes. The capture
-            # fan-out keeps recording raw frames on its independent queue.
-            if stream is not None:
+            # Detection geometry is meaningful only for the exact frame that
+            # produced it. Fail closed before Live, Archive or event fan-out.
+            if result.frame_seq != frame.seq:
+                log.warning(
+                    "dropping mismatched detection/frame pair "
+                    "(result_seq=%d frame_seq=%d)",
+                    result.frame_seq,
+                    frame.seq,
+                )
+                return
+
+            # Strict Live + Archive share one rendered full-frame copy.
+            # The original detector frame remains untouched for inference,
+            # alerts, evidence and authority attribution.
+            if cfg.capture_on_demand:
+                annotated = annotate_detection_frame(result, frame)
+                recorder.submit_annotated(annotated)
+                if stream is not None:
+                    stream.submit_annotated(annotated)
+            elif stream is not None:
                 stream.submit_detection(result, frame)
-            context.on_detection(result, frame)
+
+            # Security/event identity remains a separate authority fan-out; the
+            # recorder render path cannot create or override logical authority.
+            for attributed in _attributed_results_for_frame(
+                result,
+                frame,
+                recording_authority,
+                strict=cfg.capture_on_demand,
+            ):
+                context.on_detection(attributed, frame)
 
         api = LocalEventAPI(
             cfg,
@@ -173,15 +266,6 @@ class DetectionEngine:
             publish=api.publish_event,
             monitor=monitor,
         )
-        nas = NASSyncWorker(cfg, metrics, stop_event=stop_event, monitor=monitor)
-        recorder = SegmentRecorder(
-            cfg,
-            metrics,
-            record_queue,
-            on_segment=nas.submit,
-            stop_event=stop_event,
-            capture_demand_event=capture_demand,
-        )
         detector = FaceDetectorProcessor(
             cfg,
             metrics,
@@ -190,10 +274,12 @@ class DetectionEngine:
             recognizer=recognizer,
             stop_event=stop_event,
         )
-        sinks = [
-            Sink("record", record_queue, OverflowPolicy.DROP_OLDEST),
-            Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY),
-        ]
+        # Strict viewer-demand recording is detector-rendered so Archive video
+        # matches Live. Legacy always-on recording keeps the independent raw
+        # capture sink for backward compatibility.
+        sinks = [Sink("detect", detect_queue, OverflowPolicy.LATEST_ONLY)]
+        if not cfg.capture_on_demand:
+            sinks.insert(0, Sink("record", record_queue, OverflowPolicy.DROP_OLDEST))
         catcher = VideoCatcher(
             cfg,
             metrics,
@@ -234,6 +320,7 @@ class DetectionEngine:
                 entities=entities,
                 frame_id=uuid.uuid4().hex,
                 at=result.timestamp,
+                producer_generation=result.producer_generation,
             )
 
     def start(self) -> None:
