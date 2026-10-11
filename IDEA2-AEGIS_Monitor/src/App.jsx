@@ -22,6 +22,8 @@ import { useApi } from './lib/hooks.js'
 import { registerUnauthorizedHandler } from './lib/api.js'
 import { maintainLocalNodeAssociation } from './lib/localNode.js'
 import { readShellTheme, resolveShellTheme, SHELL_THEME_KEY, isValidShellTheme } from './lib/shellTheme.js'
+import { LocaleProvider } from './lib/Locale.jsx'
+import { normalizeLanguage, languageTag, translate } from './lib/i18n.js'
 
 export default function App() {
   // ── Session — หน่วยความจำเท่านั้น ──────────────────────────────────
@@ -41,10 +43,10 @@ export default function App() {
   const [theme, setTheme] = useState(() => readShellTheme())
   const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const resolvedTheme = resolveShellTheme(theme, prefersDark)
-  // ⚠️ เดิม lang ไม่ persist และไม่ถูกส่งไปที่ view/chrome อื่นเลยนอกจาก
-  // Settings/Login — เก็บลง localStorage เหมือน theme ตอนนี้ เพื่อให้รอดรีเฟรช
+  // Language is presentation-only, shared across chrome/views without changing
+  // media/session keys. Persist the existing browser preference across refresh.
   const [lang, setLang] = useState(() => {
-    return localStorage.getItem('aegis_lang') || 'th'
+    return normalizeLanguage(localStorage.getItem('aegis_lang'))
   })
 
   useEffect(() => {
@@ -63,6 +65,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('aegis_lang', lang)
+    document.documentElement.lang = languageTag(lang)
   }, [lang])
 
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function App() {
         setTheme(e.newValue)
       }
       if (e.key === 'aegis_lang' && e.newValue) {
-        setLang(e.newValue)
+        setLang(normalizeLanguage(e.newValue))
       }
     }
     window.addEventListener('storage', onStorage)
@@ -93,7 +96,7 @@ export default function App() {
   const [detResult, setDetResult] = useState('all')
 
   const menu = session?.menu ?? []
-  const sections = buildSections(menu)
+  const sections = buildSections(menu, lang)
   const viewOrder = viewOrderOf(menu)
   // มีสิทธิ์เห็นวิวไหน ตัดสินจากเมนูของเซิร์ฟเวอร์เท่านั้น — วิวนอกเมนูไม่ถูก
   // render ลง DOM เลย (ไม่ใช่ซ่อนด้วย CSS) ดู server/rbac/permissions.js
@@ -206,6 +209,7 @@ export default function App() {
   // ดิบ ๆ เท่านั้น ไม่ครอบ Framer Motion ซึ่งขับเคลื่อนด้วย JS แยกระบบกัน
   if (!session) {
     return (
+      <LocaleProvider lang={lang}>
       <MotionConfig reducedMotion="user">
         <Login
           theme={resolvedTheme}
@@ -217,6 +221,7 @@ export default function App() {
           }}
         />
       </MotionConfig>
+      </LocaleProvider>
     )
   }
 
@@ -231,14 +236,15 @@ export default function App() {
     />
 
   return (
+    <LocaleProvider lang={lang}>
     <MotionConfig reducedMotion="user">
-      <a className="skiplink" href="#main">Skip to content</a>
+      <a className="skiplink" href="#main">{translate(lang, 'Skip to content')}</a>
       <div className="orb a" /><div className="orb b" /><div className="orb c" />
       <div className="app">
         <TopBar
           theme={theme}
           clockText={fmtTime(now)}
-          dateText={fmtDate(now)}
+          dateText={fmtDate(now, lang)}
           linkStatus={link.status}
           link={link}
           unacked={unacked}
@@ -298,5 +304,6 @@ export default function App() {
         <Footer link={link} />
       </div>
     </MotionConfig>
+    </LocaleProvider>
   )
 }
