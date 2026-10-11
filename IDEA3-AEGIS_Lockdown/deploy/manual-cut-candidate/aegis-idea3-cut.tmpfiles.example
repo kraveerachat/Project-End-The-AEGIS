@@ -1,0 +1,9 @@
+# SOURCE-ONLY. NOT INSTALLED.
+# Dedicated Manual CUT transport directory: Core-owned, dedicated transport
+# group, group-traversable, and never group/world writable. The one approved
+# non-root Desktop operator is the only human account admitted to this group.
+# Group membership grants socket reachability only; SO_PEERCRED plus the fresh
+# Core-held CUT credential remain mandatory command authorization gates.
+# Requires independent security/integration review and written Human Owner
+# authorization before installation or activation.
+d /run/aegis-idea3-cut 0750 aegis-idea3 aegis-idea3-cut -
