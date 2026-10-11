@@ -269,14 +269,25 @@ class SegmentRecorder(threading.Thread):
         image = frame.image
         if (image.shape[1], image.shape[0]) != segment.size:
             image = cv2.resize(image, segment.size)
-        segment.last_image = image
         elapsed = max(0.0, float(frame.captured_at) - segment.capture_started_monotonic)
         target_total = max(1, int(elapsed * float(self._cfg.target_fps)) + 1)
+        # Do not backdate a new detection image into CFR slots before it was
+        # captured. Each alias owns its previous image because capture buffers
+        # may be reused while another alias is still recording.
+        previous_image = segment.last_image
         try:
             for _ in range(max(0, target_total - segment.frames)):
-                segment.writer.write(image)
+                slot_elapsed = segment.frames / float(self._cfg.target_fps)
+                output_image = (
+                    previous_image
+                    if previous_image is not None and slot_elapsed < elapsed
+                    else image
+                )
+                segment.writer.write(output_image)
                 segment.frames += 1
                 self._metrics.on_frame_recorded()
+            # Even a surplus (dropped) capture becomes the next held image.
+            segment.last_image = image.copy()
         except Exception:
             log.exception("failed writing attributed frame to %s", segment.path)
 
