@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { AppShell } from '../../src/components/AppShell.jsx'
 import { DemoBanner } from '../../src/components/DemoBanner.jsx'
 import { StatusBadge } from '../../src/components/StatusBadge.jsx'
+import { EvidenceState } from '../../src/components/EvidenceState.jsx'
+import { DataTable } from '../../src/components/DataTable.jsx'
 
 const identity = {
   displayName: 'System Administrator',
@@ -112,5 +114,46 @@ describe('shared state communication', () => {
     render(<StatusBadge status="DEGRADED" />)
     expect(screen.getByText('DEGRADED')).toBeVisible()
     expect(screen.getByLabelText('สถานะ DEGRADED')).toBeVisible()
+  })
+})
+
+describe('W1 shared foundation', () => {
+  it.each(['CONNECTED', 'DISCONNECTED', 'NOT_VERIFIED', 'ALERT', 'UNKNOWN', 'STALE'])('renders %s as itself with its own treatment, never aliased', (status) => {
+    const { container } = render(<StatusBadge status={status} />)
+    expect(screen.getByText(status)).toBeVisible()
+    expect(container.querySelector('.status')).toHaveAttribute('data-status', status)
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('falls back to UNKNOWN, never HEALTHY, for unrecognised values', () => {
+    const { container } = render(<StatusBadge status="CONTAINED" />)
+    expect(container.querySelector('.status')).toHaveAttribute('data-status', 'UNKNOWN')
+  })
+
+  it('closes the mobile drawer with Escape and restores focus to the menu button', () => {
+    render(<AppShell identity={identity} mode="LIVE" currentRoute="overview"><p>x</p></AppShell>)
+    const menu = screen.getByRole('button', { name: 'เปิดเมนู' })
+    fireEvent.click(menu)
+    expect(menu).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+    expect(menu).toHaveFocus()
+  })
+
+  it('marks Demo mode with a distinct treatment and derives initials from the server identity', () => {
+    const { container } = render(<AppShell identity={identity} mode="DEMO" currentRoute="overview"><p>x</p></AppShell>)
+    expect(container.querySelector('.source-chip--demo')).toHaveTextContent('Mode: DEMO')
+    expect(container.querySelector('.avatar')).toHaveTextContent('SA')
+  })
+
+  it('announces loading without rendering evidence-like values', () => {
+    render(<EvidenceState loading><p>real evidence</p></EvidenceState>)
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true')
+    expect(screen.queryByText('real evidence')).toBeNull()
+  })
+
+  it('makes wide evidence tables keyboard-scrollable regions', () => {
+    render(<DataTable ariaLabel="Devices" columns={[{ key: 'a', label: 'A' }]} rows={[{ id: 1, a: 'v' }]} />)
+    expect(screen.getByRole('region', { name: 'Devices' })).toHaveAttribute('tabindex', '0')
   })
 })

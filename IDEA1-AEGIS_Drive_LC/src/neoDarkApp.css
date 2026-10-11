@@ -1,0 +1,1086 @@
+/* ─────────────────────────────────────────────────────────────────
+   Neo Dark application system
+
+   The Dashboard's dark material (index.css, `.dashboard-layout`) is the
+   source of truth. This layer carries the same material, edges, radii and
+   interaction grammar to every other authenticated screen, through the
+   shared ui.jsx primitives and a few semantic hooks (`neo-*` classes).
+
+   Rules of this layer:
+   1. Scope: Neo + Dark + authenticated shell, never Dashboard. Dashboard
+      keeps its own calibrated rules; Light and Classic are untouched.
+   2. One blur per stack. Only top-level panels (`.ui-card`) get a real
+      backdrop-filter. Nested panels, rows, controls and tiles are
+      semi-transparent solids.
+   3. Calm at rest. Edge light and glow appear on hover, focus, selection
+      and status, never as a permanent bloom.
+   4. Truth is presentation-only. Nothing here can invent a value: empty,
+      unknown and unavailable states keep their own visual language.
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Page frame (both themes: layout only) ──────────────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-page-content {
+  width: 100%;
+  max-width: 1880px;
+  margin-inline: auto;
+  padding: 28px clamp(18px, 2vw, 38px) 50px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.workspace-pane-content, .vault-pane-content) {
+  padding-inline: max(clamp(18px, 2vw, 38px), calc((100% - 1804px) / 2));
+}
+
+@media (max-width: 767px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-page-content {
+    padding: 22px 14px 36px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] :is(.workspace-pane-content, .vault-pane-content) {
+    padding-inline: 14px;
+  }
+}
+
+/* ── Tokens ─────────────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main,
+:root[data-ui-style="neo"][data-theme="dark"] .ui-modal,
+:root[data-ui-style="neo"][data-theme="dark"] .anchored-menu {
+  /* Same values as the Dark Dashboard card family. */
+  --neo-glass: rgba(9, 21, 50, 0.72);
+  --neo-glass-tint: linear-gradient(145deg, rgba(83, 108, 200, 0.16), rgba(18, 30, 71, 0.06) 43%, rgba(6, 15, 38, 0.1));
+  --neo-inner: rgba(30, 44, 80, 0.56);
+  --neo-inner-tint: linear-gradient(145deg, rgba(96, 118, 190, 0.09), rgba(26, 38, 75, 0.02));
+  --neo-well: rgba(6, 14, 34, 0.58);
+  --neo-edge: rgba(130, 157, 232, 0.3);
+  --neo-edge-soft: rgba(131, 153, 220, 0.18);
+  --neo-edge-strong: rgba(151, 172, 255, 0.62);
+  --neo-edge-light-top: inset 0 1px 0 rgba(205, 219, 255, 0.12);
+  --neo-row-hover: rgba(96, 118, 190, 0.09);
+  --neo-row-selected: rgba(70, 104, 230, 0.17);
+  --neo-spectral: linear-gradient(105deg, #0965d2 0%, #3d45e3 60%, #9d3fc1 100%);
+  --neo-spectral-ring: 0 0 0 1px rgba(230, 235, 255, 0.42), 0 7px 18px -8px rgba(15, 26, 130, 0.72);
+  --neo-focus-ring: 0 0 0 3px rgba(91, 124, 255, 0.24);
+  --neo-r-panel: 15px;
+  --neo-r-inner: 11px;
+  --neo-r-control: 10px;
+  --neo-label: #9fb4d8;
+  --card-sunken: rgba(21, 36, 68, 0.7);
+  --line: rgba(124, 152, 225, 0.22);
+  --ink-2: #d0def3;
+  --ink-3: #9bb3d3;
+}
+
+/* ── Major glass panels ─────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card {
+  position: relative;
+  border: 1px solid var(--neo-edge);
+  border-radius: var(--neo-r-panel);
+  background: var(--neo-glass-tint), var(--neo-glass) !important;
+  box-shadow: var(--neo-edge-light-top), 0 5px 8px -6px rgba(0, 0, 0, 0.8) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+  transition:
+    border-color var(--neo-dur-hover) var(--neo-ease),
+    box-shadow var(--neo-dur-hover) var(--neo-ease),
+    background-color var(--neo-dur-hover) var(--neo-ease);
+}
+
+/* Inner surfaces: a step darker/denser, never a second blur. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.ui-card .ui-card, .ui-card.neo-row-card, .neo-inner) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: var(--neo-edge-soft);
+  border-radius: var(--neo-r-inner);
+  background: var(--neo-inner-tint), var(--neo-inner) !important;
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07) !important;
+}
+
+/* Rows rendered as cards are list items: restore the panel material without
+   the blur, so a long list never stacks dozens of filters. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card.neo-row-card {
+  border-radius: 13px;
+  background: var(--neo-glass-tint), rgba(11, 24, 54, 0.82) !important;
+  border-color: var(--neo-edge-soft);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card.neo-row-card[data-selected="true"] {
+  border-color: rgba(127, 156, 255, 0.7);
+  background: linear-gradient(145deg, rgba(91, 124, 255, 0.2), rgba(61, 69, 227, 0.06) 60%), rgba(11, 24, 54, 0.86) !important;
+  box-shadow: 0 0 0 1px rgba(127, 156, 255, 0.24), 0 0 20px -10px rgba(91, 124, 255, 0.9) !important;
+}
+
+/* Pointer-following border light: the Dashboard card ::after, driven by
+   useNeoPageMotion (CSS variables only, no React state per pointer move). */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 1px;
+  border-radius: inherit;
+  background: radial-gradient(260px circle at var(--pointer-x, 50%) var(--pointer-y, 0%), rgba(120, 146, 255, 0.95), rgba(112, 82, 214, 0.55) 38%, transparent 72%);
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: opacity 200ms ease-out;
+  content: '';
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card:hover::after {
+    opacity: 0.85;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card:hover {
+    border-color: rgba(151, 172, 255, 0.46);
+    box-shadow: inset 0 1px 0 rgba(220, 230, 255, 0.18), 0 7px 10px -6px rgba(12, 25, 80, 0.8), 0 0 14px -9px rgba(111, 85, 236, 0.6) !important;
+  }
+  /* Nested panels and rows never light their whole frame. */
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card .ui-card:hover::after {
+    opacity: 0;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card.neo-row-card:not([data-selected="true"]):hover {
+    border-color: rgba(151, 172, 255, 0.4);
+    box-shadow: inset 0 1px 0 rgba(220, 230, 255, 0.12) !important;
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card:focus-within:not(:has(.ui-card)) {
+  border-color: rgba(151, 172, 255, 0.5);
+}
+
+/* ── Section headings inside panels ─────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-card h2 {
+  letter-spacing: -0.01em;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-panel-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen] .neo-panel-icon {
+  color: #b9cdff;
+  background: linear-gradient(145deg, rgba(74, 112, 231, 0.28), rgba(59, 48, 151, 0.16));
+  border: 1px solid rgba(136, 169, 255, 0.31);
+  box-shadow: inset 0 1px 0 rgba(218, 229, 255, 0.16), 0 0 10px -7px rgba(58, 118, 255, 0.8);
+}
+
+/* ── Fields: one control language for inputs, selects, textareas ── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea) {
+  border-color: rgba(124, 152, 225, 0.28) !important;
+  background-color: var(--neo-well) !important;
+  color: var(--ink);
+  transition:
+    border-color var(--neo-dur-hover) var(--neo-ease),
+    box-shadow var(--neo-dur-hover) var(--neo-ease),
+    background-color var(--neo-dur-hover) var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input, textarea)::placeholder {
+  color: #8698bd;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea):hover:not(:disabled, :focus) {
+    border-color: rgba(151, 172, 255, 0.46) !important;
+    background-color: rgba(10, 20, 46, 0.66) !important;
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), select, textarea):focus {
+  border-color: #7f9cff !important;
+  box-shadow: var(--neo-focus-ring), inset 0 1px 0 rgba(199, 213, 255, 0.06) !important;
+  outline: none;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input, select, textarea):disabled {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) select option {
+  color: #f8fafc;
+  background: #0b1c38;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(label, .neo-field-label) {
+  color: var(--ink-2);
+}
+
+/* ── Segmented control ──────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-segmented {
+  border-color: rgba(124, 152, 225, 0.26);
+  background: var(--neo-well) !important;
+  /* Lives inside a glass panel: no nested blur. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-segmented-option[aria-checked="true"] {
+  color: #ffffff;
+  background: var(--neo-spectral) !important;
+  box-shadow: var(--neo-spectral-ring);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-segmented-option:not([aria-checked="true"]):is(:hover, :focus-visible):not(:disabled) {
+  color: #ffffff;
+  background: rgba(229, 233, 255, 0.08);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.bg-accent {
+  color: #ffffff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 58%), #2f6fed !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 18px -12px rgba(47, 111, 237, 0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.bg-accent:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 58%), #3b7bf6 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26), 0 0 0 1px rgba(147, 183, 255, 0.45), 0 10px 22px -12px rgba(59, 123, 246, 1);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.border-line {
+  border-color: rgba(124, 152, 225, 0.3);
+  background: rgba(12, 25, 55, 0.72) !important;
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.border-line:hover:not(:disabled) {
+    border-color: rgba(151, 172, 255, 0.58);
+    background: rgba(28, 44, 88, 0.78) !important;
+  }
+}
+
+/* Destructive: restrained at rest, explicit on intent. */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.bg-danger-soft {
+  box-shadow: inset 0 0 0 1px rgba(255, 120, 140, 0.26);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-button.bg-danger {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 18px -12px rgba(220, 38, 38, 0.9);
+}
+
+/* ── Status chips: soft fill + same-hue hairline ───────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) span.rounded-full:is(.bg-ok-soft, .bg-warn-soft, .bg-danger-soft, .bg-accent-soft, .bg-violet-soft) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) span.rounded-full.bg-sunken.text-ink-2 {
+  background: rgba(32, 46, 84, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(131, 153, 220, 0.24);
+}
+
+/* ── Data tables (semantic tables and the Audit ledger) ─────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(thead tr, .neo-table-head) {
+  border-color: var(--neo-edge-soft) !important;
+  background: rgba(8, 17, 40, 0.62) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(th, .neo-table-head > *) {
+  color: var(--neo-label);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(tbody tr, .neo-table-row) {
+  border-color: rgba(131, 153, 220, 0.13) !important;
+  transition: background-color var(--neo-dur-hover) var(--neo-ease), box-shadow var(--neo-dur-hover) var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(tbody tr, .neo-table-row):hover {
+  background-color: var(--neo-row-hover) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(tbody tr, .neo-table-row):focus-within {
+  background-color: var(--neo-row-hover) !important;
+  box-shadow: inset 0 0 0 1px rgba(127, 156, 255, 0.42);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(td, .neo-table-row) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Callouts: amber/info context, not a flat strip ─────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-callout {
+  border: 1px solid rgba(251, 191, 36, 0.26);
+  border-radius: var(--neo-r-inner);
+  background: linear-gradient(145deg, rgba(251, 191, 36, 0.1), rgba(251, 191, 36, 0.025) 60%), rgba(18, 22, 44, 0.62) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 232, 170, 0.07);
+}
+
+/* Body copy reads as warm neutral; the lead line and icon carry the amber. */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-callout :is(p, span):not(.neo-callout-lead) {
+  color: #ead9b1 !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-callout .neo-callout-lead {
+  color: #fbcf5c !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-callout > svg:first-child {
+  color: #fbbf24 !important;
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.35));
+}
+
+/* ── Empty / unavailable / not-yet-implemented ─────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-empty-state {
+  border-radius: inherit;
+  background: radial-gradient(60% 90% at 50% 0%, rgba(72, 119, 225, 0.1), transparent 70%);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-empty-state__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  border-color: rgba(136, 169, 255, 0.3) !important;
+  background-color: rgba(24, 38, 82, 0.6) !important;
+  /* The hatch keeps its meaning ("nothing is here"), at Dashboard intensity. */
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, 0.07) 0 1px, transparent 1px 7px), linear-gradient(145deg, rgba(74, 112, 231, 0.2), rgba(59, 48, 151, 0.1)) !important;
+  box-shadow: inset 0 1px 0 rgba(218, 229, 255, 0.14), 0 0 22px -10px rgba(58, 118, 255, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-empty-state__icon svg {
+  color: #b2c6f5 !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.ui-unavailable, .ui-not-implemented) {
+  border-color: rgba(135, 160, 221, 0.3) !important;
+  background-color: rgba(31, 43, 76, 0.42) !important;
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, 0.05) 0 1px, transparent 1px 8px) !important;
+  box-shadow: inset 0 1px 0 rgba(208, 216, 255, 0.08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-unavailable > span:first-child {
+  border-color: rgba(146, 167, 225, 0.34);
+  background: rgba(65, 82, 140, 0.32);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-inline-empty {
+  color: var(--ink-3);
+}
+
+/* Loading skeletons: same hatch family, quieter. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .skeleton {
+  background-color: rgba(46, 63, 108, 0.42);
+}
+
+/* ── Switches ───────────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) button[role="switch"] {
+  box-shadow: inset 0 0 0 1px rgba(131, 153, 220, 0.28);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) button[role="switch"][aria-checked="false"] {
+  background: rgba(46, 63, 108, 0.7) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) button[role="switch"][aria-checked="true"] {
+  background: var(--neo-spectral) !important;
+  box-shadow: 0 0 0 1px rgba(230, 235, 255, 0.36), 0 0 14px -6px rgba(91, 124, 255, 0.9);
+}
+
+/* ── Settings sub-navigation: the Sidebar's selected grammar ────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .settings-section-button {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--ink-2);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .settings-section-button:not(.is-active):hover {
+    color: #ffffff;
+    background: rgba(229, 233, 255, 0.07) !important;
+    border-color: rgba(241, 242, 255, 0.12);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .settings-section-button.is-active {
+  color: #ffffff !important;
+  background: var(--neo-spectral) !important;
+  box-shadow: 0 0 0 1px rgba(230, 235, 255, 0.5), 0 7px 20px -6px rgba(15, 26, 130, 0.6) !important;
+}
+
+/* Appearance option tiles. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.interface-style-preview, .navigation-position-preview) {
+  border-color: var(--neo-edge-soft);
+  background: var(--neo-inner-tint), rgba(14, 26, 56, 0.72);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.interface-style-preview, .navigation-position-preview):hover:not(:disabled, .is-active) {
+    border-color: rgba(151, 172, 255, 0.5);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.interface-style-preview, .navigation-position-preview).is-active {
+  border-color: rgba(127, 156, 255, 0.82);
+  background: linear-gradient(145deg, rgba(91, 124, 255, 0.18), rgba(61, 69, 227, 0.05) 60%), rgba(14, 26, 56, 0.8);
+  box-shadow: 0 0 0 1px rgba(127, 156, 255, 0.3), 0 0 22px -10px rgba(91, 124, 255, 0.85);
+}
+
+/* ── Overlays: modal + anchored menus ───────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .ui-modal {
+  border-color: rgba(130, 157, 232, 0.3);
+  background: linear-gradient(145deg, rgba(83, 108, 200, 0.14), rgba(9, 18, 42, 0) 45%), rgba(9, 18, 42, 0.94) !important;
+  box-shadow: inset 0 1px 0 rgba(205, 219, 255, 0.12), 0 30px 70px -30px rgba(0, 0, 0, 0.95) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .anchored-menu {
+  border-color: rgba(130, 157, 232, 0.3) !important;
+  border-radius: 12px !important;
+  background: rgba(11, 20, 46, 0.97) !important;
+  box-shadow: inset 0 1px 0 rgba(205, 219, 255, 0.1), 0 18px 40px -18px rgba(0, 0, 0, 0.95) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .anchored-menu :is([role="menuitem"], button):is(:hover, :focus-visible):not(:disabled) {
+  background: rgba(91, 124, 255, 0.14) !important;
+  color: #ffffff;
+}
+
+/* ── Neo toolbar (search · filters · view · actions) ───────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-toolbar-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: rgba(14, 26, 56, 0.6);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+/* ── Summary strip (real counts only) ──────────────────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
+  background: var(--card);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-summary-item strong {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-summary-item {
+  border-color: var(--neo-edge-soft);
+  background: rgba(12, 25, 55, 0.68);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07);
+}
+
+/* ── Files + Vault tiles ────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell] {
+  border-color: rgba(131, 153, 220, 0.2) !important;
+  border-radius: 13px;
+  background: var(--neo-glass-tint), rgba(11, 24, 54, 0.8) !important;
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell][data-hovered="true"] {
+  border-color: rgba(151, 172, 255, 0.5) !important;
+  box-shadow: inset 0 1px 0 rgba(220, 230, 255, 0.16), 0 10px 18px -12px rgba(0, 0, 0, 0.9), 0 0 16px -10px rgba(111, 85, 236, 0.7) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell]:focus-visible {
+  outline: 2px solid var(--neo-focus);
+  outline-offset: 2px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell][data-selected="true"] {
+  border-color: rgba(127, 156, 255, 0.82) !important;
+  background: linear-gradient(145deg, rgba(91, 124, 255, 0.2), rgba(61, 69, 227, 0.05) 60%), rgba(11, 24, 54, 0.86) !important;
+  box-shadow: 0 0 0 1px rgba(127, 156, 255, 0.28), 0 0 22px -10px rgba(91, 124, 255, 0.9) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell][data-drop-target="true"] {
+  border-color: #7f9cff !important;
+  background: linear-gradient(145deg, rgba(91, 124, 255, 0.26), rgba(61, 69, 227, 0.08)), rgba(11, 24, 54, 0.88) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell] .file-card-control[data-file-card-control="menu"] {
+  border-color: rgba(131, 153, 220, 0.3);
+  background: rgba(9, 18, 42, 0.86);
+}
+
+/* Thumbnail frame: one radius, one hairline, the media sits inside it. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell] :is(.media-thumb, [data-media-thumb]) {
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px rgba(131, 153, 220, 0.16);
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main :is(.ui-card, .ui-card::after, tbody tr, .neo-table-row, [data-file-card-shell]),
+  :root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input, select, textarea, .ui-button, .ui-segmented-option) {
+    transition: none !important;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-file-card-shell] {
+    transform: none !important;
+  }
+}
+
+/* ── Audit ledger: the same glass, denser rows, mono figures ──── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-ledger {
+  border-color: var(--neo-edge) !important;
+  border-radius: var(--neo-r-panel) !important;
+  background: var(--neo-glass-tint), var(--neo-glass) !important;
+  box-shadow: var(--neo-edge-light-top), 0 5px 8px -6px rgba(0, 0, 0, 0.8) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-table-row[data-result="denied"] {
+  background: linear-gradient(90deg, rgba(248, 113, 133, 0.13), rgba(248, 113, 133, 0.04) 55%, transparent) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-table-row[data-result="denied"]:hover {
+  background: linear-gradient(90deg, rgba(248, 113, 133, 0.18), rgba(248, 113, 133, 0.07) 55%, var(--neo-row-hover)) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-ledger .neo-table-row > span:first-child {
+  background: #0b1630 !important;
+}
+
+/* A callout can be a single paragraph. */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) p.neo-callout {
+  color: #ead9b1 !important;
+}
+
+/* Global search is type="search"; its native clear glyph is not part of the
+   Neo control (Escape and the field itself already clear it). */
+.context-search-input::-webkit-search-cancel-button,
+.context-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* ── Master list rows (History file list, similar pickers) ─────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-list-row {
+  position: relative;
+  border-color: rgba(131, 153, 220, 0.13) !important;
+  background: transparent !important;
+  transition: background-color var(--neo-dur-hover) var(--neo-ease), box-shadow var(--neo-dur-hover) var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-list-row:not([data-selected="true"]):hover {
+    background: var(--neo-row-hover) !important;
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-list-row[data-selected="true"] {
+  background: linear-gradient(90deg, rgba(91, 124, 255, 0.2), rgba(61, 69, 227, 0.06) 70%, transparent) !important;
+  box-shadow: inset 0 0 0 1px rgba(127, 156, 255, 0.34);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-list-row:focus-visible {
+  outline: 2px solid var(--neo-focus);
+  outline-offset: -2px;
+}
+
+/* ── Version chronology: current head, then a linked timeline ──── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-current {
+  border-color: rgba(131, 153, 220, 0.16) !important;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0.02) 70%), rgba(8, 17, 40, 0.5) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-row {
+  position: relative;
+  padding-left: 44px !important;
+  border-color: rgba(131, 153, 220, 0.12) !important;
+  transition: background-color var(--neo-dur-hover) var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-row::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 24px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(127, 156, 255, 0.42), rgba(127, 156, 255, 0.14));
+  content: '';
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-row::after {
+  position: absolute;
+  top: 50%;
+  left: 20px;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border: 1.5px solid #8ea8ff;
+  border-radius: 50%;
+  background: #0b1630;
+  box-shadow: 0 0 8px -2px rgba(127, 156, 255, 0.8);
+  content: '';
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-row:hover {
+    background: var(--neo-row-hover);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-empty > div:first-child > span:not(.flex-1) {
+  border-color: rgba(127, 156, 255, 0.5);
+  background: #0b1630;
+  box-shadow: 0 0 8px -3px rgba(127, 156, 255, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-version-empty > div:first-child > span.flex-1 {
+  border-color: rgba(127, 156, 255, 0.3);
+}
+
+/* Compact empty row: deliberate, not a missing component. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-inline-empty {
+  min-height: 72px;
+  margin: 10px 14px 14px;
+  border: 1px dashed rgba(135, 160, 221, 0.24);
+  border-radius: var(--neo-r-inner);
+  background-color: rgba(31, 43, 76, 0.26);
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, 0.04) 0 1px, transparent 1px 8px);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .ui-inline-empty::before {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border: 1.5px solid rgba(155, 179, 211, 0.7);
+  border-radius: 50%;
+  content: '';
+}
+
+/* ── Policy strip (retention, scope notes above a list) ────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-policy-strip {
+  padding: 10px 12px 10px 14px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: 13px;
+  background: var(--neo-inner-tint), rgba(12, 25, 55, 0.62);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07);
+}
+
+/* ── Side panel (detail / preview sheet) ───────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-side-panel {
+  border-color: var(--neo-edge) !important;
+  border-radius: var(--neo-r-panel) !important;
+  background: radial-gradient(circle at 100% 0, rgba(99, 74, 196, 0.16), transparent 46%), var(--neo-glass-tint), var(--neo-glass) !important;
+  box-shadow: var(--neo-edge-light-top), 0 18px 40px -26px rgba(0, 0, 0, 0.95) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+  animation: neo-side-panel-in 280ms var(--neo-ease) both;
+}
+
+@keyframes neo-side-panel-in {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-side-panel dl {
+  padding-top: 12px;
+  border-top: 1px solid var(--neo-edge-soft);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-media-frame {
+  border-color: var(--neo-edge-soft) !important;
+  background-color: rgba(4, 10, 26, 0.72) !important;
+  background-image: radial-gradient(circle at 50% 40%, rgba(72, 119, 225, 0.12), transparent 62%);
+  box-shadow: inset 0 0 0 1px rgba(131, 153, 220, 0.06), inset 0 12px 30px -20px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-row-icon {
+  color: #b2c6f5 !important;
+  border: 1px solid rgba(136, 169, 255, 0.24);
+  background: linear-gradient(145deg, rgba(74, 112, 231, 0.2), rgba(59, 48, 151, 0.1)) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-side-panel {
+    animation: none;
+  }
+}
+
+/* ── Toolbar control heights: one rhythm for search/select/action ─ */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-toolbar :is(input[type="search"], input[type="text"], select) {
+  height: 38px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-toolbar .ui-button {
+  height: 38px;
+  padding-inline: 14px;
+}
+
+/* ── Permission matrix: rows = capabilities, columns = roles ───── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-matrix {
+  column-gap: 0 !important;
+  row-gap: 0 !important;
+  overflow: hidden;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: var(--neo-r-inner);
+  background: rgba(8, 17, 40, 0.4);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-matrix > span {
+  width: auto !important;
+  padding: 10px 22px;
+  background: rgba(8, 17, 40, 0.62);
+  color: var(--neo-label);
+  border-bottom: 1px solid var(--neo-edge-soft);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-row > span {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 6px 22px;
+  border-bottom: 1px solid rgba(131, 153, 220, 0.11);
+  transition: background-color var(--neo-dur-hover) var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-row > span:first-child {
+  padding-left: 16px;
+  color: var(--ink);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-row:last-child > span {
+  border-bottom: 0;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-row:hover > span {
+  background: var(--neo-row-hover);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-cell[data-granted="true"] {
+  border-color: rgba(147, 183, 255, 0.55) !important;
+  background: linear-gradient(145deg, #3b7bf6, #4b4fe0) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 0 12px -5px rgba(73, 119, 255, 0.85);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-perm-cell[data-granted="false"] {
+  border-color: rgba(131, 153, 220, 0.22) !important;
+  background: rgba(20, 32, 64, 0.6) !important;
+}
+
+/* ── Storage & Backup: Dashboard chart family ───────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main {
+  /* Same hues as the Dashboard radial (AEGIS blue) and its violet accent.
+     Semantic categories keep their distinct hues; only neutrals are cooled
+     so "other" and "free" read as context, not as AEGIS data. */
+  --capacity-rail: rgba(36, 52, 92, 0.55);
+  --capacity-aegis: #2b92f8;
+  --capacity-volume-other: #6c7db0;
+  --capacity-volume-free: rgba(52, 70, 118, 0.62);
+  --capacity-other-files: #8597c9;
+  --capacity-media: #8b7cf6;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-capacity-card {
+  background: radial-gradient(circle at 12% 0, rgba(72, 119, 225, 0.22), transparent 46%), var(--neo-glass-tint), var(--neo-glass) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-capacity-card svg [data-capacity-ring] {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: neo-ring-in 720ms var(--neo-ease) both;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-capacity-card svg [data-capacity-ring="inner"] {
+  animation-delay: 120ms;
+}
+
+@keyframes neo-ring-in {
+  from { opacity: 0; transform: rotate(-24deg); }
+  to { opacity: 1; transform: none; }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-capacity-card svg {
+  filter: drop-shadow(0 0 22px rgba(43, 146, 248, 0.12));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-metric-strip {
+  gap: 10px !important;
+  border-top: 0 !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-metric-strip > div {
+  padding: 12px 14px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: var(--neo-r-inner);
+  background: var(--neo-inner-tint), rgba(14, 26, 56, 0.66);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-metric-strip dt {
+  color: var(--neo-label);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-metric-strip dd {
+  font-size: 20px !important;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+/* Table frame (backup history and other bordered grids). */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-table-frame {
+  border-color: var(--neo-edge-soft) !important;
+  border-radius: var(--neo-r-inner) !important;
+  background: rgba(8, 17, 40, 0.36);
+}
+
+/* RAID topology: members → array, with no implication that RAID exists. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-raid-card .border-dashed {
+  border-color: rgba(135, 160, 221, 0.3) !important;
+  background-color: rgba(31, 43, 76, 0.32) !important;
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, 0.045) 0 1px, transparent 1px 8px);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-raid-card .bg-card-sunken:not(.border-dashed) {
+  border-color: var(--neo-edge-soft) !important;
+  background: var(--neo-inner-tint), rgba(14, 26, 56, 0.66) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-raid-array {
+  border-color: var(--neo-edge) !important;
+  background: radial-gradient(circle at 50% 0, rgba(72, 119, 225, 0.16), transparent 60%), rgba(12, 25, 55, 0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(205, 219, 255, 0.1), 0 10px 22px -16px rgba(0, 0, 0, 0.9) !important;
+}
+
+/* Danger callout variant. */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .neo-callout.neo-callout--danger {
+  border-color: rgba(248, 113, 133, 0.32);
+  background: linear-gradient(145deg, rgba(248, 113, 133, 0.12), rgba(248, 113, 133, 0.03) 60%), rgba(30, 14, 30, 0.6) !important;
+  color: #ffc2cd !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-capacity-card svg [data-capacity-ring] {
+    animation: none;
+  }
+}
+
+/* ── Files / Vault toolbar ──────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-view-toggle {
+  height: 38px;
+  padding: 3px;
+  border-color: rgba(124, 152, 225, 0.26) !important;
+  background: var(--neo-well) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-view-toggle > button {
+  color: var(--ink-3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-view-toggle > button[aria-pressed="true"] {
+  color: #ffffff !important;
+  background: var(--neo-spectral) !important;
+  box-shadow: var(--neo-spectral-ring);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-view-toggle > button:not([aria-pressed="true"]):is(:hover, :focus-visible) {
+  color: #ffffff;
+  background: rgba(229, 233, 255, 0.08);
+}
+
+/* Toolbar sits on its own quiet rail so search, filters and actions read
+   as one instrument rather than loose controls on the background. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-files-toolbar {
+  padding: 10px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: 14px;
+  background: var(--neo-inner-tint), rgba(9, 20, 46, 0.6);
+  box-shadow: inset 0 1px 0 rgba(199, 213, 255, 0.07);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-files-toolbar :is(input[type="search"], select) {
+  height: 38px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-files-toolbar .ui-button {
+  height: 38px;
+}
+
+/* Folder path: a compact location pill under the page title. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-folder-path {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: 999px;
+  background: rgba(12, 25, 55, 0.6);
+  color: var(--ink-3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--neo-label) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-section-heading::after {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(131, 153, 220, 0.24), transparent);
+  content: '';
+}
+
+/* ── Vault: the higher-security variant of Files ────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-callout {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-callout > svg:first-child {
+  box-sizing: content-box;
+  padding: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-status {
+  padding: 8px 10px;
+  border: 1px solid var(--neo-edge-soft);
+  border-radius: 13px;
+  background: rgba(9, 20, 46, 0.5);
+}
+
+/* Locked hero: one secure panel; the ambient blocks become ciphertext
+   ghosts, the lock becomes the single lit object. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-locked {
+  border: 1px solid var(--neo-edge);
+  border-radius: var(--neo-r-panel) !important;
+  background:
+    radial-gradient(42% 60% at 50% 38%, rgba(72, 119, 225, 0.2), transparent 70%),
+    radial-gradient(circle at 100% 0, rgba(99, 74, 196, 0.16), transparent 42%),
+    var(--neo-glass-tint), var(--neo-glass) !important;
+  box-shadow: var(--neo-edge-light-top), 0 5px 8px -6px rgba(0, 0, 0, 0.8);
+  -webkit-backdrop-filter: blur(12px) saturate(1.16);
+  backdrop-filter: blur(12px) saturate(1.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-locked [data-testid="locked-vault-ambient"] {
+  border: 1px solid rgba(131, 153, 220, 0.12);
+  background-color: rgba(24, 38, 76, 0.42) !important;
+  background-image: repeating-linear-gradient(135deg, rgba(164, 180, 230, 0.05) 0 1px, transparent 1px 7px);
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-vault-lock-icon {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgba(147, 183, 255, 0.45);
+  border-radius: 18px;
+  color: #cfe0ff !important;
+  background: linear-gradient(145deg, rgba(59, 123, 246, 0.42), rgba(77, 61, 196, 0.3)) !important;
+  box-shadow: inset 0 1px 0 rgba(230, 238, 255, 0.24), 0 0 0 6px rgba(72, 119, 225, 0.08), 0 0 34px -8px rgba(73, 119, 255, 0.85) !important;
+}
+
+/* Encrypted tiles carry a quiet secure marker. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="vault"] main [data-file-card-shell]:not([data-selected="true"], [data-drop-target="true"]) {
+  background: linear-gradient(145deg, rgba(91, 108, 210, 0.13), rgba(18, 30, 71, 0.04) 50%), rgba(10, 22, 52, 0.84) !important;
+}
+
+/* Initials avatars share the Top Bar's identity treatment. */
+:root[data-ui-style="neo"][data-theme="dark"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) .ui-avatar.bg-ink {
+  color: #ffffff;
+  background: linear-gradient(145deg, #3b7bf6, #5b4fd8) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 0 0 1px rgba(147, 183, 255, 0.35);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+/* The create-share column is narrow on laptops; long Thai scope labels
+   stack as full-width options instead of overflowing the panel. */
+@media (max-width: 1366px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .share-scope-segmented {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    border-radius: 14px;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .share-scope-segmented .ui-segmented-option {
+    width: 100%;
+    min-height: 36px;
+    height: auto;
+    padding-block: 7px;
+    border-radius: 11px;
+    white-space: normal;
+    line-height: 1.35;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Fixed-width filters become fluid; actions stay full-size touch targets. */
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-toolbar > div:has(> select) {
+    flex: 1 1 150px;
+    width: auto;
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .neo-toolbar-spacer {
+    display: none;
+  }
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-files-toolbar {
+    padding: 8px;
+  }
+}
+
+/* Locked surface banner (Trash step-up): a secure state, not an error. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main .neo-lock-banner {
+  border-color: var(--neo-edge) !important;
+  border-radius: 14px !important;
+  background: radial-gradient(circle at 0 50%, rgba(251, 191, 36, 0.08), transparent 36%), var(--neo-glass-tint), var(--neo-glass) !important;
+  box-shadow: var(--neo-edge-light-top), 0 5px 8px -6px rgba(0, 0, 0, 0.8) !important;
+}
+
+/* Locked placeholder rows: shapes only (not data), still legible as rows. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell:not([data-screen="dashboard"]) main [data-trash-shell] .neo-row-card .bg-sunken {
+  background: rgba(46, 63, 108, 0.42) !important;
+}
+
+/* The global `:focus-visible { border-radius: 4px }` (index.css) is unlayered,
+   so it outranks Tailwind's layered `rounded-full` and squares every pill
+   control the moment it gains keyboard focus. In Neo, focus keeps the
+   control's own utility radius; the ring then follows the real shape. */
+:root[data-ui-style="neo"] :is(.authenticated-shell:not([data-screen="dashboard"]) main, .ui-modal) :is(input, select, textarea, .ui-button, .ui-icon-button, .ui-segmented-option, .neo-view-toggle > button):focus-visible {
+  border-radius: revert-layer;
+}

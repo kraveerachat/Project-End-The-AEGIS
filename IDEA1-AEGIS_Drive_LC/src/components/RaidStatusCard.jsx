@@ -87,7 +87,7 @@ function MemberSlot({ t, member, slot }) {
   if (!member) {
     return (
       <div className="min-h-[170px] rounded-[14px] border border-dashed border-line bg-card-sunken/40 p-4">
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <span className="flex items-center gap-2 text-[12.5px] font-semibold text-ink-2">
             <Usb size={16} strokeWidth={1.6} className="text-ink-3" />
             {t('raidMemberSlot', { n: slot })}
@@ -110,7 +110,7 @@ function MemberSlot({ t, member, slot }) {
 
   return (
     <div className="min-h-[170px] rounded-[14px] border border-line bg-card-sunken p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-[12.5px] font-semibold text-ink">
             <Usb size={16} strokeWidth={1.6} className="shrink-0 text-accent-ink" />
@@ -146,7 +146,7 @@ function ArrayNode({ t, raid }) {
     : `${activeMembers === null ? '?' : activeMembers}/${totalMembers}`
 
   return (
-    <div className="rounded-[16px] border border-line bg-card p-4 text-center shadow-[var(--elev-1)]">
+    <div className="neo-raid-array rounded-[16px] border border-line bg-card p-4 text-center shadow-[var(--elev-1)]">
       <div className="mx-auto mb-3 grid size-11 place-items-center rounded-[13px] border border-line bg-card-sunken text-accent-ink">
         <Database size={21} strokeWidth={1.5} />
       </div>
@@ -215,7 +215,7 @@ export function RaidStatusCard({ t, raid, now = Date.now() }) {
   const extraMembers = members.slice(2)
 
   return (
-    <Card className="p-5">
+    <Card className="neo-raid-card p-5">
       <CardTitle
         sub={available ? t('raidTelemetryMeasured') : t('raidTelemetryStandby')}
         right={<Chip tone={STATUS_TONE[status] ?? 'neutral'}>{t(STATUS_LABEL[status] ?? 'raidStatusUnknown')}</Chip>}
