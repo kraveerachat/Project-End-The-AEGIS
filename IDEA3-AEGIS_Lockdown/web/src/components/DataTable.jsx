@@ -1,12 +1,12 @@
 import React from 'react'
 
-export function DataTable({ columns, rows = [], emptyLabel = 'ไม่มีข้อมูล', rowKey = 'id' }) {
+export function DataTable({ columns, rows = [], emptyLabel = 'ไม่มีข้อมูล', rowKey = 'id', ariaLabel = 'ตารางหลักฐาน', wide = false }) {
   if (rows.length === 0) {
     return <div className="empty-state"><span className="aegis-hatch" aria-hidden="true" /><p>{emptyLabel}</p></div>
   }
 
   return (
-    <div className="table-wrap">
+    <div className={wide ? 'table-wrap table-wrap--wide' : 'table-wrap'} role="region" aria-label={ariaLabel} tabIndex={0}>
       <table>
         <thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}</tr></thead>
         <tbody>

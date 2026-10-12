@@ -3,6 +3,7 @@ import { RefreshCw, SearchX, ServerOff } from 'lucide-react'
 import { fmtTime, hasUnk, ini, isTail } from '../data.js'
 import { EmptyState } from '../components/ui.jsx'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
+import { useLocale } from '../lib/Locale.jsx'
 
 const NAS_PENDING_MS = 90_000
 
@@ -12,6 +13,7 @@ const NAS_PENDING_MS = 90_000
    เดียว) — ผู้ตรวจสอบเห็นแต่ละบุคคลชัดเจนเป็นรายการเดี่ยว พร้อม badge บอกว่ามาจาก
    frame ที่มีคนหลายคน (tailgating) หรือไม่ */
 export default function Detection({ now, link, detections, api, cameras = [], detCam, setDetCam, detResult, setDetResult }) {
+  const { t } = useLocale()
   const state = getViewState(api, (data) => (data?.detections ?? []).length === 0)
   const frames = useMemo(() => {
     let list = detections
@@ -26,43 +28,43 @@ export default function Detection({ now, link, detections, api, cameras = [], de
 
   if (state === VIEW_STATE.ERROR) {
     return (
-      <EmptyState icon={ServerOff} title="Could not load the detection stream"
-        hint="The Monitor backend did not respond. Check the server, then retry."
-        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
+      <EmptyState icon={ServerOff} title={t('Could not load the detection stream')}
+        hint={t('The Monitor backend did not respond. Check the server, then retry.')}
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Retry')}</button>} />
     )
   }
 
   if (state === VIEW_STATE.LOADING) {
-    return <EmptyState icon={ServerOff} title="Loading detection stream" hint="Retrieving the current recognition record." />
+    return <EmptyState icon={ServerOff} title={t('Loading detection stream')} hint={t('Retrieving the current recognition record.')} />
   }
 
   return (
     <>
       <div className="pagehead">
         <div>
-          <h1 className="h1">AI detection stream</h1>
-          <p className="sub">Per-frame recognition record · multi-subject frames reveal tailgating. Identity is name only.</p>
+          <h1 className="h1">{t('AI detection stream')}</h1>
+          <p className="sub">{t('Per-frame recognition record · multi-subject frames reveal tailgating. Identity is name only.')}</p>
         </div>
       </div>
       <div className="filterbar">
-        <label className="flbl" htmlFor="det-cam">Camera</label>
+        <label className="flbl" htmlFor="det-cam">{t('Camera')}</label>
         <select id="det-cam" className="fsel" value={detCam} onChange={(e) => setDetCam(e.target.value)}>
-          <option value="all">All cameras</option>
+          <option value="all">{t('All cameras')}</option>
           {cameras.map((c) => <option key={c.id} value={c.id}>{c.id} · {c.name}</option>)}
         </select>
-        <label className="flbl" htmlFor="det-res">Result</label>
+        <label className="flbl" htmlFor="det-res">{t('Result')}</label>
         <select id="det-res" className="fsel" value={detResult} onChange={(e) => setDetResult(e.target.value)}>
-          <option value="all">All results</option>
-          <option value="auth">Authorized</option>
-          <option value="unknown">Unknown present</option>
+          <option value="all">{t('All results')}</option>
+          <option value="auth">{t('Authorized')}</option>
+          <option value="unknown">{t('Unknown present')}</option>
         </select>
       </div>
       {state === VIEW_STATE.SUCCESS_EMPTY || frames.length === 0 ? (
         <EmptyState
           icon={SearchX}
-          title="No frames match these filters"
-          hint="The recognition record for this window has no frames from this camera and result combination."
-          action={<button type="button" className="ackbtn" onClick={reset}>Reset filters</button>}
+          title={t('No frames match these filters')}
+          hint={t('The recognition record for this window has no frames from this camera and result combination.')}
+          action={<button type="button" className="ackbtn" onClick={reset}>{t('Reset filters')}</button>}
         />
       ) : (
         <div className="dstream">
@@ -83,24 +85,24 @@ export default function Detection({ now, link, detections, api, cameras = [], de
                 </div>
                 <div className="dcount">
                   <div className={multi ? 'dcnum multi' : 'dcnum'}>{multi ? `${j + 1}/${f.people.length}` : '1'}</div>
-                  <div className="dclab">{multi ? 'In frame' : 'Solo frame'}</div>
+                  <div className="dclab">{multi ? t('In frame') : t('Solo frame')}</div>
                 </div>
                 <div className={p.k === 'auth' ? 'entity auth' : 'entity unk'}>
                   <div className="eav" aria-hidden="true">{p.k === 'auth' ? ini(p.name) : '?'}</div>
                   <div>
-                    <div className="ename">{p.k === 'auth' ? p.name : 'Unknown'}</div>
+                    <div className="ename">{p.k === 'auth' ? p.name : t('Unknown')}</div>
                     <div className="etag">
-                      {p.k === 'auth' ? 'Authorized' : 'Unknown'}
+                      {p.k === 'auth' ? t('Authorized') : t('Unknown')}
                       <span className="econf mono"> · {p.conf}%</span>
                     </div>
                   </div>
                 </div>
-                {tail && <span className="tailbadge">Tailgating frame</span>}
+                {tail && <span className="tailbadge">{t('Tailgating frame')}</span>}
                 <div className="dnas">
                   <span className={pending ? 'nasstate pend' : 'nasstate ok'}>
-                    {queued ? '⟳ queued' : pending ? '⟳ pending' : '✓ synced'}
+                    {queued ? t('⟳ queued') : pending ? t('⟳ pending') : t('✓ synced')}
                   </span>
-                  <div className="naslab">NAS sync</div>
+                  <div className="naslab">{t('NAS sync')}</div>
                 </div>
               </article>
             ))

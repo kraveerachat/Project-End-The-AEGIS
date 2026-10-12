@@ -1,3 +1,5 @@
+import { strictEvidenceStatus } from './evidence.js'
+
 const statusPriority = Object.freeze({
   FAILED: 5,
   STALE: 4,
@@ -29,9 +31,9 @@ export function isAcknowledgedIncident(incident = {}) {
   return ACKNOWLEDGED_RESPONSE_STATES.has(incident?.responseState)
 }
 
-export function evidenceStatus(value = {}) {
-  if (value.freshness === 'STALE') return 'STALE'
-  return Object.hasOwn(statusPriority, value.status) ? value.status : 'UNKNOWN'
+// HEALTHY is only reported for FRESH evidence with a valid timestamp; see strictEvidenceStatus.
+export function evidenceStatus(value) {
+  return strictEvidenceStatus(value)
 }
 
 export function engineState(value) {

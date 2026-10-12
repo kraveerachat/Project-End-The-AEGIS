@@ -1,8 +1,9 @@
-"""AEGIS IDEA3 PR11 Phase 4 — the deterministic L7 release builder must ship the COMPLETE Recovery runtime that L7u requires.
+"""AEGIS IDEA3 PR11 Phase 4 — the deterministic L7 release builder must ship the COMPLETE Recovery runtime that L7u and Recovery D4 require.
 
 Regression for the L7u live preflight failure NEW_RELEASE_LACKS_RECOVERY_RUNTIME: the builder used to compute the runtime closure of
-`aegis_soc.supervisor` only. recovery_ui (the Recovery observer entrypoint, `python -m aegis_soc.recovery_ui`) and its recovery_client are
-not imported by the Core, so a real build omitted them. The release now ships the union of the closures of its two entrypoints.
+`aegis_soc.supervisor` only. recovery_ui (the Recovery observer entrypoint, `python -m aegis_soc.recovery_ui`), its recovery_client, and the
+Recovery D4 CLI (`python -m aegis_soc.cli`) are not imported by the Core, so a real build omitted them. The release now ships the union of
+the closures of all four governed entrypoints.
 These tests build a REAL release from this repository's source (real builder, offline stub wheelhouse) — never a hand-made fixture.
 """
 
@@ -70,18 +71,20 @@ def test_canonical_verify_passes_and_package_is_exactly_the_entrypoint_closure(t
     assert not names & b.NOT_RUNTIME, "unrelated modules must not be swept into the release"
 
 
-def test_closure_is_the_union_of_exactly_the_supervisor_recovery_ui_and_f1_detector_entrypoints(tool) -> None:
+def test_closure_is_the_union_of_exactly_the_four_governed_entrypoints(tool) -> None:
     project = b.ROOT
     core, _ = tool.runtime_closure(project, "supervisor")
     observer, third = tool.runtime_closure(project, "recovery_ui")
     detector, detector_third = tool.runtime_closure(project, "production_detector")
+    cli, cli_third = tool.runtime_closure(project, "cli")
     both, _ = tool.runtime_closure(project)
-    assert tool.ENTRYPOINTS == ("supervisor", "recovery_ui", "production_detector")
-    assert set(both) == set(core) | set(observer) | set(detector)
+    assert tool.ENTRYPOINTS == ("supervisor", "recovery_ui", "production_detector", "cli")
+    assert set(both) == set(core) | set(observer) | set(detector) | set(cli)
     assert {"alert_sink", "production_detector"} <= set(both) - set(core), "the Core never reaches the F1 alert source"
     assert detector_third == set(), "the F1 alert source adds no third-party dependency"
     assert {"recovery_client", "recovery_ui"} <= set(both) - set(core), "the Core alone never reaches the Recovery observer"
     assert observer == ["recovery_client", "recovery_protocol", "recovery_ui"] and third == set()
+    assert "cli" in set(both) - set(core) and cli_third == {"paho"}
 
 
 def test_offline_wheelhouse_behaviour_is_unchanged(tool) -> None:

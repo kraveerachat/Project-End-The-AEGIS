@@ -25,10 +25,10 @@ import { fmtRelative, fmtDateTime, fmtBytes } from '../lib/format.js'
 
 function ScopeNote({ t }) {
   return (
-    <div className="rounded-[var(--r-tile)] p-4 flex gap-3" style={{ background: 'var(--warn-soft)' }}>
+    <div className="neo-callout rounded-[var(--r-tile)] p-4 flex gap-3" style={{ background: 'var(--warn-soft)' }}>
       <Info size={16} strokeWidth={1.8} style={{ color: 'var(--warn)' }} className="shrink-0 mt-0.5" />
       <div className="min-w-0">
-        <p className="text-[12.5px] font-semibold leading-relaxed" style={{ color: 'var(--warn)' }}>
+        <p className="neo-callout-lead text-[12.5px] font-semibold leading-relaxed" style={{ color: 'var(--warn)' }}>
           {t('versionsScopeTitle')}
         </p>
         <p className="text-[12.5px] leading-relaxed mt-1" style={{ color: 'var(--warn)' }}>
@@ -41,7 +41,7 @@ function ScopeNote({ t }) {
 
 function VersionEmptyTrack({ t }) {
   return (
-    <div className="version-empty-track px-5 py-6" role="status">
+    <div className="version-empty-track neo-version-empty px-5 py-6" role="status">
       <div className="flex items-center gap-3" aria-hidden>
         <span className="size-2.5 rounded-full border border-line bg-sunken shrink-0" />
         <span className="flex-1 border-t border-dashed border-line" />
@@ -112,7 +112,7 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
         <div className="col-span-4 max-lg:col-span-12">
           <Card className="overflow-hidden">
             <div className="px-5 pt-5 pb-3 flex items-center gap-2">
-              <FileText size={16} strokeWidth={1.5} className="text-ink-3" />
+              <span className="neo-panel-icon text-ink-3" aria-hidden><FileText size={16} strokeWidth={1.6} /></span>
               <h2 className="text-[15px] font-semibold text-ink">{t('versionsMyFiles')}</h2>
               <Chip tone="neutral" className="ml-auto">{stats?.versions ?? 0}</Chip>
             </div>
@@ -134,7 +134,8 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
                       type="button"
                       onClick={() => { setSelectedId(f.id); setResult(null) }}
                       aria-current={active ? 'true' : undefined}
-                      className={`text-left px-5 py-3 border-b border-line last:border-b-0 transition-colors duration-[var(--dur-fast)] cursor-pointer ${
+                      data-selected={active ? 'true' : undefined}
+                      className={`neo-list-row text-left px-5 py-3 border-b border-line last:border-b-0 transition-colors duration-[var(--dur-fast)] cursor-pointer ${
                         active ? 'bg-sunken' : 'hover:bg-sunken'
                       }`}
                     >
@@ -157,7 +158,7 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
         <div className="col-span-8 max-lg:col-span-12 flex flex-col gap-5">
           <Card className="overflow-hidden">
             <div className="px-5 pt-5 pb-3 flex items-center gap-2 flex-wrap">
-              <History size={16} strokeWidth={1.5} className="text-ink-3" />
+              <span className="neo-panel-icon text-ink-3" aria-hidden><History size={16} strokeWidth={1.6} /></span>
               <h2 className="text-[15px] font-semibold text-ink truncate">
                 {current?.name ?? t('versionsTitle')}
               </h2>
@@ -165,7 +166,7 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
 
             {placeholderMode ? (
               <DependencyUnavailableState t={t} title={t('historyUnavailable')} compact />
-            ) : listApi.loading || detailApi.loading ? (
+            ) : listApi.loading || (activeId != null && detailApi.loading) ? (
               <div className="px-5 pb-5"><SkeletonLoader type="table" /></div>
             ) : listError ? (
               <VersionEmptyTrack t={t} />
@@ -176,7 +177,7 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
             ) : (
               <div className="flex flex-col">
                 {/* แถวปัจจุบัน — แยกให้เห็นชัดว่าอันไหนคือของที่ใช้อยู่ตอนนี้ */}
-                <div className="flex items-center gap-3 px-5 py-3.5 border-b border-line flex-wrap bg-sunken">
+                <div className="neo-version-current flex items-center gap-3 px-5 py-3.5 border-b border-line flex-wrap bg-sunken">
                   <Chip tone="accent">{t('versionCurrent')}</Chip>
                   <span className="text-[13px] text-ink-2" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {fmtBytes(current.size)}
@@ -192,7 +193,7 @@ export function FileHistory({ t, lang, initialFileId = null, placeholderMode = f
                   <VersionEmptyTrack t={t} />
                 ) : (
                   versions.map((v) => (
-                    <div key={v.id} className="flex items-center gap-3 px-5 py-3.5 border-b border-line last:border-b-0 flex-wrap">
+                    <div key={v.id} className="neo-version-row flex items-center gap-3 px-5 py-3.5 border-b border-line last:border-b-0 flex-wrap">
                       <span className="text-[13px] text-ink-2 min-w-[9ch]" style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {fmtBytes(v.size)}
                       </span>
