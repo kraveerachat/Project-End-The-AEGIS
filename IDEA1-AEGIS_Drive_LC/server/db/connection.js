@@ -27,6 +27,7 @@ export const DEFAULT_USER_PREFERENCES = Object.freeze({
   language: 'th',
   density: 'comfortable',
   interfaceStyle: 'classic',
+  navigationPosition: 'left',
 })
 
 const PREFERENCE_VALUES = Object.freeze({
@@ -34,6 +35,7 @@ const PREFERENCE_VALUES = Object.freeze({
   language: new Set(['th', 'en', 'zh']),
   density: new Set(['comfortable', 'compact']),
   interfaceStyle: new Set(['classic', 'neo']),
+  navigationPosition: new Set(['left', 'top', 'bottom']),
 })
 
 /** ตรวจ preference แบบ fail-closed — ไม่ clamp ค่าที่ client ส่งมาเงียบ ๆ */
@@ -44,11 +46,13 @@ export function normalizeUserPreferences(value) {
     language: value.language,
     density: value.density,
     interfaceStyle: value.interfaceStyle,
+    navigationPosition: value.navigationPosition,
   }
   if (!PREFERENCE_VALUES.theme.has(next.theme)) return null
   if (!PREFERENCE_VALUES.language.has(next.language)) return null
   if (!PREFERENCE_VALUES.density.has(next.density)) return null
   if (!PREFERENCE_VALUES.interfaceStyle.has(next.interfaceStyle)) return null
+  if (!PREFERENCE_VALUES.navigationPosition.has(next.navigationPosition)) return null
   return next
 }
 
@@ -237,7 +241,7 @@ export async function getUserByUsername(username) {
     // parameterized query เท่านั้น — กัน SQL injection (ห้าม string-concat)
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
-              ui_theme, ui_language, ui_density, ui_interface_style,
+              ui_theme, ui_language, ui_density, ui_interface_style, ui_navigation_position,
               vault_autolock_minutes, share_default_expiry, share_default_scope,
               share_default_require_password,
               role, password_hash, must_reset_password
@@ -267,6 +271,7 @@ function mapUserRow(r) {
       language: r.ui_language,
       density: r.ui_density,
       interfaceStyle: r.ui_interface_style,
+      navigationPosition: r.ui_navigation_position,
     }) ?? { ...DEFAULT_USER_PREFERENCES },
     securitySettings: mapSecuritySettingsRow(r),
     role: r.role,
@@ -289,7 +294,7 @@ export async function getUserById(id) {
   if (pool) {
     const { rows } = await pool.query(
       `SELECT id, username, display_name, profile_name, avatar_key, avatar_mime,
-              ui_theme, ui_language, ui_density, ui_interface_style,
+              ui_theme, ui_language, ui_density, ui_interface_style, ui_navigation_position,
               vault_autolock_minutes, share_default_expiry, share_default_scope,
               share_default_require_password,
               role, password_hash, must_reset_password
@@ -338,10 +343,10 @@ export async function updateUserPreferences(userId, value) {
   if (pool) {
     const { rows } = await pool.query(
       `UPDATE users
-          SET ui_theme = $1, ui_language = $2, ui_density = $3, ui_interface_style = $4
-        WHERE id = $5
-      RETURNING ui_theme, ui_language, ui_density, ui_interface_style`,
-      [next.theme, next.language, next.density, next.interfaceStyle, userId],
+          SET ui_theme = $1, ui_language = $2, ui_density = $3, ui_interface_style = $4, ui_navigation_position = $5
+        WHERE id = $6
+      RETURNING ui_theme, ui_language, ui_density, ui_interface_style, ui_navigation_position`,
+      [next.theme, next.language, next.density, next.interfaceStyle, next.navigationPosition, userId],
     )
     if (rows.length === 0) return null
     return {
@@ -349,6 +354,7 @@ export async function updateUserPreferences(userId, value) {
       language: rows[0].ui_language,
       density: rows[0].ui_density,
       interfaceStyle: rows[0].ui_interface_style,
+      navigationPosition: rows[0].ui_navigation_position,
     }
   }
 

@@ -3,30 +3,11 @@ import { ArrowRight, DatabaseZap, LockKeyhole, Radar, ServerCog, ShieldCheck } f
 import { DataTable } from '../components/DataTable.jsx'
 import { Panel } from '../components/Panel.jsx'
 import { StatusBadge } from '../components/StatusBadge.jsx'
+import { engineState, engineStatus } from '../lib/dashboard.js'
+import { safeStatus, safeText, strictEvidenceStatus } from '../lib/evidence.js'
 import { formatDateTime } from '../lib/format.js'
 
-const CANONICAL_STATUSES = new Set([
-  'HEALTHY', 'DEGRADED', 'FAILED', 'UNKNOWN', 'NOT_CONFIGURED', 'STALE', 'DISABLED',
-])
-
-function safeStatus(value, fallback = 'UNKNOWN') {
-  return CANONICAL_STATUSES.has(value) ? value : fallback
-}
-
-function safeText(value, fallback = 'UNKNOWN') {
-  return typeof value === 'string' && value.trim() ? value : fallback
-}
-
-function hasValidTimestamp(value) {
-  return typeof value === 'string' && value.trim() && Number.isFinite(Date.parse(value))
-}
-
-function evidenceStatus({ status, freshness, generatedAt }) {
-  const normalized = safeStatus(status)
-  if (freshness === 'STALE') return 'STALE'
-  if (normalized === 'HEALTHY' && (freshness !== 'FRESH' || !hasValidTimestamp(generatedAt))) return 'UNKNOWN'
-  return normalized
-}
+const evidenceStatus = strictEvidenceStatus
 
 function sourceById(snapshot, id) {
   return snapshot.sources?.find((source) => source.id === id)
@@ -83,6 +64,47 @@ function securityReadiness(snapshot) {
     { label: 'Admin RBAC + CSRF', status: adminStatus, detail: adminStatus === 'HEALTHY' ? 'API ประกาศว่า ENFORCED' : 'ยังยืนยัน enforcement ไม่ครบ' },
     { label: 'Demo / Live isolation', status: isolationStatus, detail: isolationStatus === 'HEALTHY' ? 'provider ประกาศว่าไม่รวมข้อมูลข้าม boundary' : 'ยังยืนยันการแยก boundary ไม่ได้' },
   ]
+}
+
+
+const SOURCE_RANK = Object.freeze({ FAILED: 5, STALE: 4, DEGRADED: 3, NOT_CONFIGURED: 2, UNKNOWN: 1, DISABLED: 0, HEALTHY: -1 })
+
+function worstStatus(statuses) {
+  return statuses.reduce((worst, status) => (SOURCE_RANK[status] > SOURCE_RANK[worst] ? status : worst), 'HEALTHY')
+}
+
+function evidenceLayers(snapshot, readiness) {
+  const statusOf = (id, domain) => integrationStatus(sourceById(snapshot, id), domain)
+  const producers = worstStatus([statusOf('idea1', snapshot.idea1), statusOf('idea2', snapshot.idea2)])
+  const contract = readiness.find((item) => item.label === 'Sanitized evidence contract')?.status ?? 'UNKNOWN'
+  const admin = readiness.find((item) => item.label === 'Admin RBAC + CSRF')?.status ?? 'UNKNOWN'
+  const correlation = engineState(snapshot.runtime?.engines?.correlation)
+  const physical = snapshot.devices?.[0]?.physicalRelayState
+  const physicalKnown = Boolean(physical) && physical !== 'UNKNOWN'
+  return [
+    { id: 'source', title: 'Evidence source', subject: 'IDEA1 · IDEA2 producers', status: producers, proves: 'มี feed ที่ตอบกลับและผ่านการตรวจ', notProves: 'ไม่ได้พิสูจน์ว่า producer ทำงานปกติ — feed เข้าถึงได้ ≠ producer healthy' },
+    { id: 'normalized', title: 'Normalized evidence', subject: 'Allowlist · schema · bounds', status: contract, proves: 'ข้อมูลที่แสดงผ่าน allowlist แล้ว ไม่มี raw payload', notProves: 'ไม่ได้ยืนยันว่าเหตุการณ์เป็นความจริง' },
+    { id: 'correlation', title: 'Correlation', subject: 'Source IP + กรอบเวลา', status: engineStatus(correlation), proves: 'มี candidate ความสัมพันธ์ของเหตุการณ์', notProves: 'ไม่ระบุตัวบุคคลหรือเจตนา — candidate ไม่ใช่ข้อสรุป' },
+    { id: 'decision', title: 'Decision boundary', subject: 'Admin session · RBAC · CSRF', status: admin, proves: 'การตัดสินใจต้องผ่าน server-side authorization', notProves: 'decision ที่ถูกยอมรับ ≠ คำสั่งถูกดำเนินการ' },
+    { id: 'runtime', title: 'IDEA3 runtime', subject: 'Core · broker · device ACK', status: statusOf('idea3', snapshot.runtime), proves: 'Core รายงานสถานะและ ACK ที่ตรวจสอบได้', notProves: 'ACK ≠ Relay proof · คำขอ ≠ contained' },
+    { id: 'physical', title: 'Physical evidence', subject: 'Relay / Uplink sensor', status: physicalKnown ? 'CONNECTED' : 'NOT_VERIFIED', label: physicalKnown ? 'มี sensor' : undefined, proves: physicalKnown ? `sensor รายงาน: ${physical}` : 'ยังไม่มีหลักฐานทางกายภาพ', notProves: 'ไม่มี sensor = UNKNOWN เสมอ ไม่อนุมานจากชั้นก่อนหน้า' },
+  ]
+}
+
+function EvidenceLayers({ layers }) {
+  return (
+    <ol className="evidence-layers">
+      {layers.map(({ id, title, subject, status, label, proves, notProves }, index) => (
+        <li key={id} className="evidence-layer">
+          <span className="evidence-layer__index" aria-hidden="true">{index + 1}</span>
+          <div className="evidence-layer__head"><strong>{title}</strong><StatusBadge status={status} compact label={label} /></div>
+          <small className="mono">{subject}</small>
+          <p><span>พิสูจน์ได้</span>{proves}</p>
+          <p className="evidence-layer__limit"><span>ไม่ได้พิสูจน์</span>{notProves}</p>
+        </li>
+      ))}
+    </ol>
+  )
 }
 
 const matrixColumns = [
@@ -181,6 +203,7 @@ export function OverviewPage({ snapshot }) {
     })
     .filter(Boolean)
   const readiness = securityReadiness(snapshot)
+  const layers = evidenceLayers(snapshot, readiness)
   const readinessGaps = readiness.filter((item) => item.status !== 'HEALTHY')
   const readinessConfirmed = readiness.filter((item) => item.status === 'HEALTHY')
   const provider = safeText(snapshot.provenance?.provider)
@@ -220,6 +243,10 @@ export function OverviewPage({ snapshot }) {
           <ArrowRight className="flow-arrow" aria-hidden="true" />
           <div className="flow-stage"><ShieldCheck aria-hidden="true" /><strong>Admin surface</strong><span>Session · RBAC · CSRF</span></div>
         </div>
+      </Panel>
+
+      <Panel className="evidence-layers-panel" title="ชั้นของหลักฐาน" description="แต่ละชั้นพิสูจน์ได้เฉพาะสิ่งของตัวเอง — ไม่อนุมานข้ามชั้น" ariaLabel="ชั้นของหลักฐาน">
+        <EvidenceLayers layers={layers} />
       </Panel>
 
       <section className="integration-contracts" aria-label="สัญญาการเชื่อมต่อ">

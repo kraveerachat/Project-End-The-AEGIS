@@ -453,5 +453,113 @@ class AliasSegmentRecorderTests(unittest.TestCase):
             self.assertTrue(all("CAM-05" not in info.path for info in finalized))
 
 
+    def test_strict_cfr_gap_holds_previous_image_separately_for_each_alias(self):
+        class PixelWriter:
+            def __init__(self):
+                self.pixels = []
+
+            def write(self, image):
+                self.pixels.append(int(image[0, 0, 0]))
+
+        def segment(writer, alias):
+            return recorder_module._StrictSegment(
+                writer=writer, size=(16, 16), path=f"{alias}-synthetic.mp4",
+                started_monotonic=100.0, capture_started_monotonic=100.0,
+                started_wall="2026-10-11T00:00:00+00:00",
+                authority_started_monotonic=99.0,
+            )
+
+        recorder = SegmentRecorder(
+            EngineConfig(capture_on_demand=True, target_fps=2),
+            MetricsRegistry(), queue.Queue(), on_segment=lambda _: None,
+            recording_authority=AuthorityProbe(),
+        )
+        for alias, first_value, second_value in (
+            ("CAM-01", 10, 200), ("CAM-02", 30, 220)
+        ):
+            writer = PixelWriter()
+            context = segment(writer, alias)
+            recorder._write_strict_frame(
+                context, Frame(1, np.full((16, 16, 3), first_value, dtype=np.uint8),
+                               captured_at=100.0)
+            )
+            recorder._write_strict_frame(
+                context, Frame(2, np.full((16, 16, 3), second_value, dtype=np.uint8),
+                               captured_at=130.0)
+            )
+            self.assertEqual(writer.pixels, [first_value] * 60 + [second_value])
+            self.assertEqual(int(context.last_image[0, 0, 0]), second_value)
+
+    def test_strict_cfr_between_slots_and_reused_buffer_do_not_backdate(self):
+        class PixelWriter:
+            def __init__(self):
+                self.pixels = []
+
+            def write(self, image):
+                self.pixels.append(int(image[0, 0, 0]))
+
+        recorder = SegmentRecorder(
+            EngineConfig(capture_on_demand=True, target_fps=2),
+            MetricsRegistry(), queue.Queue(), on_segment=lambda _: None,
+            recording_authority=AuthorityProbe(),
+        )
+        writer = PixelWriter()
+        context = recorder_module._StrictSegment(
+            writer=writer, size=(16, 16), path="synthetic.mp4",
+            started_monotonic=100.0, capture_started_monotonic=100.0,
+            started_wall="2026-10-11T00:00:00+00:00",
+            authority_started_monotonic=99.0,
+        )
+        first = np.full((16, 16, 3), 10, dtype=np.uint8)
+        recorder._write_strict_frame(context, Frame(1, first, captured_at=100.0))
+        first[:] = 240  # Emulate a reused physical camera buffer.
+        between = np.full((16, 16, 3), 100, dtype=np.uint8)
+        recorder._write_strict_frame(
+            context, Frame(2, between, captured_at=100.6)
+        )
+        self.assertEqual(writer.pixels, [10, 10])  # Slot 0.5s predates B.
+        between[:] = 240
+        recorder._write_strict_frame(
+            context, Frame(3, np.full((16, 16, 3), 200, dtype=np.uint8),
+                           captured_at=101.6)
+        )
+        self.assertEqual(writer.pixels, [10, 10, 100, 100])
+        self.assertEqual(int(context.last_image[0, 0, 0]), 200)
+
+    def test_strict_cfr_dropped_capture_is_held_for_next_slot(self):
+        class PixelWriter:
+            def __init__(self):
+                self.pixels = []
+
+            def write(self, image):
+                self.pixels.append(int(image[0, 0, 0]))
+
+        recorder = SegmentRecorder(
+            EngineConfig(capture_on_demand=True, target_fps=2),
+            MetricsRegistry(), queue.Queue(), on_segment=lambda _: None,
+            recording_authority=AuthorityProbe(),
+        )
+        writer = PixelWriter()
+        context = recorder_module._StrictSegment(
+            writer=writer, size=(16, 16), path="synthetic.mp4",
+            started_monotonic=100.0, capture_started_monotonic=100.0,
+            started_wall="2026-10-11T00:00:00+00:00",
+            authority_started_monotonic=99.0,
+        )
+        recorder._write_strict_frame(
+            context, Frame(1, np.full((16, 16, 3), 10, dtype=np.uint8),
+                           captured_at=100.0)
+        )
+        dropped = np.full((16, 16, 3), 100, dtype=np.uint8)
+        recorder._write_strict_frame(
+            context, Frame(2, dropped, captured_at=100.1)
+        )
+        dropped[:] = 240  # Recorder must retain its own dropped-frame copy.
+        recorder._write_strict_frame(
+            context, Frame(3, np.full((16, 16, 3), 200, dtype=np.uint8),
+                           captured_at=101.0)
+        )
+        self.assertEqual(writer.pixels, [10, 100, 200])
+
 if __name__ == "__main__":
     unittest.main()

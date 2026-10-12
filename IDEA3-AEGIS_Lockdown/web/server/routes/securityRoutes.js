@@ -39,9 +39,12 @@ function invalid(res, code = 'REQUEST_INVALID') {
   return res.status(400).json({ error: { code, message: 'ข้อมูลคำขอไม่ถูกต้อง' } })
 }
 
-export function createSecurityRouter({ config, demoProvider, liveProvider, repository, machineContact = null }) {
+export function createSecurityRouter({ config, demoProvider, liveProvider, repository, demoRegistry, machineContact = null }) {
   const router = Router()
   router.use(requireAdmin)
+  // Demo Mode is simulated: while it is active every read and write goes to a session-scoped, memory-only
+  // repository, so a presenter's actions can never become durable Live audit, policy or alert evidence.
+  const repositoryFor = (req) => (req.session.demoMode ? demoRegistry.forSession(req.sessionID) : repository)
 
   router.get('/snapshot', async (req, res, next) => {
     const query = querySchema.safeParse(req.query)
@@ -60,6 +63,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
           })
         }
       }
+      if (req.session.demoMode) return res.json(await repositoryFor(req).apply(snapshot))
       res.json(await repository.apply(snapshot, { lastMachineContactAt: machineContact?.lastContactAt() ?? null }))
     } catch (error) {
       next(error)
@@ -70,7 +74,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
     const query = auditQuerySchema.safeParse(req.query)
     if (!query.success) return invalid(res, 'QUERY_INVALID')
     try {
-      res.json({ audit: await repository.queryAudit(query.data) })
+      res.json({ audit: await repositoryFor(req).queryAudit(query.data) })
     } catch (error) {
       next(error)
     }
@@ -85,7 +89,10 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
       if (body.data.enabled && !config.demoAllowed) {
         return res.status(403).json({ error: { code: 'DEMO_DISABLED', message: 'Demo Mode ถูกปิดใช้งานโดยนโยบาย' } })
       }
+      // The mode switch itself is a real Admin action, so it is the only Demo-related row in the durable ledger.
       const audit = await repository.recordAction({ category: 'SETTINGS', action: 'DEMO_MODE', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'session', resourceId: 'current' })
+      // Every activation and deactivation starts from a fresh, empty simulated state.
+      demoRegistry.reset(req.sessionID)
       req.session.demoMode = body.data.enabled
       return res.json({ mode: body.data.enabled ? 'DEMO' : 'LIVE', audit })
     } catch (error) {
@@ -96,7 +103,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
   router.post('/alerts/:id/acknowledge', async (req, res, next) => {
     try {
       if (!/^[a-z0-9-]{1,80}$/.test(req.params.id)) return invalid(res)
-      const audit = await repository.acknowledgeAlert(req.params.id)
+      const audit = await repositoryFor(req).acknowledgeAlert(req.params.id)
       res.json({ alert: { id: req.params.id, status: 'ACKNOWLEDGED' }, audit })
     } catch (error) {
       next(error)
@@ -108,7 +115,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
       if (!/^[a-z0-9-]{1,80}$/.test(req.params.id)) return invalid(res)
       const body = noteSchema.safeParse(req.body)
       if (!body.success) return invalid(res)
-      const audit = await repository.addIncidentNote(req.params.id, body.data.note)
+      const audit = await repositoryFor(req).addIncidentNote(req.params.id, body.data.note)
       res.json({ incident: { id: req.params.id, analystNote: body.data.note }, audit })
     } catch (error) {
       next(error)
@@ -163,7 +170,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
     try {
       const body = recoverySchema.safeParse(req.body)
       if (!body.success) return invalid(res)
-      const audit = await repository.recordAction({ category: 'RECOVERY', action: 'DRY_RUN', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'incident', resourceId: body.data.incidentId })
+      const audit = await repositoryFor(req).recordAction({ category: 'RECOVERY', action: 'DRY_RUN', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'incident', resourceId: body.data.incidentId })
       res.json({ dryRun: true, hardwareAction: false, publishAttempted: false, incidentId: body.data.incidentId, validation: 'PRECONDITIONS_EVALUATED', audit })
     } catch (error) {
       next(error)
@@ -174,8 +181,9 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
     try {
       const body = settingsSchema.safeParse(req.body)
       if (!body.success) return invalid(res)
-      const settings = await repository.updateSettings(body.data)
-      const audit = await repository.recordAction({ category: 'SETTINGS', action: 'UPDATE_POLICY', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'policy', resourceId: 'security-center' })
+      const target = repositoryFor(req)
+      const settings = await target.updateSettings(body.data)
+      const audit = await target.recordAction({ category: 'SETTINGS', action: 'UPDATE_POLICY', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'policy', resourceId: 'security-center' })
       res.json({ settings, audit })
     } catch (error) {
       next(error)
@@ -184,7 +192,7 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
 
   router.post('/audit/export', async (req, res, next) => {
     try {
-      const audit = await repository.recordAction({ category: 'AUDIT', action: 'EXPORT_REQUEST', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'audit', resourceId: 'bounded-export' })
+      const audit = await repositoryFor(req).recordAction({ category: 'AUDIT', action: 'EXPORT_REQUEST', outcome: 'SUCCESS', actorRef: 'session-admin', resourceType: 'audit', resourceId: 'bounded-export' })
       res.status(202).json({ accepted: true, format: 'json', bounded: true, audit })
     } catch (error) {
       next(error)

@@ -48,7 +48,7 @@ test('invisible Operator association relays public proof and stores no browser a
   }))
   expect(browserStorage.session).toEqual({})
   expect(browserStorage.local).toEqual({
-    aegis_lang: 'th',
+    aegis_lang: 'en',
     aegis_shell_theme: 'light',
   })
   await expect(page.locator('body')).not.toContainText(/local node|association/i)

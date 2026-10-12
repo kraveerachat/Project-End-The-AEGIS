@@ -1,3 +1,4 @@
+import { useLocale } from '../lib/Locale.jsx'
 // Native MJPEG, always through the authorized same-origin Monitor proxy.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { RefreshCw, WifiOff } from 'lucide-react'
@@ -23,6 +24,7 @@ function StreamImage({ src, alt, onLoad, onError }) {
 }
 
 function FeedSession({ cameraId, cameraName, streamPath, lost, compact, hideStatus, onStateChange }) {
+  const { t, lang } = useLocale()
   const [nonce, setNonce] = useState(0)
   const [state, setState] = useState('connecting')
   const [justRecovered, setJustRecovered] = useState(false)
@@ -80,7 +82,7 @@ function FeedSession({ cameraId, cameraName, streamPath, lost, compact, hideStat
   return (
     <>
       <div className="hatch" />
-      <StreamImage key={nonce} src={src} alt={`Live feed — ${cameraId} ${cameraName ?? ''}`.trim()}
+      <StreamImage key={nonce} src={src} alt={t('Live feed — {id} {name}', { id: cameraId, name: cameraName ?? '' }).trim()}
         onLoad={onLoad} onError={onError} />
       {justRecovered && <div className="feed-recovered" aria-hidden="true" />}
       {!compact && !hideStatus && state !== 'live' && (
@@ -88,24 +90,24 @@ function FeedSession({ cameraId, cameraName, streamPath, lost, compact, hideStat
           {state === 'error' ? (
             <>
               <WifiOff aria-hidden="true" size={14} />
-              <span>Stream interrupted — reconnecting…</span>
+              <span>{t("Stream interrupted — reconnecting…")}</span>
               <button type="button" className="ackbtn feedretry" onClick={retryNow}>
-                <RefreshCw aria-hidden="true" size={12} /> Retry now
-              </button>
+                <RefreshCw aria-hidden="true" size={12} /> {t("Retry now")} </button>
             </>
           ) : (
-            <><RefreshCw aria-hidden="true" size={14} className="spin" /><span>Connecting to {cameraId}…</span></>
+            <><RefreshCw aria-hidden="true" size={14} className="spin" /><span>{t('Connecting to {id}…', { id: cameraId })}</span></>
           )}
         </div>
       )}
       {!compact && !hideStatus && lost && state === 'live' && (
-        <div className="feedstate" role="status"><WifiOff aria-hidden="true" size={14} /><span>Edge link lost — displayed frames may be stale</span></div>
+        <div className="feedstate" role="status"><WifiOff aria-hidden="true" size={14} /><span>{t("Edge link lost — displayed frames may be stale")}</span></div>
       )}
     </>
   )
 }
 
 export default function LiveFeed(props) {
+  const { t, lang } = useLocale()
   useEffect(() => {
     if (!props.hasStream) props.onStateChange?.({ cameraId: props.cameraId, state: 'nostream' })
   }, [props.cameraId, props.hasStream, props.onStateChange])
@@ -114,7 +116,7 @@ export default function LiveFeed(props) {
       <>
         <div className="hatch" />
         {!props.compact && !props.hideStatus && (
-          <div className="feedstate" role="status">No stream available for {props.cameraId}</div>
+          <div className="feedstate" role="status">{t('No stream available for {id}', { id: props.cameraId })}</div>
         )}
       </>
     )

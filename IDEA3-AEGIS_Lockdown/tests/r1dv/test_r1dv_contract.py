@@ -49,7 +49,7 @@ def code(path: Path) -> str:
 # ---------------------------------------------------------------- F. registry
 def test_r1dv_is_registered_exactly_once_between_r1d_and_r1b_and_is_non_mutating() -> None:
     order = base.stages()
-    assert order.count("R1Dv") == 1 and order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("L8")
+    assert order.count("R1Dv") == 1 and order.index("R1Du") < order.index("R1D") < order.index("R1Dv") < order.index("R1B") < order.index("R1Bv") < order.index("L8")
     assert order[order.index("R1D") + 1] == "R1Dv" and order[order.index("R1Dv") + 1] == "R1B"
     out = base.bash(f'. "{base.P4_LIB}"; p4_stage_known R1Dv && echo KNOWN; p4_stage_mutates R1Dv && echo MUTATES || echo NON_MUTATING; p4_stage_gaps R1Dv; echo "extra=[$(p4_stage_auth_extra R1Dv)]"; p4_stage_handler_status R1Dv').stdout.split("\n")
     assert out[0] == "KNOWN" and out[1] == "NON_MUTATING" and out[2] == "none" and out[3] == "extra=[]" and out[4] == "REGISTERED"
@@ -58,7 +58,7 @@ def test_r1dv_is_registered_exactly_once_between_r1d_and_r1b_and_is_non_mutating
 
 
 def test_documented_operational_order_names_r1dv_between_r1d_and_r1b() -> None:
-    assert "R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B -> Recovery R2-R8" in base.P4_LIB.read_text()
+    assert "R1D (immutable FAIL after a committed disposition) -> R1Dv -> R1B (immutable FAIL at windowrecord) -> R1Bv -> Recovery R2-R8" in base.P4_LIB.read_text()
     readme = (P4 / "README.md").read_text()
     assert "R1D (immutable FAIL after a COMMITTED disposition) -> R1Dv -> R1B -> Recovery R2-R8" in readme
 
