@@ -2371,3 +2371,11 @@ This is a same-day continuation of the pass immediately above, this time run wit
 * [[concepts/Identity_Decoupling]]
 * [[concepts/Honest_Telemetry_and_Unavailable_States]]
 * [[concepts/OWASP_Security_Defense]]
+
+## Mainline reconciliation — 2026-10-12 (IDEA2 source review queue)
+
+Current merged `main` includes PR #344 (recording/Archive), #348 (multi-node provisioning) and #425 (Monitor presentation). Older Draft/stacked statements in this historical note are superseded for merge status only. New source is **not** automatically Production deployed or hardware-accepted.
+
+Current IDEA2 Draft review queue: #404 (NAS verified copy + acknowledged clip publication, optional transcode audio; base reconciliation), #410 (Engine capture authority + signed-clock gate, **BLOCKED** pending Production clock-safety proof), #411 (Engine exact-frame identity/confidence labels, do not duplicate #425 frontend), #419 (Machine C Telegram sender safeguards, conditional on accepted scope). PR #293, #412, #418 closed without merging as superseded/optional. Each remaining PR must be reconciled and independently reviewed at its exact head and current `main` before human merge. Real Machine A/C deployment, clock drift safety, microphone capture, camera visual acceptance and all test skips remain unverified unless separately evidenced.
+
+PR #404 current source reconciliation updates the existing `nas_sync.py` behavior so the NAS success counter is incremented only after Monitor publication acknowledgement; failed acknowledgement retains local source and records failed status. `nas_sync` audio remapping is source-only; no actual microphone capture or A/V runtime claim is made. Source/test changes require exact-head CI and owner review; the PR remains Draft until those gates pass.

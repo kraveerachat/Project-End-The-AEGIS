@@ -172,8 +172,6 @@ class NASSyncWorker(threading.Thread):
         self, path: str, basename: str,
         info: "SegmentInfo", remote_path: str,
     ) -> None:
-        self._metrics.on_nas_result(ok=True, when_wall=utc_now_iso())
-
         # Persist the clip row NOW — this line is reached only *after* the
         # sha256/size verification above passed, so stored_on_nas=True is never
         # optimistic. file_path is the verified location on the NAS. Fail-soft:
@@ -195,7 +193,10 @@ class NASSyncWorker(threading.Thread):
                 log.warning("clip publication unavailable; keeping local source")
         if not published:
             log.warning("verified NAS copy has no acknowledged clip row; keeping local source")
+            self._metrics.on_nas_result(ok=False, when_wall=utc_now_iso())
             return
+
+        self._metrics.on_nas_result(ok=True, when_wall=utc_now_iso())
 
         if not self._cfg.nas_delete_after_sync:
             return
@@ -235,8 +236,9 @@ class NASSyncWorker(threading.Thread):
 
         cmd = [
             ffmpeg, "-y", "-i", path,
-            "-an",
+            "-map", "0:v:0", "-map", "0:a:0?",
             "-c:v", "libx264",
+            "-c:a", "aac",
             "-threads", "1",
             "-preset", "veryfast",
             "-crf", "23",

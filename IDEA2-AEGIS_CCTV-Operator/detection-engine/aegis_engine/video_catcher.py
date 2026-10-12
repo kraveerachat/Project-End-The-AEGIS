@@ -33,7 +33,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 try:
     import cv2  # type: ignore
@@ -73,6 +73,7 @@ class VideoCatcher(threading.Thread):
         sinks: List[Sink],
         stop_event: Optional[threading.Event] = None,
         capture_demand_event: Optional[threading.Event] = None,
+        capture_authority_check: Optional[Callable[[], bool]] = None,
     ) -> None:
         super().__init__(name="VideoCatcher", daemon=True)
         self._cfg = config
@@ -82,6 +83,7 @@ class VideoCatcher(threading.Thread):
         # ``threading.Thread._stop`` (an internal method used by join()).
         self._stop_event = stop_event or threading.Event()
         self._capture_demand_event = capture_demand_event
+        self._capture_authority_check = capture_authority_check
         self._cap: "Optional[cv2.VideoCapture]" = None
         self._seq = 0
         self._read_state_lock = threading.Lock()
@@ -301,6 +303,8 @@ class VideoCatcher(threading.Thread):
 
     def _capture_is_demanded(self) -> bool:
         """Always-on mode has implicit demand; viewer mode uses the shared event."""
+        if self._capture_authority_check is not None:
+            return bool(self._capture_authority_check())
         return (
             self._capture_demand_event is None
             or self._capture_demand_event.is_set()
@@ -310,6 +314,11 @@ class VideoCatcher(threading.Thread):
         if self._capture_demand_event is None:
             return not self._stop_event.is_set()
         while not self._stop_event.is_set():
+            if self._capture_authority_check is not None:
+                if self._capture_is_demanded():
+                    return True
+                self._stop_event.wait(0.25)
+                continue
             if self._capture_demand_event.wait(0.25):
                 return True
         return False
