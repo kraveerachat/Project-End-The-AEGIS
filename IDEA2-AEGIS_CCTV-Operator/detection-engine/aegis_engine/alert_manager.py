@@ -45,6 +45,7 @@ from .models import DetectionResult, DetectionStatus, Frame, utc_now_iso
 log = get_logger("AlertManager")
 
 _TELEGRAM_API = "https://api.telegram.org/bot{token}/sendPhoto"
+_JOB_CAPACITY = object()
 
 _THAILAND_TZ = timezone(timedelta(hours=7))
 
@@ -82,6 +83,13 @@ class AlertManager(threading.Thread):
         self._stop_event = stop_event or threading.Event()
         self._queue: "queue.Queue[_AlertJob]" = queue.Queue(maxsize=max_queue)
         self._last_alert_at: dict = {}  # cooldown key -> monotonic timestamp
+        # Opt-in process-local duplicate protection, not durable exactly-once
+        # delivery. In-flight claims never age out; completed claims have a
+        # bounded recent-job window. Capacity exhaustion suppresses, not evicts.
+        self._job_lock = threading.Lock()
+        self._recent_jobs: dict = {}
+        self._job_window_s = max(60.0, config.alert_cooldown_s,
+                                 3 * config.alert_http_timeout_s + 11.0)
         # Optional sink so alerts also appear on the live API stream / web app.
         self._publish = publish
         # Optional MonitorClient — persist an `alerts` row after each send
@@ -198,6 +206,38 @@ class AlertManager(threading.Thread):
             log.info("alert manager stopped")
 
     def _handle(self, job: _AlertJob) -> None:
+        claim = None
+        if self._cfg.telegram_no_ambiguous_retry:
+            claim = self._claim_job(job)
+            if claim is None:
+                return
+        try:
+            self._handle_claimed(job, suppress_delivery=claim is _JOB_CAPACITY)
+        finally:
+            if claim is not None and claim is not _JOB_CAPACITY:
+                with self._job_lock:
+                    self._recent_jobs[claim] = time.monotonic()
+
+    def _claim_job(self, job: _AlertJob):
+        payload = job.payload
+        key = tuple(payload.get(field) for field in (
+            "node_id", "camera_id", "producer_generation", "frame_seq", "timestamp"
+        ))
+        with self._job_lock:
+            now = time.monotonic()
+            expired = [key for key, finished in self._recent_jobs.items()
+                       if finished is not None and now - finished >= self._job_window_s]
+            for old in expired:
+                del self._recent_jobs[old]
+            if key in self._recent_jobs:
+                return None
+            if len(self._recent_jobs) >= 256:
+                log.warning("telegram recent-job capacity reached; delivery suppressed")
+                return _JOB_CAPACITY
+            self._recent_jobs[key] = None  # in-flight, including ambiguous sends
+        return key
+
+    def _handle_claimed(self, job: _AlertJob, *, suppress_delivery: bool = False) -> None:
         # Surface the alert on the live API stream regardless of delivery
         # outcome — the web app should see the event even if Telegram is down.
         if self._publish is not None:
@@ -206,16 +246,23 @@ class AlertManager(threading.Thread):
             except Exception:  # pragma: no cover - defensive
                 log.exception("alert publish callback raised")
 
+        node = job.payload['node_id']
+        display = self._cfg.telegram_node_display_name
+        node_caption = f"{display} ({node})" if display else node
         caption = (
             f"🚨 UNKNOWN FACE\n"
             f"Camera: {job.payload['camera_id']} · {job.payload['camera_label']}\n"
-            f"Node: {job.payload['node_id']}\n"
+            f"Node: {node_caption}\n"
             f"Count: {job.payload['unknown_count']} · "
             f"Conf: {job.payload['confidence']}%\n"
             f"Time: {_format_thailand_time(job.payload['timestamp'])}"
         )
         telegram_sent = False
-        if self._dry_run:
+        if suppress_delivery:
+            # Do not lose an eligible Monitor/API alert merely because the
+            # bounded Telegram duplicate ledger cannot admit a new claim.
+            log.warning("telegram delivery not attempted; alert retained")
+        elif self._dry_run:
             log.warning("[DRY-RUN] alert (snapshot %s): %s",
                         job.snapshot_path, caption.replace("\n", " | "))
             self._metrics.on_alert_sent()
@@ -224,7 +271,9 @@ class AlertManager(threading.Thread):
             self._metrics.on_alert_sent()
             log.info("alert sent for %s", job.payload["camera_id"])
         else:
-            log.error("alert delivery failed for %s", job.payload["camera_id"])
+            log.error("alert delivery %s for %s",
+                      "not confirmed" if self._cfg.telegram_no_ambiguous_retry else "failed",
+                      job.payload["camera_id"])
 
         # Persist the alert regardless of the Telegram outcome — the record must
         # survive even if Telegram is unreachable (don't lose the event).
@@ -247,7 +296,10 @@ class AlertManager(threading.Thread):
         )
 
     def _send_telegram(self, jpeg: bytes, caption: str) -> bool:
-        """POST a photo to Telegram with a small retry loop. Never raises."""
+        """Existing sendPhoto sender; opt-in no resend on ambiguous outcomes.
+
+        False means delivery is not confirmed, not proof Telegram did not send.
+        """
         try:
             import requests  # imported lazily so the dep is optional at import
         except Exception:
@@ -255,23 +307,42 @@ class AlertManager(threading.Thread):
             return False
 
         url = _TELEGRAM_API.format(token=self._cfg.telegram_bot_token)
+        safe = self._cfg.telegram_no_ambiguous_retry
         for attempt in range(1, 4):
             if self._stop_event.is_set():
                 return False
             try:
+                options = {"allow_redirects": False} if safe else {}
                 resp = requests.post(
                     url,
                     data={"chat_id": self._cfg.telegram_chat_id, "caption": caption},
                     files={"photo": ("snapshot.jpg", jpeg, "image/jpeg")},
                     timeout=self._cfg.alert_http_timeout_s,
+                    **options,
                 )
-                if resp.status_code == 200 and resp.json().get("ok"):
+                if safe:
+                    acknowledgement = resp.json()
+                    ok = acknowledgement.get("ok") if isinstance(acknowledgement, dict) else None
+                    if resp.status_code == 200 and ok is True:
+                        return True
+                    # Retry only explicit API rejection, never timeout, 5xx,
+                    # redirect or malformed/unrecognizable acknowledgement.
+                    if not (200 <= resp.status_code < 500 and ok is False
+                            and not 300 <= resp.status_code < 400):
+                        log.warning("telegram delivery unconfirmed; automatic resend suppressed")
+                        return False
+                elif resp.status_code == 200 and resp.json().get("ok"):
                     return True
                 log.warning(
-                    "telegram attempt %d failed: HTTP %s %s",
-                    attempt, resp.status_code, resp.text[:200],
+                    "telegram attempt %d rejected: HTTP %s",
+                    attempt, resp.status_code,
                 )
-            except Exception as exc:
-                log.warning("telegram attempt %d raised: %s", attempt, exc)
+            except Exception:
+                # Exception strings/HTTP bodies can contain bot URL/token or
+                # chat details. Never log request material in either mode.
+                log.warning("telegram attempt %d transport/acknowledgement error", attempt)
+                if safe:
+                    log.warning("telegram delivery unconfirmed; automatic resend suppressed")
+                    return False
             self._stop_event.wait(min(2.0 * attempt, 5.0))  # backoff, interruptible
         return False

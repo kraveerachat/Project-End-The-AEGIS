@@ -202,6 +202,47 @@ Never copy credentials from the legacy helper. The required security state is:
 Credential Rotation Required Before Telegram Real Testing
 ```
 
+#### Machine C existing-sender configuration (source-only, owner-gated)
+
+Reuse the same existing bot/group through `AlertManager._send_telegram()` /
+`sendPhoto`; no Monitor/server sender is added. Do not copy, print or commit
+credentials. Separately authorized runtime configuration may set
+`AEGIS_TELEGRAM_NODE_DISPLAY_NAME=Machine C` and
+`AEGIS_TELEGRAM_NO_AMBIGUOUS_RETRY=true`. With the existing canonical
+`AEGIS_NODE_ID=mr-tk-01`, only the photo caption becomes
+`Node: Machine C (mr-tk-01)`. Authentication, payloads and Monitor persistence
+retain the canonical Node, authorized camera alias and producer generation.
+Camera, Count, Confidence and Thailand Time caption fields remain unchanged.
+The label is printable and limited to 64 characters.
+
+Both new defaults are inactive: blank display name and `false`. Machine A's
+caption, three-attempt retry behavior, Unknown eligibility and camera cooldown
+therefore remain unchanged. Failure logs and startup configuration mask both
+Telegram credentials and never print HTTP response bodies or request exceptions.
+
+Opt-in mode confirms delivery only on HTTP 200 with JSON boolean `ok=true`.
+It retries only explicit API rejection (`ok=false`, non-redirect 2xx/4xx).
+Timeouts, transport errors, 5xx, redirects and malformed acknowledgements are
+**unconfirmed** and are not automatically resent. `telegram_sent=false` means
+delivery was not confirmed, not proof the photo was never delivered. A new
+eligible detection after the existing cooldown is a new alert, not a replay.
+
+Duplicate-job suppression is bounded and process-local, not durable exactly-once
+delivery: key = canonical Node + camera alias + generation + frame sequence +
+event timestamp. In-flight claims are retained; completed claims last
+`max(60, alert_cooldown_s, 3 * alert_http_timeout_s + 11)` seconds after completion.
+At 256 recent claims, new Telegram deliveries are suppressed rather than evicting
+protected claims; the new alert still reaches API/Monitor persistence with
+`telegram_sent=false`. After the window or a process restart, there is no durable deduplication
+guarantee. There is no historical replay worker. Normal single-worker cooldown
+traffic stays well below this cap. Live/API publication and alert persistence
+occur once per claimed job; delivery failure remains persisted as unconfirmed.
+
+This source change does not provision Machine C credentials or alter an installed
+runtime. Owner review, dependency acceptance, a separately approved configuration
+step and separately authorized real-delivery acceptance remain pending. Do not
+send test messages or start capture as part of source verification.
+
 ## Architecture
 
 `DetectionEngine` initializes and manages:
