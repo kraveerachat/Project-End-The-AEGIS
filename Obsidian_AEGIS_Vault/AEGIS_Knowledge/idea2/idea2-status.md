@@ -4,7 +4,7 @@ aliases: ["03 - 📹 IDEA2 AEGIS Monitor"]
 tags: [aegis, monitor, cctv, soc, face-recognition, dual-view, mjpeg, heartbeat, telegram, i18n]
 type: module-doc
 created: 2026-07-20
-updated: 2026-10-07
+updated: 2026-10-12
 sources: ["[[raw/AEGIS_System_Design_extracted]]", "[[raw/AEGIS_Project_Knowledge_v7]]"]
 owner: pub
 edit_policy: owner-writable
@@ -15,26 +15,273 @@ edit_policy: owner-writable
 > [!info] Ownership
 > Owner: **Pub**. This is the canonical IDEA2 status fragment. Kla reviews only shared integration surfaces; IDEA1/IDEA3 tasks do not write here.
 
-## Live face-box attribution source correction — 2026-10-09
+## Current Task — Monitor themes and truthful face overlays
 
-The Live canvas no longer projects persisted detection rows into fixed screen
-slots. Those rows contain identity/event history but no bounding-box geometry,
-so the former overlay could place an old ADMIN label over an unrelated current
-frame. Operator and SOC Live now rely only on the Detection Engine's annotation
-of the exact frame that produced each result. The Engine label includes the
-measured entity confidence; Unknown status always renders UNKNOWN even if a
-malformed entity carries a name. Multiple exact-frame face boxes remain
-supported and recognition thresholds are unchanged.
+Task: UI-only Dark/Light redesign and removal of synthetic Monitor face boxes.
+Branch: `codex/idea2-monitor-themes-face-overlay`
+Owner: pub
+PR: [#425](https://github.com/kraveerachat/Project-End-The-AEGIS/pull/425), Draft, stacked on PR #348
+Current state: OWNER THEME VISUAL ACCEPTANCE RECEIVED / WHOLE-APP LOCALE SOURCE VERIFIED; dependency and human integration acceptance pending
+Started: 2026-10-10
+Initial implementation/evidence checkpoint: `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` (historical; owner rejected the initial visual preview)
+Production mutation allowed: NO
 
-Focused synthetic Engine tests and the complete 35-test browser fixture suite
-pass; the Monitor production build and 58 governance/Vault tests pass. The full
-Engine suite is environment-blocked by the local test interpreter missing
-`cryptography` (7 errors unrelated to this delta). The full neutral Monitor
-suite retains one pre-existing PR #348 contract-test mismatch in
-`archiveRecordingContract.test.mjs`; the affected Live, SOC scope, stream,
-recognizer and worker-memory tests pass. No Production or Machine A/C runtime
-was touched. Real Machine C visual acceptance remains pending a separately
-authorized deployment and operator-run camera test.
+### Scope and safety
+
+Monitor frontend styles, presentation/accessibility markup, offline browser
+fixtures/tests, this status and one final receipt only. Preserve API/state/RBAC,
+SOC passive viewing, Operator persistent viewer, logout cleanup, real MJPEG
+pixels and genuine Engine-rendered geometry/identity labels. Actual measured
+confidence remains in scoped latest-detection metadata (including Unknown/mixed
+people), not fabricated screen slots. No backend, Engine,
+hardware, Production or unrelated dirty-primary edits. Current main observed:
+`dbf00185331474053f46486fcefa795a46f5b821`. Unmerged PR #344 -> #348 supplies
+existing Archive and passive SOC behavior; the new PR must remain stacked.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| S1 | Impeccable critique, shared tokens/layout/motion and synthetic-overlay removal | SOURCE COMPLETE | offline real React/Edge fixtures; independent UI re-review | `5ff9c6b8db39ab6bb5e76cc22619c223babfe097` | browser61/61; affected31/31; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner reviews Draft |
+| S2 | Owner-reference theme correction only: shared CSS and existing browser tests | SOURCE VERIFIED; owner visual acceptance pending | two reference images; independent contrast critique; actual Edge screenshots | same PR #425 continuation | full browser67/67; final affected51/51; focused30/30; build PASS | baseline Archive assertion;109 DB skips; human/stack acceptance | owner checks Light/Dark preview |
+| S3 | Owner-approved TH/EN/ZH whole-app presentation and truthful Live overlay continuation | SOURCE VERIFIED; owner accepted S2 theme | real React/mock browser matrix for SOC/operator/operator2; independent locale/security review | same PR #425 continuation; existing receipt immutable | browser78/78; affected41/41; full Monitor241 PASS/1 inherited FAIL/109 SKIP; build PASS | new locale human review; stack/PR411 reconciliation; baseline disposition | owner reviews Draft/isolated preview |
+
+### Session S1 plan
+
+Use critique -> colorize -> extract -> layout -> typeset -> animate -> adapt ->
+audit -> polish. Write observable browser RED tests before frontend edits.
+Verify all existing pages across roles/themes and TH/EN/ZH settings, responsive
+sizes, focus/reduced motion and unchanged stream cleanup. Document baseline
+failures separately; no skipped/fixture test is real-camera acceptance.
+
+### Historical initial source handoff evidence (S1)
+
+Dark navy/cyan and Light blue/cyan/mint semantic tokens cover every existing
+authorized view. Sidebar selection is4px/200ms with bounded glow, keyboard focus
+and reduced-motion suppression. Settings preserve TH/EN/ZH state/layout and
+handlers; no new navigation or role capability is introduced. Operator streams
+persist through internal navigation and release on logout/session expiry; SOC
+remains passive, verified with existing offline browser regressions.
+
+The left rectangle was generated by `BOX_SLOTS`/`bboxesFor`, using asynchronous
+detection people without frame geometry; only that DOM overlay was removed.
+Genuine Engine pixels/boxes/labels are untouched. Separate PR #411 already owns
+overlapping overlay removal and Engine percentage-label enhancement; no Engine
+delta was consumed here. Pub must reconcile the overlap without dropping this
+UI's metadata preservation or PR411's exact-frame protections.
+
+- RED: first5 browser cases failed on the baseline (synthetic boxes, missing
+  pressed state, missing selected4px shift). SOC score preservation RED:1 FAIL.
+  Reviewer correction RED:3 FAIL/1 PASS (contrast and Unknown/mixed metadata).
+- Final complete browser suite:61 PASS/0 FAIL/0 SKIP, synthetic media only.
+- Affected design/liveCamera/UI-freeze/viewer-demand/stream/theme tests:31 PASS.
+- Full Monitor:231 PASS/1 pre-existing Archive contract FAIL/109 conditional DB
+  SKIP. Exact base Engine uses `submit_annotated`; the assertion expects
+  `submit_detection`. This UI task does not repair or claim that test PASS.
+- Vite build PASS. Governance61 PASS/0 FAIL/0 SKIP; Vault PASS with2 existing
+  owner-canvas warnings. Final policy/diff/secret checks recorded in the receipt.
+- Independent UI/code re-review: Critical0/Important0/Minor0 after corrections.
+
+No Production, Machine A/C, physical camera/microphone/GPU or primary dirty
+checkout mutation. No backend/API/RBAC/inference/stream cleanup change. Login
+and protected App/CoreEntry remain unchanged. Base is PR348
+`1531183f01afcf5964f4e051cf8e66df29e16e98`; main remains
+`dbf00185331474053f46486fcefa795a46f5b821`. Keep Draft; dependency reconciliation,
+baseline test disposition, human visual acceptance and any rollout remain
+separately authorized. One receipt:
+`90-Status/logs/2026-10-10_212802_pub_idea2-monitor-themes-face-overlay.md`.
+
+### Owner-reference correction evidence (S2)
+
+The owner rejected S1's subdued recolor as too similar to the original. S2
+implements the supplied theme composition: tall navy sidebar/brand, separate
+glass status header, vivid blue/cyan/mint Light backdrop, near-black/navy Dark
+backdrop, frosted cards and bounded luminous edges. Shared authenticated-app CSS
+covers all existing permitted SOC/operator/operator2 views; no new functions,
+menus, handlers or data. This correction changes only monitorTheme.css, its
+existing browser regressions and this mutable status. The original receipt
+remains unchanged; fixture results are not owner visual or hardware acceptance.
+
+- Reference-composition RED:0 PASS/6 FAIL. Contrast RED:0 PASS/4 FAIL; nested
+  SOC selector-count RED:0 PASS/1 FAIL. All corrected with focused regressions.
+- Complete browser suite:67 PASS/0 FAIL/0 SKIP. After the final CSS-only count
+  correction, theme/camera-selector recheck:51 PASS/0 FAIL/0 SKIP.
+- Focused design/liveCamera/UI-freeze/viewer-demand/stream/viewState:30 PASS/
+  0 FAIL/0 SKIP. Full Monitor:231 PASS/1 unchanged baseline Archive assertion
+  FAIL/109 conditional DB SKIP. No skip or failure counted as PASS.
+- Final Vite build PASS:2080 modules; CSS160.54kB/gzip36.37,
+  JS427.51kB/gzip133.34. Governance61 PASS/0 FAIL/0 SKIP. Vault PASS with2
+  existing owner-canvas warnings; final policy/diff/secret checks accompany push.
+- Independent reviewers' identified CSS readability findings corrected;
+  screenshot/owner approval remains pending. Four unchanged source-detector
+  warnings: two imperative StreamImage-src false positives and two Login
+  palette/gradient warnings outside this correction's scope.
+- App/LiveFeed, server/Engine, media pixels, RBAC/authentication, stream cleanup,
+  camera lifecycle, Production and the dirty primary checkout are unchanged.
+  Local preview uses synthetic multipart images and mocked APIs only.
+
+PR #425 stays Draft. Current main and PR #348 base remain the SHAs recorded
+above. Human visual acceptance, dependency/PR #411 reconciliation, baseline-test
+disposition and any separately authorized rollout remain pending.
+
+### Whole-app language continuation evidence (S3)
+
+The owner accepted the corrected theme preview and requested that the Settings
+language buttons apply immediately to every permitted page for SOC, operator
+and operator2. Shared TH/EN/ZH catalogs now localize navigation, chrome, Live,
+Archive, Detection, Alerts, Nodes, Operators, Diagnostics, Settings, login and
+known dialogs/error copy. Locale-specific dates are presentation only; Archive
+retains the Asia/Bangkok timezone and exact clip duration. Preference persists
+in the existing browser storage; unsupported values fall back to Thai. Names,
+camera/Node IDs, external unknown text, API/filter values and authorization
+remain canonical. Browser selection does not change another user's authority.
+
+App/Login/LiveFeed are now changed for presentation only, unlike historical
+S1/S2. LocaleProvider has no language-dependent key; stream URL, media keys,
+effects, retry/cleanup callbacks, server-supplied menu IDs and session/camera
+lifecycle remain unchanged. No server/Engine/AI/recording/DB/runtime changes.
+No synthetic rectangle is rendered on either Operator or SOC Live. Genuine
+Admin/Unknown boxes/labels remain in the unchanged Engine pixels, with measured
+confidence preserved in scoped metadata. No physical-camera result is claimed.
+
+- Locale RED: initial navigation tests0 PASS/2 expected FAIL; separate Archive
+  and admin catalog REDs2 and3 expected FAIL. Catalog GREEN10 PASS/0 FAIL/0 SKIP.
+- Affected locale/design/liveCamera/UI-freeze/viewer-demand/stream/theme tests:
+  41 PASS/0 FAIL/0 SKIP. Full Monitor:241 PASS/1 unchanged baseline Archive
+  assertion FAIL/109 conditional PostgreSQL SKIP (351 total). The failing test
+  still expects recorder.submit_detection while the exact base Engine uses
+  submit_annotated; no Engine edit or false full-suite PASS.
+- The nine role/language browser cases verify every permitted page, exact menu
+  translations, narrow390px layout, saved preference/new tab, logout release
+  and unchanged Operator viewer connections. Extra preview and invalid-pref
+  tests cover unchanged selected-canvas behavior and safe fallback. Full browser
+  suite78 PASS/0 FAIL/0 SKIP; synthetic media/mock APIs only. Locale changes do
+  not create new Operator stream connections; logout releases all viewers.
+- Vite build PASS:2084 modules; CSS160.54kB/gzip36.37,
+  JS468.34kB/gzip145.31. Governance61 PASS/0 FAIL/0 SKIP.
+- Vault and collaboration policy PASS; diff/staged diff checks PASS; full
+  task added-content secret-pattern scan0 hits. No generated media/build files,
+  dependencies or credentials staged; the existing receipt is unchanged.
+- Independent locale/UI and security source re-review: no unresolved Critical,
+  Important or Minor findings. Missing preview locale binding and misleading
+  camera-load error copy corrected before final verification. Reviews do not
+  prove runtime/hardware acceptance or replace human integration approval.
+- No Production, Machine A/C, physical camera/microphone/GPU, backend/security,
+  theme-design, dependency lockfile or dirty primary checkout mutation. Keep
+  Draft. This is the same task/PR; the original single receipt is immutable;
+  later evidence is maintained here and in the PR, not a second receipt.
+
+Final fetch observed main moved to
+`ca7f66f56626b6ab396566ce891baef7b1e60cdc`; changes since the prior observed
+main are IDEA3 source/status/receipts only, not IDEA2 or shared runtime.
+PR348 base remains `1531183f01afcf5964f4e051cf8e66df29e16e98`.
+The stacked dependency was not rewritten or merged here; main/dependency
+reconciliation remains a human integration gate.
+
+### Main reconciliation checkpoint — 2026-10-12
+
+- PR #344 merged as `a419941cfccb72ce73f0c29cdde17e70df9ebdc2`; PR #348 merged as `42eff6b85ce0b581b6fc7a202e7a5839b7f25da1`.
+- This task is being reconciled onto the exact merged main instead of the historical PR #348 head. Preserve both prior merge histories and the owner's local visual acceptance of theme, three languages, and synthetic rectangle removal.
+- PR #411 remains separate, unmerged: its Engine-side exact-frame confidence-label enhancement is not incorporated or represented as deployed by PR #425. The Monitor-side synthetic bbox removal overlaps and must not be duplicated.
+- Offline/fixture tests do not constitute real-camera or Production validation. CI, regression, reviewer and rollout gates must be re-evaluated at the new exact head. No Production mutation or merge authority.
+
+## PR #348 after PR #344 merge — 2026-10-11
+
+PR #344 was merged by the human owner into `main` at
+`a419941cfccb72ce73f0c29cdde17e70df9ebdc2`. The current PR #348
+reconciliation retains the existing multi-node/alias/recording source,
+preserves the full PR #344 FFmpeg/H.264 and legacy CFR previous-frame
+correction, and incorporates main-only governance, IDEA1, IDEA3 and
+immutable receipts without replacing historical evidence.
+
+PR #348 is still **Draft**. Post-reconciliation source, browser,
+disposable-PostgreSQL and governance checks require fresh exact-head
+evidence; independent human functional/shared-integration approval and
+repository-protection verification remain pending. Neither this source
+reconciliation nor the historical Machine A/C evidence is Production
+deployment authorization.
+
+
+## PR #348 functional-prototype handoff — 2026-10-10
+
+The functional owner declared the accepted IDEA2 Functional Prototype scope
+CLOSED on 2026-10-10. This scoped product decision does not close unverified
+operational/security/performance acceptance or replace independent human review.
+PR #348 remains Draft, stacked on PR #344; MERGE_AUTHORIZED=NO.
+
+### Owner-observed integrated Machine C evidence
+
+The owner reports MR-TK / authenticated Node `mr-tk-01` / Physical Camera ID2 /
+logical alias CAM-01. Existing Supervisor recovery succeeded without Windows
+reboot. Post-restart Engine was ONLINE/idle, NAS idle with pending0/synced0/failed0.
+NAS was subsequently enabled by the owner; this documentation task performs no
+runtime operation.
+
+A real authenticated CAM-01 viewing session ended; Engine returned idle,
+recorder had no active segment, and one segment entered NAS pending. Automatic
+sync completed: NAS_STATUS=ok, pending0, synced1, failed0,
+FINAL_RESULT=NAS_SYNC_SUCCESS. Independent of that status counter, the owner
+provided DB clip75: CAM-01, physical_camera_id2, started
+`2026-10-10 05:44:39.569+00`, duration150s, stored_on_nas=true.
+Filename `CAM-01_936_20261010_054439_736e2c406024d55be48f9d62c660596a.mp4`
+was present under `/opt/aegis/data/monitor-clips/` and appeared in real Archival
+Footage UI. CLIP_STORAGE_INGEST_VERIFIED=YES for this observed flow only; a
+separate physical remote NAS appliance is not independently established.
+
+This proves owner-observed integrated recording -> automatic verified transfer
+-> Monitor registration -> PostgreSQL -> Archive visibility for Machine C /
+Physical2 / CAM-01. Deployed component hashes are not pinned to this exact PR
+head. It does not prove all Nodes, CAM-02, SOC permission, audio playback,
+Download, seeking, or exhaustive negative authorization acceptance.
+
+### Separate evidence and bounded security claims
+
+Machine C direct Telegram API message/photo delivery used the existing bot and
+group and passed in the owner's evidence. Automatic Unknown Face-triggered
+delivery is NOT PROVEN. PR #419 remains separate and out of scope.
+
+Machine A (NARUEBET) only: RTX2050, yolo-sface-admin, GPU_REQUIRED=True,
+requested/actual YOLO device cuda:0, GPU_INFERENCE_SAMPLES=295,
+ACCELERATOR_ACTIVE=True, ACCELERATOR_FAILURE=False; YuNet and SFace opencv-cpu.
+This is observed Machine A YOLO CUDA inference, not Machine C GPU acceptance,
+full-GPU inference or measured performance acceptance.
+
+HISTORICAL_DEMAND_ASSOCIATION=PROVEN and PHYSICAL_PROVENANCE=PROVEN are bounded
+relational provenance claims; PER_FRAME_HISTORICAL_AUTHORIZATION=NOT_CLAIMED.
+Exact source still uses `-an` in NAS conversion and does not capture microphone
+audio. It requires acknowledged Monitor publication before local source deletion,
+but increments the NAS success metric before acknowledgement; NAS_STATUS=ok
+alone is not publication proof. Existing old clips/rows remain untouched.
+
+### Fresh handoff verification and pending integration
+
+Unchanged source checkpoint: `db263207f355678315e1a85fcfbc73df0e9be2dc`.
+Isolated offline Engine NAS tests:7 PASS; viewer-demand tests:15 PASS.
+Focused Monitor Archive/provenance tests:9 PASS /1 FAIL /50 conditional PostgreSQL
+SKIP. The pre-existing assertion in archiveRecordingContract expects
+`recorder.submit_detection(result, frame)`, while current source uses
+`annotate_detection_frame` then `recorder.submit_annotated(annotated)`.
+No source/test fix is made here. Skips are not PASS; no DB test was run.
+Governance:61 PASS /0 FAIL; Vault validation passes with two existing owner-canvas
+warnings. Full suites/browser/build are not rerun for documentation-only changes;
+earlier results remain historical checkpoint evidence.
+
+Observed main: `dbf00185331474053f46486fcefa795a46f5b821`.
+PR #344 documentation handoff head: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+PR #348 comparison merge-base remains `37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`;
+the newer #344 documentation commit is deliberately NOT merged here.
+Both branches change this canonical note; human post-#344 reconciliation must
+preserve both evidence sections and rerun checks. Current GitHub mergeability
+is false; no automatic reconciliation or retarget occurs.
+
+Independent human functional/integration approval, branch-protection requirements
+(integration read denied403), conflict disposition, the Archive assertion failure,
+real DB skipped gates and remaining operational acceptance require human review
+before Ready/merge. PR #344 must be reviewed/merged first, then separately
+authorize #348 reconciliation and revalidation. PRODUCTION_MUTATION=NO;
+MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO for this handoff.
+
+## Historical task checkpoints — 2026-10-07 and earlier
 
 ## PR #370 SOC passive Live post-merge reconciliation — 2026-10-07
 
@@ -181,7 +428,127 @@ MN-P2 evidence: Windows multi-node provisioning source package is prepared and s
 
 
 MN-P3 evidence: multi-node acceptance preparation is source-complete. A local Windows collector, bundle verifier, and acceptance checklist were added and statically verified with 5/5 tests PASS; the PowerShell collector parses with zero errors and its source contains no sensitive-runtime read markers. The collector is intentionally bounded to local lifecycle metadata and `127.0.0.1:8077/health`; it does not open the camera, read private keys/configuration, contact Production, mutate Twingate, or perform server registration. This preparation does not prove Machine B/C hardware acceptance, account alias routing, cross-node physical-camera isolation, event alias attribution, reboot lifecycle, or Production acceptance. Those claims remain PENDING until target hardware execution.
-## Current task — PR2 Recording / Archive 5-minute clips + NAS playback/download (2026-10-05)
+## PR #344 two-blocker correction — 2026-10-11
+
+Task: existing PR2 Recording / Archive; branch
+`feat/idea2-pr2-recording-archive-5min-download`; owner: Pub.
+Starting reviewed HEAD: `9ee7cd82edf125d9d1527e6d4374185887a41d30`.
+Current main: `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17`.
+State: SOURCE CORRECTION HANDOFF; independent correction review PASS. Source
+checkpoint `3325b7eafa09ca6725de6e3aae38b0ee7807cc27` published normally and
+exact-head Collaboration guardrails PASS (run2261 /38075719231). Final evidence
+commit/CI is tracked in PR #344; human/main/operational gates remain pending.
+Production mutation allowed: NO. PR remains Draft; no merge authorization.
+
+| Session | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PR2-S3 | FFmpeg image dependency and previous-frame CFR gap filling only | SOURCE HANDOFF / REVIEW PASS | Distinct-image RED: 1 PASS /6 FAIL /2 ERROR (missing held-frame state); GREEN: 10 PASS; real-media NAS: 4 PASS | Source 3325b7ea; CI run2261 PASS | Engine 308 PASS; Monitor 188 PASS /59 conditional SKIP; governance 61 PASS; build PASS | Image build unavailable; human/main/deployment gates pending | Human review of exact final PR head; separate main-reconciliation decision |
+
+### Plan and scope
+
+1. Baseline the existing offline Recorder/NAS tests in an isolated worktree.
+2. Add distinct-image RED tests: A at t=0, B at t=30; surplus-frame
+   dropping, rollover/resolution/session-boundary reset and separate recorders.
+3. Keep one previous-image snapshot per segment; use it only for missing CFR
+   slots and put the incoming image at its target slot. Reset at segment boundaries.
+4. Add only the FFmpeg runtime package to the supported Engine Dockerfile.
+   Test real temporary mp4v-to-H.264 conversion and fail-closed source retention.
+5. Run affected/full offline Engine and Monitor tests, build/codec checks where
+   available, collaboration/Vault/diff/secret validation and exact-head CI.
+6. Preserve this task's one unmerged receipt and historical evidence; update
+   current-session evidence and maintain the same Draft PR for independent review.
+
+Owned source paths: Engine Dockerfile, recorder and focused Engine tests.
+Canonical status and the current unmerged task receipt are evidence paths.
+No new shared surface is planned; inherited `.env.example` and
+`docker-compose.yml` declarations remain. No microphone/audio feature,
+Producer Authority, Live, RBAC, Monitor implementation, NAS/DB runtime,
+Machine A/C or PR #348 change. Main reconciliation remains separately reviewed.
+
+### Current correction evidence and limitations
+
+- Docker installs the minimal `ffmpeg` runtime package and checks the executable
+  and `libx264` encoder during image build; non-root `USER aegis` is unchanged.
+- Recorder holds an owned previous-image snapshot per segment. Past slots use
+  past content, including between-slot captures. Fast-source surplus dropping,
+  measured partial duration and 300-second rotation stay unchanged. Held state
+  resets on rollover, resolution change and finalization; separate recorder
+  instances do not share it. No demand/session/authority code changed.
+- Synthetic video-only mp4v converted using actual FFmpeg 8.1.2; ffprobe reports
+  non-empty H.264/yuv420p MP4, 12 frames /1s, and full decode succeeds. Actual
+  invalid-media failure, missing FFmpeg and empty output retain source material
+  and prevent transfer/Monitor publication. No microphone/audio feature added.
+- Offline Engine full: 308 PASS /0 FAIL /0 SKIP. Monitor full: 188 PASS /0 FAIL
+  /59 conditional PostgreSQL SKIP; focused Monitor: 58 PASS /0 FAIL /7 SKIP,
+  including Machine A symmetry 6/6. Focused recorder/NAS/viewer: 27 PASS.
+  Governance: 61 PASS. Monitor build: PASS. Vault: PASS with two existing canvas
+  warnings. Docker daemon is unavailable: container build/codec acceptance is
+  NOT RUN, and host codec evidence is not container acceptance.
+- Main `4ebade39a3ae2bf2c4fd75f0ebba0edb46248e17` is not merged/rebased here.
+  Real DB migration tests, hardware, deployed Archive/Download/seek, capacity,
+  integration acceptance and required repository protection remain pending.
+  Inherited `-an` and NAS-before-Monitor-ack behavior remain explicitly unchanged.
+  October 10's 84 PASS /0 FAIL /6 SKIP and historical runtime claims stay historical.
+- Fresh read-only correction review: Critical 0 /Important 0 /Minor 0. The
+  reviewer's optional dropped-frame/reused-buffer test was added and passes;
+  ten timeline tests and final Engine rerun verify it. Human functional and
+  shared integration approval are not substituted by agent source review.
+- Final `git diff --check`, staged diff check and added-content secret-pattern
+  scan pass (zero secret hits plus content review). Collaboration policy passes
+  against PR merge-base `1128e5253d72171bc04e9c48d50a05d044390476` (23 paths).
+  Direct current-main comparison fails policy: the unreconciled branch lacks
+  competing main-only paths/receipts (414 comparison paths). This is an existing
+  reconciliation gate, not permission to modify those paths or waive guards.
+- Exact source-head CI run2261 uses recorded base `1128e525`, not current
+  observed main `4ebade39`. CI PASS must not be presented as current-main
+  reconciliation acceptance. Both source defects are closed; PR stays Draft.
+
+## PR #344 functional-prototype handoff — 2026-10-10
+
+The functional owner declares IDEA2's accepted Functional Prototype scope
+CLOSED on 2026-10-10. This is an owner scope decision, not GitHub approval,
+merge authorization, exact-head Production deployment proof, or completion of
+every security/performance/operational gate. PR #344 remains Draft for independent
+human and integration review. Source evidence checkpoint:
+`37d02b6f8bb5b92c6eef17e04416d8c0ae6ad416`; observed current main:
+`dbf00185331474053f46486fcefa795a46f5b821`; PR comparison merge-base:
+`1128e5253d72171bc04e9c48d50a05d044390476`.
+
+Historical owner-reported Machine A onsite acceptance remains unchanged:
+continuous authenticated CONNECTED=True / DEMAND=True / VIEWERS=1 across the
+300-second boundary; clip ID4 duration300s and logout partial ID5 duration83s,
+both stored_on_nas=true after SCP/checksum/file/DB verification. Storage was
+`/opt/aegis/data/monitor-clips`, mounted read-only at `/nas/clips`. The Engine
+returned idle; the historical Monitor evidence reported RestartCount=0.
+`CLIP_STORAGE_INGEST_VERIFIED=YES`; a separate remote NAS appliance is not proven.
+
+Additional owner evidence on 2026-10-10: a newly uploaded CAM-01 clip appeared
+in the real Archival Footage page of the integrated system. Runtime provenance
+is not pinned to isolated PR #344 source, so this is INTEGRATED_RUNTIME_ACCEPTANCE,
+not exact-head source acceptance. Download, audio playback, seeking, exhaustive
+negative RBAC/session/camera-scope acceptance, migration006 deployment and
+capacity/retention remain unverified or undecided. No new runtime test was run
+by this handoff.
+
+Source limitations are explicit: PR #344's mp4v conversion still uses `-an`,
+and NAS success/local deletion do not wait for acknowledged Monitor publication.
+Neither real microphone capture nor end-to-end audio preservation is claimed
+for this exact revision. Later stacked/local runtime changes must not be
+silently attributed to #344. No implementation is changed here.
+
+Fresh offline handoff verification: NAS4/4 and viewer/recording9/9 PASS;
+Archive/migration tests10 PASS /0 FAIL /6 conditional PostgreSQL SKIP;
+governance61/61 PASS; Vault PASS with two existing owner-canvas warnings.
+Full suites/browser/hardware were not rerun for this documentation-only change;
+earlier results below remain historical. One partial task-handoff receipt is
+added; existing receipts are untouched. Current source, integration surfaces
+`.env.example` and `docker-compose.yml`, actual main drift, and unresolved gates
+require human disposition before Ready. Merge #344 first, then separately
+authorize #348 reconciliation; no automatic base change or dependency merge.
+PRODUCTION_MUTATION=NO; MACHINE_A_C_MUTATION=NO; CAMERA_WAKE=NO;
+MERGE_AUTHORIZED=NO.
+
+## Historical task checkpoints — PR2 Recording / Archive (2026-10-05)
 
 Task: PR2 Recording / Archive. Branch:
 `feat/idea2-pr2-recording-archive-5min-download`; owner: Pub; starting main:

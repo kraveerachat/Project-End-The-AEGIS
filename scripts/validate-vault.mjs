@@ -167,7 +167,7 @@ function expectedPolicy(relativePath) {
 
 function receiptSection(content, title) {
   const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return content.match(new RegExp(`^##\\s+${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s+|$)`, 'im'))?.[1]?.trim() || '';
+  return content.match(new RegExp(`^##\\s+${escaped}\\s*\\r?\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'im'))?.[1]?.trim() || '';
 }
 
 function stripLinkDecoration(value) {

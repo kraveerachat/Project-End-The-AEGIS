@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { UploadCloud, X } from 'lucide-react'
 
 import { Btn, IconBtn } from './ui.jsx'
@@ -17,6 +17,8 @@ export function UploadEntryPanel({
 }) {
   const inputRef = useRef(null)
   const drawerRef = useRef(null)
+  // Presentation only: lights the drop zone while files hover over it.
+  const [dragOver, setDragOver] = useState(false)
 
   useEffect(() => {
     const drawer = drawerRef.current
@@ -42,14 +44,15 @@ export function UploadEntryPanel({
   const pick = () => inputRef.current?.click()
   const acceptDrop = (event) => {
     event.preventDefault()
+    setDragOver(false)
     if (event.dataTransfer?.files?.length) onFiles(event.dataTransfer.files)
   }
 
   return (
     <>
-      <div className="fixed inset-0 z-[var(--z-modal)] bg-black/20" aria-hidden />
-      <aside ref={drawerRef} tabIndex={-1} data-testid={testId} role="dialog" aria-modal="true" aria-labelledby={titleId} className="fixed z-[calc(var(--z-modal)+1)] inset-y-0 right-0 w-full max-w-[420px] bg-canvas border-l border-line shadow-[var(--elev-2)] flex flex-col outline-none">
-        <header className="px-6 py-5 border-b border-line flex items-start gap-3 bg-card">
+      <div className="upload-entry-scrim fixed inset-0 z-[var(--z-modal)] bg-black/20" aria-hidden />
+      <aside ref={drawerRef} tabIndex={-1} data-testid={testId} role="dialog" aria-modal="true" aria-labelledby={titleId} className="upload-entry-panel fixed z-[calc(var(--z-modal)+1)] inset-y-0 right-0 w-full max-w-[420px] bg-canvas border-l border-line shadow-[var(--elev-2)] flex flex-col outline-none">
+        <header className="upload-entry-header px-6 py-5 border-b border-line flex items-start gap-3 bg-card">
           <div className="min-w-0 flex-1">
             <h2 id={titleId} className="text-[18px] font-bold text-ink tracking-[-0.01em]">{t('uploadFiles')}</h2>
             <p className="mt-1 text-[11.5px] text-ink-3">
@@ -64,11 +67,13 @@ export function UploadEntryPanel({
           <button
             type="button"
             onClick={pick}
-            onDragOver={(event) => event.preventDefault()}
+            onDragOver={(event) => { event.preventDefault(); if (!dragOver) setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
             onDrop={acceptDrop}
-            className="w-full min-h-44 rounded-[var(--r-card)] border-2 border-dashed border-line bg-sunken flex flex-col items-center justify-center gap-2 text-center px-6 py-8 transition-colors duration-[var(--dur-fast)] hover:border-accent hover:bg-[var(--accent-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            data-drag-over={dragOver ? 'true' : undefined}
+            className="upload-entry-dropzone w-full min-h-44 rounded-[var(--r-card)] border-2 border-dashed border-line bg-sunken flex flex-col items-center justify-center gap-2 text-center px-6 py-8 transition-colors duration-[var(--dur-fast)] hover:border-accent hover:bg-[var(--accent-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
-            <span className="size-12 rounded-full bg-card flex items-center justify-center shadow-[var(--elev-1)]">
+            <span className="upload-entry-dropzone-icon size-12 rounded-full bg-card flex items-center justify-center shadow-[var(--elev-1)]">
               <UploadCloud size={22} className="text-accent" aria-hidden />
             </span>
             <span className="mt-1 block text-[14px] font-bold text-ink">{t('dropHere')}</span>
@@ -76,15 +81,15 @@ export function UploadEntryPanel({
           </button>
           <input ref={inputRef} data-testid={inputTestId} type="file" multiple className="sr-only" aria-label={t('chooseFiles')} onChange={(event) => { if (event.target.files?.length) onFiles(event.target.files); event.target.value = '' }} />
 
-          <Btn variant="primary" className="w-full" onClick={pick}>{t('chooseFiles')}</Btn>
+          <Btn variant="primary" className="upload-entry-choose w-full" onClick={pick}>{t('chooseFiles')}</Btn>
 
           {/* ⚠️ คิวที่กำลังเดินไม่ถูกแสดงซ้ำที่นี่ ถาดมุมขวาล่างเป็นเจ้าของเรื่องนั้นคนเดียว */}
-          <p className="text-[11.5px] leading-relaxed text-ink-3 border-l-2 border-line pl-3">{t('uploadEntryHint')}</p>
+          <p className="upload-entry-hint text-[11.5px] leading-relaxed text-ink-3 rounded-[var(--r-tile)] border border-line bg-sunken px-3.5 py-2.5">{t('uploadEntryHint')}</p>
 
           {children}
         </div>
 
-        <footer className="px-6 py-4 border-t border-line bg-card">
+        <footer className="upload-entry-footer px-6 py-4 border-t border-line bg-card">
           <span className="text-[11.5px] text-ink-3">{t('currentFolder')}: <span className="font-mono text-ink-2">{destination}</span></span>
         </footer>
       </aside>

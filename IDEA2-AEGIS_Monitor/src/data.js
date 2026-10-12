@@ -5,10 +5,12 @@
 //    ลงมามี HERO_SCENES/TILE_BOXES ที่ฝัง "ชื่อคน + เปอร์เซ็นต์ความมั่นใจ" ที่กุขึ้นเอง
 //    (J. SMITH 98%, SOMCHAI T. 98%, A. OKAFOR 95%, UNKNOWN 82%) แล้ววาดทับจอ hero
 //    ทุกครั้งที่เลือกกล้องนั้น — ไม่เกี่ยวกับ detection จริงเลยสักนิด
-//    ทั้งสองค่าถูกลบทิ้งแล้ว และหัวไฟล์นี้ถูกแก้ให้ตรงความจริง
+//    ทั้งสองค่าถูกลบทิ้งแล้ว
 //
-// ตอนนี้ทุกแถว/ทุกกล่องบนจอมาจาก /api/* ของเซิร์ฟเวอร์ Monitor จริง ๆ
+// Rows come from Monitor APIs. Face geometry belongs to Engine-rendered video.
 // ไฟล์นี้เหลือเฉพาะ formatter + ตัวช่วยแสดงผลที่ไม่ใช่ข้อมูล
+
+import { translate, languageTag } from './lib/i18n.js'
 
 export const camShort = (id) => 'C' + String(id).slice(4)
 
@@ -19,11 +21,11 @@ export function ini(n) {
 export const hasUnk = (d) => d.people.some((p) => p.k === 'unk')
 export const isTail = (d) => hasUnk(d) && d.people.some((p) => p.k === 'auth')
 
-export function eventText(d) {
-  if (isTail(d)) return 'Unknown person — AI focus elevated'
-  if (hasUnk(d)) return 'Unknown person — clip saved'
+export function eventText(d, lang = 'en') {
+  if (isTail(d)) return translate(lang, 'Unknown person — AI focus elevated')
+  if (hasUnk(d)) return translate(lang, 'Unknown person — clip saved')
   const names = d.people.map((p) => p.name).join(', ')
-  return `Authorized — ${names}`
+  return translate(lang, 'Authorized — {names}', { names })
 }
 
 /* ---------- formatting ---------- */
@@ -34,8 +36,11 @@ export const fmtHM = (ms) => new Date(ms).toLocaleTimeString('en-GB', { hour: '2
 const WD = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 const MO = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
-export function fmtDate(ms) {
+export function fmtDate(ms, lang = 'en') {
   const d = new Date(ms)
+  if (lang !== 'en') return d.toLocaleDateString(languageTag(lang), {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+  })
   return `${WD[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${MO[d.getMonth()]} ${d.getFullYear()}`
 }
 

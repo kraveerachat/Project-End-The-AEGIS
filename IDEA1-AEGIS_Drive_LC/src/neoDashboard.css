@@ -1,0 +1,877 @@
+/* ─────────────────────────────────────────────────────────────────
+   Neo Dashboard — enterprise reference pass
+
+   Layout (both themes, layout only) maps the real AEGIS modules onto the
+   owner's reference composition:
+
+     Row 1  four KPI cards (storage · files · shares · DENIED/BLOCKED)
+     Row 2  storage composition · 7-day activity · host resources
+     Row 3  Data Lake layers · recent files · sign-in history
+     Row 4  active share links
+
+   Colour, glass and lighting are Dark-only and sampled from the reference
+   image (aegis_drive_enterprise_dashboard.png): deep #03132F field, blue-navy
+   glass #0C204B–#122448, electric #2262EF, sky #3FA2FF, violet #AC5DFC,
+   magenta #F63ECA, success #06D288. The reference is visual authority only;
+   every value shown remains the API's value.
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Layout (both themes) ───────────────────────────────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1.18fr) minmax(320px, 0.95fr);
+  grid-template-areas: "storage activity resources";
+  gap: 16px;
+  align-items: stretch;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid > .dashboard-storage-hero { grid-area: storage; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid > .dashboard-activity-panel { grid-area: activity; min-width: 0; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid > .dashboard-telemetry-card { grid-area: resources; }
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-activity-panel > .ui-card {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-activity-panel .dashboard-activity-plot {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 260px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-ops-grid > .ui-card {
+  min-width: 0;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-links-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  column-gap: 24px;
+}
+
+/* KPI anatomy: icon module | title + number | status, support line below. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon label chip"
+    "icon value value"
+    "support support support";
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+  min-height: 0;
+  padding: 20px 20px 18px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card > div:first-child { display: contents; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card .metric-icon { grid-area: icon; align-self: start; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card > div:first-child > span { grid-area: chip; justify-self: end; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card > p:not([lang]) { grid-area: label; margin: 0; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row > .dashboard-stat-card > p[lang] { grid-area: value; margin: 0; }
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-support {
+  grid-area: support;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+@media (max-width: 1440px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid {
+    grid-template-columns: minmax(0, 1.15fr) minmax(300px, 1fr);
+    grid-template-areas:
+      "storage resources"
+      "activity activity";
+  }
+}
+
+@media (max-width: 1280px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-ops-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-ops-grid > .lake-health-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "storage" "resources" "activity";
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-ops-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-kpi-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-storage-hero-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-links-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The screen-reader data table behind the activity chart is 1px wide by
+   intent, but a <table> refuses to shrink below its content and widened the
+   page at 390px. Clipping its box keeps it fully readable to assistive tech. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-card table.sr-only {
+  display: block;
+  max-width: 1px;
+  overflow: hidden;
+}
+
+/* ── Dark: reference palette ────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout {
+  --ref-field: #03132f;
+  --ref-glass-top: rgba(20, 44, 100, 0.64);
+  --ref-glass-bottom: rgba(8, 22, 58, 0.74);
+  --ref-glass-light: rgba(46, 104, 226, 0.24);
+  --ref-inner: rgba(9, 25, 64, 0.62);
+  --ref-inner-edge: rgba(82, 132, 232, 0.24);
+  --ref-edge: rgba(66, 120, 234, 0.46);
+  --ref-edge-top: rgba(140, 190, 255, 0.34);
+  --ref-edge-hot: rgba(118, 170, 255, 0.92);
+  --ref-electric: #2262ef;
+  --ref-sky: #3fa2ff;
+  --ref-cyan: #45c1f4;
+  --ref-violet: #ac5dfc;
+  --ref-violet-deep: #7b3df0;
+  --ref-magenta: #f63eca;
+  --ref-magenta-soft: #e445af;
+  --ref-green: #06d288;
+  --ref-label: #9fb5dc;
+  --ink-2: #d2def4;
+  --ink-3: #9fb5dc;
+  --dashboard-series-uploads: #2a7bff;
+  --dashboard-series-uploads-top: #45c1f4;
+  --dashboard-series-downloads: #7b3df0;
+  --dashboard-series-downloads-top: #f63eca;
+  --neo-category-docs: #3fa2ff;
+  --neo-category-archives: #45c1f4;
+  --neo-category-media: #ac5dfc;
+  --neo-category-vault: #06d288;
+  --neo-category-versions: #f6b73e;
+  --neo-category-other: #e445af;
+}
+
+/* ── Dark: major glass panels ───────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card {
+  isolation: isolate;
+  border: 1px solid var(--ref-edge);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, var(--ref-glass-light), transparent 56%),
+    linear-gradient(180deg, var(--ref-glass-top), var(--ref-glass-bottom)) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ref-edge-top),
+    inset 1px 0 0 rgba(120, 170, 255, 0.1),
+    0 22px 44px -30px rgba(0, 3, 18, 0.95),
+    0 0 0 1px rgba(4, 18, 60, 0.35) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(14px) saturate(1.25);
+}
+
+/* Soft floor light: the reference panels glow from below, not all over. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(90% 60% at 50% 115%, rgba(46, 110, 255, 0.16), transparent 70%);
+  pointer-events: none;
+  content: '';
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card:hover {
+    border-color: var(--ref-edge-hot);
+    box-shadow:
+      inset 0 1px 0 rgba(170, 210, 255, 0.42),
+      inset 1px 0 0 rgba(140, 190, 255, 0.14),
+      0 24px 48px -28px rgba(0, 6, 30, 0.95),
+      0 0 22px -8px rgba(54, 120, 255, 0.55) !important;
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .ui-card::after {
+  background: radial-gradient(260px circle at var(--pointer-x, 50%) var(--pointer-y, 0%), #7fc0ff, #8a5cff 36%, transparent 72%);
+}
+
+/* ── Dark: icon modules ─────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.metric-icon, .dashboard-panel-icon) {
+  border: 1px solid rgba(120, 178, 255, 0.55);
+  color: #cfe6ff;
+  background: linear-gradient(150deg, #2f74ec 0%, #1a46b0 62%, #14348a 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(220, 236, 255, 0.4),
+    inset 0 -8px 16px -10px rgba(4, 14, 60, 0.8),
+    0 0 0 4px rgba(44, 110, 255, 0.08),
+    0 0 22px -4px rgba(44, 120, 255, 0.6);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout :is(.metric-icon, .dashboard-panel-icon) svg {
+  filter: drop-shadow(0 0 6px rgba(140, 200, 255, 0.85));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row .metric-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row .metric-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* ── Dark: KPI cards ────────────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card {
+  --kpi-tint: rgba(46, 116, 255, 0.3);
+  --kpi-floor: rgba(46, 116, 255, 0.22);
+  background:
+    radial-gradient(70% 120% at 0% 50%, var(--kpi-tint), transparent 62%),
+    radial-gradient(80% 70% at 100% 120%, var(--kpi-floor), transparent 70%),
+    linear-gradient(180deg, rgba(22, 50, 112, 0.66), rgba(9, 25, 64, 0.76)) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-accent="storage"] {
+  --kpi-tint: rgba(69, 193, 244, 0.26);
+  --kpi-floor: rgba(46, 130, 255, 0.24);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-accent="shares"] {
+  --kpi-tint: rgba(138, 92, 255, 0.3);
+  --kpi-floor: rgba(69, 193, 244, 0.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-accent="shares"] .metric-icon {
+  background: linear-gradient(150deg, #7b55f2 0%, #4a37c4 62%, #31258f 100%) !important;
+  border-color: rgba(190, 160, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(236, 226, 255, 0.4), 0 0 0 4px rgba(138, 92, 255, 0.08), 0 0 22px -4px rgba(138, 92, 255, 0.6);
+}
+
+/* DENIED/BLOCKED: magenta energy when events exist (the existing "alarm"
+   semantic), never a solid red catastrophe panel or a pulsing border. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-alarm="true"] {
+  --kpi-tint: rgba(246, 62, 202, 0.24);
+  --kpi-floor: rgba(228, 69, 175, 0.26);
+  border-color: rgba(246, 92, 210, 0.58) !important;
+  animation: none !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-alarm="true"] .metric-icon {
+  border-color: rgba(255, 160, 228, 0.6);
+  background: linear-gradient(150deg, #d4459f 0%, #8f2a8a 62%, #5a1f6e 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 220, 244, 0.4), 0 0 0 4px rgba(246, 62, 202, 0.08), 0 0 22px -4px rgba(246, 62, 202, 0.6);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card[data-alarm="true"] p[lang] {
+  color: #ff8fdc !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card > p:not([lang]) {
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-kpi-row > .dashboard-stat-card > p[lang] {
+  font-family: inherit;
+  font-size: clamp(26px, 2vw, 32px);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  text-shadow: 0 0 22px rgba(90, 160, 255, 0.35);
+}
+
+/* Status chips on the reference family. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .bg-ok-soft {
+  color: #3ff0aa !important;
+  background: rgba(6, 210, 136, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(6, 210, 136, 0.34);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .bg-danger-soft {
+  color: #ff8fd0 !important;
+  background: rgba(246, 62, 202, 0.16) !important;
+  box-shadow: inset 0 0 0 1px rgba(246, 62, 202, 0.36);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .bg-accent-soft {
+  color: #9fd2ff !important;
+  background: rgba(44, 120, 255, 0.18) !important;
+  box-shadow: inset 0 0 0 1px rgba(90, 160, 255, 0.36);
+}
+
+/* ── Dark: storage composition ──────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-hero {
+  background:
+    radial-gradient(70% 60% at 22% 48%, rgba(70, 110, 255, 0.2), transparent 70%),
+    radial-gradient(120% 80% at 0% 0%, var(--ref-glass-light), transparent 56%),
+    linear-gradient(180deg, var(--ref-glass-top), var(--ref-glass-bottom)) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial {
+  position: relative;
+  width: min(100%, 196px);
+  background: conic-gradient(
+    from 210deg,
+    #19c8ff 0,
+    var(--ref-electric) calc(var(--capacity-pct) * 0.42),
+    var(--ref-violet) calc(var(--capacity-pct) * 0.78),
+    var(--ref-magenta) var(--capacity-pct),
+    rgba(28, 52, 110, 0.7) var(--capacity-pct) 100%
+  );
+  box-shadow: 0 0 0 1px rgba(110, 160, 255, 0.18), 0 0 46px -10px rgba(80, 110, 255, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial.is-unavailable {
+  background: rgba(28, 52, 110, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(110, 160, 255, 0.16);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-radial-center {
+  width: calc(100% - 34px);
+  height: calc(100% - 34px);
+  background: radial-gradient(circle at 50% 35%, #0f2758, #071635 72%) !important;
+  box-shadow: inset 0 1px 0 rgba(160, 200, 255, 0.16), inset 0 0 24px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-radial-center strong {
+  color: #ffffff;
+  font-size: clamp(30px, 2.5vw, 40px);
+  text-shadow: 0 0 20px rgba(120, 170, 255, 0.45);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-totals dd {
+  color: #ffffff;
+  font-size: 15px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-storage-categories {
+  border: 1px solid var(--ref-inner-edge) !important;
+  background: var(--ref-inner) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track {
+  background: rgba(28, 52, 110, 0.6);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-storage-category-track > span {
+  filter: drop-shadow(0 0 5px rgba(90, 150, 255, 0.5));
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.28) 100%);
+}
+
+/* ── Dark: activity chart ───────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-card .recharts-cartesian-grid line {
+  stroke: rgba(110, 150, 230, 0.14);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-card .recharts-cartesian-axis-tick-value {
+  fill: var(--ref-label);
+  font-size: 11.5px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-card .recharts-bar-rectangle path {
+  filter: drop-shadow(0 0 6px rgba(80, 140, 255, 0.45));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-activity-card .recharts-tooltip-cursor {
+  fill: rgba(90, 140, 255, 0.1);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .dashboard-chart-tooltip {
+  border-color: rgba(110, 160, 255, 0.4) !important;
+  border-radius: 12px !important;
+  background: rgba(10, 24, 60, 0.92) !important;
+  box-shadow: inset 0 1px 0 rgba(170, 210, 255, 0.18), 0 16px 34px -18px rgba(0, 0, 0, 0.95) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* ── Dark: resource panel (current values only) ─────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-tile {
+  min-height: 0;
+  padding: 11px 2px;
+  border-color: rgba(90, 135, 230, 0.16) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-tile > div + div {
+  margin-top: 8px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-tile > div:first-child > span:first-child {
+  color: var(--meter-from, #8fc4ff);
+  background: rgba(30, 60, 130, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(110, 160, 255, 0.24);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile {
+  --meter-from: #2a7bff;
+  --meter-to: #45c1f4;
+}
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-metric="memory"] { --meter-from: #7b3df0; --meter-to: #c562fe; }
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-metric="disk"] { --meter-from: #2262ef; --meter-to: #3fa2ff; }
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-metric="network"] { --meter-from: #06b37a; --meter-to: #45e3b0; }
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-metric="uptime"] { --meter-from: #45c1f4; --meter-to: #8fe0ff; }
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-metric="temperature"] { --meter-from: #e445af; --meter-to: #f69be0; }
+
+/* Meters: luminous gradient fill at the real width. Threshold states keep
+   their semantic colours; unavailable metrics never render a fill. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div {
+  height: 8px;
+  background: rgba(28, 52, 110, 0.65) !important;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress > div > span {
+  background: linear-gradient(90deg, var(--meter-from), var(--meter-to)) !important;
+  box-shadow: 0 0 12px -2px var(--meter-to);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress:is([data-state="warning"], [data-state="stale"]) > div > span {
+  background: linear-gradient(90deg, #d98a14, #f6c03e) !important;
+  box-shadow: 0 0 12px -2px #f6c03e;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress[data-state="critical"] > div > span {
+  background: linear-gradient(90deg, #d9304f, #ff6b86) !important;
+  box-shadow: 0 0 12px -2px #ff6b86;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-progress strong {
+  min-width: 3.2em;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-state="unavailable"] > div:first-child > span:first-child,
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-tile[data-state="loading"] > div:first-child > span:first-child {
+  color: var(--ref-label);
+  filter: saturate(0.2);
+}
+
+/* Resource column density: an unavailable metric is one honest line, not a
+   tall hatched block that stretches the whole analytics row. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid > :is(.dashboard-telemetry-card, .dashboard-storage-hero) {
+  min-height: 0;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .dashboard-analytics-grid .dashboard-telemetry-empty {
+  margin-top: 6px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-empty-track {
+  display: none;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-analytics-grid .dashboard-telemetry-tile p {
+  margin-top: 0 !important;
+  color: var(--ref-label);
+  font-size: 11.5px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-activity-card > div:first-child {
+  flex-wrap: wrap;
+}
+
+/* Storage column: ring + totals side by side, category bars full width
+   underneath — the card fills its row instead of leaving a dark well. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-storage-hero .dashboard-storage-hero-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 18px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-storage-hero .dashboard-storage-capacity {
+  flex-direction: row;
+  align-items: center;
+  gap: 22px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-storage-hero .dashboard-storage-radial {
+  flex: none;
+  width: clamp(150px, 12vw, 196px);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-storage-hero .dashboard-storage-totals {
+  flex: 1;
+  margin-top: 0;
+  gap: 12px;
+}
+
+/* Resource rows (both themes, layout only): icon | name | status on one
+   line, the real reading (meter, values or the no-source note) beneath. */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon name chip"
+    "icon body body";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 3px;
+  min-height: 0;
+  padding: 9px 2px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile > div:first-child { display: contents; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile > div:first-child > span:first-child { grid-area: icon; width: 30px; height: 30px; align-self: start; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile > div:first-child > h3 { grid-area: name; min-width: 0; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile > div:first-child > span:last-child { grid-area: chip; margin: 0; }
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile > div:nth-child(2) { grid-area: body; min-width: 0; margin-top: 0 !important; }
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-analytics-grid .dashboard-telemetry-tile .dashboard-telemetry-empty p {
+  overflow: hidden;
+  max-width: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Dark: Data Lake layers ─────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-layout .lake-health-row {
+  border-color: var(--ref-inner-edge) !important;
+  background: linear-gradient(90deg, rgba(20, 50, 120, 0.42), rgba(9, 25, 64, 0.58)) !important;
+  box-shadow: inset 0 1px 0 rgba(150, 190, 255, 0.08) !important;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-connector > div {
+  background: linear-gradient(180deg, rgba(110, 170, 255, 0.55), rgba(110, 170, 255, 0.15)) !important;
+}
+
+/* ── Dark: secondary lists ──────────────────────────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-list-row {
+  border-color: rgba(90, 135, 230, 0.14) !important;
+  transition: background-color 180ms var(--neo-ease);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-list-row:hover {
+    background: rgba(60, 110, 230, 0.12);
+  }
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-list-icon {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-list-icon {
+  color: #9fd2ff;
+  background: rgba(44, 110, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(110, 170, 255, 0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-list-row[data-result="denied"] {
+  background: linear-gradient(90deg, rgba(246, 62, 202, 0.1), transparent 70%);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-list-card .size-7.rounded-full {
+  background: rgba(44, 110, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(110, 170, 255, 0.26);
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] :is(.dashboard-list-row, .dashboard-layout .ui-card) {
+    transition: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Final polish pass
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Header actions (Upload · Share · Vault) ───────────────────── */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button {
+  height: 44px;
+  gap: 10px;
+  padding: 0 16px 0 6px;
+  border: 1px solid rgba(92, 144, 240, 0.42);
+  border-radius: 14px;
+  color: #e6efff;
+  background: linear-gradient(180deg, rgba(22, 44, 98, 0.85), rgba(9, 22, 56, 0.9));
+  box-shadow: inset 0 1px 0 rgba(160, 200, 255, 0.2), 0 12px 24px -18px rgba(0, 4, 22, 0.95);
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 180ms var(--neo-ease), border-color 180ms var(--neo-ease), box-shadow 180ms var(--neo-ease), background 180ms var(--neo-ease);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgba(120, 178, 255, 0.45);
+  border-radius: 10px;
+  color: #cfe6ff;
+  background: linear-gradient(150deg, rgba(47, 116, 236, 0.55), rgba(20, 52, 138, 0.55));
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.3), 0 0 14px -6px rgba(44, 120, 255, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-icon svg {
+  filter: drop-shadow(0 0 5px rgba(140, 200, 255, 0.7));
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button.is-primary {
+  border-color: rgba(147, 183, 255, 0.7);
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(105deg, #2262ef, #3b82f6 60%, #4f6bff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 14px 28px -14px rgba(44, 110, 255, 0.95);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button.is-primary .header-action-icon {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:hover {
+    border-color: rgba(140, 190, 255, 0.85);
+    color: #ffffff;
+    transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 rgba(180, 215, 255, 0.3), 0 16px 30px -16px rgba(0, 6, 30, 0.95), 0 0 20px -8px rgba(70, 130, 255, 0.75);
+  }
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 90ms;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button:focus-visible {
+  border-radius: 14px;
+  outline: 2px solid #8fb6ff;
+  outline-offset: 3px;
+}
+
+/* ── Storage KPI meter (the real used/total ratio) ─────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-support:has(.dashboard-stat-meter) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 9px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--card-sunken);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-stat-meter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-meter {
+  background: rgba(28, 52, 110, 0.7);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-stat-meter > span {
+  background: linear-gradient(90deg, #19c8ff, #2262ef 55%, #8a5cff);
+  box-shadow: 0 0 12px -2px rgba(69, 193, 244, 0.85);
+}
+
+/* ── Data Lake rows: tier icon · name/tech · latency · state ─────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-health-row {
+  height: auto !important;
+  min-height: 62px;
+  padding-block: 10px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-tier-icon {
+  position: relative;
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .lake-tier-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--card);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon {
+  border: 1px solid rgba(110, 165, 255, 0.36);
+  color: #bfe0ff;
+  background: linear-gradient(150deg, rgba(47, 116, 236, 0.42), rgba(20, 52, 138, 0.42));
+  box-shadow: inset 0 1px 0 rgba(220, 236, 255, 0.24);
+}
+
+/* State is explicit and colour-coded only from the real probe result. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="ok"] {
+  border-color: rgba(6, 210, 136, 0.45);
+  box-shadow: inset 0 1px 0 rgba(220, 255, 240, 0.2), 0 0 14px -6px rgba(6, 210, 136, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="warn"] {
+  border-color: rgba(246, 192, 62, 0.55);
+  color: #ffe2a3;
+  box-shadow: 0 0 14px -6px rgba(246, 192, 62, 0.7);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="danger"] {
+  border-color: rgba(255, 110, 140, 0.6);
+  color: #ffc2cd;
+  background: linear-gradient(150deg, rgba(200, 40, 80, 0.35), rgba(110, 20, 50, 0.35));
+  box-shadow: 0 0 14px -6px rgba(255, 110, 140, 0.8);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-icon[data-tone="neutral"] {
+  color: var(--ref-label);
+  filter: saturate(0.3);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-tier-dot {
+  background: #0b1a40;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-health-latency {
+  color: #e6efff !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .lake-health-name {
+  color: #ffffff;
+}
+
+/* ── Resources: usage vs runtime/environment ──────────────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-groups {
+  display: grid;
+  gap: 14px;
+}
+
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-telemetry-group-title {
+  margin-bottom: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group {
+  padding: 12px 14px 6px;
+  border: 1px solid rgba(82, 132, 232, 0.24);
+  border-radius: 13px;
+  background: rgba(9, 25, 64, 0.5);
+  box-shadow: inset 0 1px 0 rgba(150, 190, 255, 0.07);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ref-label);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group-title::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #3fa2ff, #8a5cff);
+  content: '';
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group[data-group="state"] .dashboard-telemetry-group-title::before {
+  background: linear-gradient(135deg, #06d288, #45c1f4);
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group .dashboard-telemetry-tile:last-child {
+  border-bottom: 0 !important;
+}
+
+/* Runtime/environment rows carry values, not bars: tighter rows. */
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-telemetry-group[data-group="state"] .dashboard-telemetry-tile {
+  padding-block: 8px;
+}
+
+/* ── Sign-in history at full width: a multi-column log ─────────── */
+:root[data-ui-style="neo"] .authenticated-shell[data-screen] .dashboard-links-row .dashboard-login-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 6px 14px;
+  max-height: 228px;
+}
+
+:root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .dashboard-login-list > .dashboard-list-row {
+  border: 1px solid rgba(90, 135, 230, 0.14);
+  background: rgba(9, 25, 64, 0.42);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-ui-style="neo"][data-theme="dark"] .authenticated-shell[data-screen="dashboard"] .header-action-button {
+    transition: none;
+    transform: none !important;
+  }
+}

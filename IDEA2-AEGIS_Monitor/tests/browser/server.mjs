@@ -23,7 +23,7 @@ let opened = []
 let closed = []
 const active = new Map()
 let counter = 0
-const socScenario = () => ['two-cameras', 'soc-error', 'soc-all-streams', 'soc-passive', 'soc-idle'].includes(scenario)
+const socScenario = () => ['two-cameras', 'soc-error', 'soc-all-streams', 'soc-passive', 'soc-idle', 'soc-visual'].includes(scenario)
 const assigned = () => scenario === 'empty' ? []
   : ['single-camera', 'no-live-menu'].includes(scenario) ? allCameras.slice(0, 1)
   : scenario === 'single-camera-2' ? allCameras.slice(1, 2)
@@ -35,6 +35,10 @@ const fixtureSession = () => ({
   menu: [
     ...(scenario === 'no-live-menu' ? [] : [{ id: 'live', group: 'navObservation' }]),
     { id: 'archive', group: 'navObservation' },
+    ...(scenario === 'soc-visual' ? [
+      { id: 'detection', group: 'navAnalytics' }, { id: 'alerts', group: 'navAnalytics' },
+      { id: 'nodes', group: 'navInfra' }, { id: 'operators', group: 'navInfra' },
+    ] : []),
     ...(socScenario() ? [] : [{ id: 'diagnostics', group: 'navInfra' }]),
     { id: 'settings', group: 'navPrefs' },
   ],
@@ -97,7 +101,7 @@ function handler(req, res, next) {
   if (path === '/api/me') return json(res, fixtureSession())
   if (path === '/api/cameras') return json(res, { cameras: assigned() })
   if (path === '/api/live/active-views') return json(res, { views: scenario === 'soc-idle' ? []
-    : ['soc-passive', 'soc-error'].includes(scenario) ? [
+    : ['soc-passive', 'soc-error', 'soc-visual'].includes(scenario) ? [
       { viewId: 'opaque-view-a', cameraId: 'CAM-01', cameraName: 'Test main entrance', nodeId: 'machine-a', active: true },
       ...(scenario === 'soc-passive' ? [
         { viewId: 'opaque-view-b', cameraId: 'CAM-01', cameraName: 'Test main entrance', nodeId: 'machine-b', active: true },

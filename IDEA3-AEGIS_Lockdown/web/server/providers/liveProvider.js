@@ -126,7 +126,12 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
       const [idea1Feed, idea2Feed, runtimeDocument] = await Promise.all([
         fetchIdea1Events({ config, fetchImpl, clock }),
         fetchIdea2Events({ config, fetchImpl, clock }),
-        fetchJsonDocument(config.adapters.runtimeUrl, { fetchImpl, timeoutMs: config.adapterTimeoutMs }),
+        fetchJsonDocument(config.adapters.runtimeUrl, {
+          fetchImpl,
+          timeoutMs: config.adapterTimeoutMs,
+          token: config.adapters.runtimeToken,
+          tokenHeader: 'X-AEGIS-Evidence-Token',
+        }),
       ])
       const runtimeResult = runtimeDocumentState(runtimeDocument)
 
@@ -173,7 +178,8 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
         { id: 'audit', name: 'Audit Store', status: 'HEALTHY', freshness: 'FRESH', generatedAt: now.toISOString(), latencyMs: null, detail: 'Durable SQLite audit store' },
       ]
 
-      const incidents = correlateIncidents(integrationEvents)
+      const coreEvidence = runtime.coreEvidence || { incidents: [], audit: null, device: null, provenance: 'unavailable' }
+      const incidents = [...coreEvidence.incidents, ...correlateIncidents(integrationEvents)]
       const eligibleCount = integrationEvents.filter((event) => event.containment_eligible).length
 
       return {
@@ -193,13 +199,14 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
           schemaVersion: 1,
           idea1: feedSummary(idea1Feed, lifecycles.IDEA1),
           idea2: feedSummary(idea2Feed, lifecycles.IDEA2),
+          idea3: { status: runtime.status, freshness: runtime.freshness, generatedAt: runtime.generatedAt, audit: coreEvidence.audit, provenance: coreEvidence.provenance },
           events: integrationEvents,
           conflicts,
           eligibleCount,
         },
         idea1: { status: idea1Source.status, freshness: idea1Source.freshness, generatedAt: idea1Source.generatedAt, summary: { denied: 0, blocked: 0, uniqueSourceIps: 0, repeated: 0, escalated: 0 }, events: [] },
         idea2: { status: idea2Source.status, freshness: idea2Source.freshness, generatedAt: idea2Source.generatedAt, summary: { detections: 0, high: 0, critical: 0, cameras: 0 }, events: [] },
-        alerts: [], incidents, audit: [], runtime: { ...runtime, timeline: [], readiness: [] }, devices: [],
+        alerts: [], incidents, audit: [], runtime: { ...runtime, timeline: [], readiness: [] }, devices: coreEvidence.device ? [coreEvidence.device] : [],
         operationalErrors,
         recovery: { gatewayStatus: 'DISABLED', liveHardware: false, authorization: 'DISABLED', incidentState: incidents[0]?.state ?? 'NONE', preconditions: [], runbook: [], history: [] },
         settings: {
@@ -211,7 +218,7 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
           provider: 'live-read-only-adapters',
           liveMerged: false,
           persistence: 'SQLITE_AUDIT_ONLY',
-          eventPersistence: 'RUNTIME_ONLY',
+          eventPersistence: coreEvidence.provenance === 'CORE_SQLITE_READ_ONLY' ? 'CORE_READ_ONLY_PROJECTION' : 'RUNTIME_ONLY',
         },
       }
     },

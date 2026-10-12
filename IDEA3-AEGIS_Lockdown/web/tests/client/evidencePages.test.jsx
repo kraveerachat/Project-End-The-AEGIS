@@ -62,4 +62,51 @@ describe('response ledgers', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ขอส่งออกแบบจำกัด' }))
     expect(onExport).toHaveBeenCalledTimes(1)
   })
+
+  it('shows allowlisted IDEA3 Core audit aggregates on the existing audit path', () => {
+    const liveSnapshot = {
+      ...snapshot,
+      integration: {
+        ...(snapshot.integration ?? {}),
+        idea3: {
+          ...(snapshot.integration?.idea3 ?? {}),
+          audit: {
+            counts: { DEVICE_STATUS: 1900, INCIDENT_BOUND: 2 },
+            latestAt: null,
+            freshness: 'UNKNOWN',
+            provenance: 'CORE_SQLITE',
+          },
+        },
+      },
+    }
+    render(<AuditPage snapshot={liveSnapshot} />)
+    expect(screen.getByText('IDEA3 Core audit aggregates')).toBeVisible()
+    expect(screen.getByText('DEVICE_STATUS')).toBeVisible()
+    expect(screen.getByText('1,900')).toBeVisible()
+    expect(screen.getAllByText('UNKNOWN').length).toBeGreaterThan(0)
+  })
+
+  it('shows one global Core evidence timestamp instead of assigning it to each event type', () => {
+    const latestAt = '2026-09-08T08:00:00.000Z'
+    const liveSnapshot = {
+      ...snapshot,
+      integration: {
+        ...(snapshot.integration ?? {}),
+        idea3: {
+          ...(snapshot.integration?.idea3 ?? {}),
+          audit: {
+            counts: { DEVICE_STATUS: 1, INCIDENT_BOUND: 2 },
+            latestAt,
+            freshness: 'FRESH',
+            provenance: 'CORE_SQLITE',
+          },
+        },
+      },
+    }
+    render(<AuditPage snapshot={liveSnapshot} />)
+    expect(screen.getByText('Latest Core evidence (global)')).toBeVisible()
+    const formattedTimestamp = new Intl.DateTimeFormat('th-TH', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(latestAt))
+    expect(screen.getAllByText(formattedTimestamp)).toHaveLength(1)
+    expect(screen.queryByText('Latest evidence')).not.toBeInTheDocument()
+  })
 })

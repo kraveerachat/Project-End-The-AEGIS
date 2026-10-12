@@ -15,6 +15,12 @@ export default defineConfig({
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     viewport: { width: 1440, height: 1000 },
     reducedMotion: 'reduce',
+    // Existing English-copy regressions have an explicit user preference;
+    // production still defaults to Thai. Locale tests change this preference.
+    storageState: { cookies: [], origins: [{
+      origin: 'http://127.0.0.1:15177',
+      localStorage: [{ name: 'aegis_lang', value: 'en' }],
+    }] },
     screenshot: 'only-on-failure',
   },
   webServer: {
