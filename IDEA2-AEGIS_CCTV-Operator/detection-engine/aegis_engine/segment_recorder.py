@@ -96,6 +96,7 @@ class SegmentRecorder(threading.Thread):
         self._segment_capture_started_monotonic = 0.0
         self._segment_started_wall = ""
         self._segment_frames = 0
+        self._held_frame = None
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -268,14 +269,25 @@ class SegmentRecorder(threading.Thread):
         image = frame.image
         if (image.shape[1], image.shape[0]) != segment.size:
             image = cv2.resize(image, segment.size)
-        segment.last_image = image
         elapsed = max(0.0, float(frame.captured_at) - segment.capture_started_monotonic)
         target_total = max(1, int(elapsed * float(self._cfg.target_fps)) + 1)
+        # Do not backdate a new detection image into CFR slots before it was
+        # captured. Each alias owns its previous image because capture buffers
+        # may be reused while another alias is still recording.
+        previous_image = segment.last_image
         try:
             for _ in range(max(0, target_total - segment.frames)):
-                segment.writer.write(image)
+                slot_elapsed = segment.frames / float(self._cfg.target_fps)
+                output_image = (
+                    previous_image
+                    if previous_image is not None and slot_elapsed < elapsed
+                    else image
+                )
+                segment.writer.write(output_image)
                 segment.frames += 1
                 self._metrics.on_frame_recorded()
+            # Even a surplus (dropped) capture becomes the next held image.
+            segment.last_image = image.copy()
         except Exception:
             log.exception("failed writing attributed frame to %s", segment.path)
 
@@ -359,6 +371,7 @@ class SegmentRecorder(threading.Thread):
         self._open_writer(w, h)
 
     def _open_writer(self, w: int, h: int) -> None:
+        self._held_frame = None
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{self._cfg.camera_id}_{ts}.{self._cfg.segment_extension}"
         path = os.path.join(self._cfg.segment_dir, filename)
@@ -403,8 +416,8 @@ class SegmentRecorder(threading.Thread):
         #
         # Map the real monotonic capture timeline onto configured target_fps.
         # A source faster than target_fps drops surplus captured frames; a
-        # slower source duplicates the latest available frame to preserve
-        # elapsed media time.
+        # slower source holds the PREVIOUS capture over elapsed CFR slots.
+        # Never backdate newly captured image content into that gap.
         capture_elapsed = max(
             0.0,
             float(frame.captured_at)
@@ -417,13 +430,25 @@ class SegmentRecorder(threading.Thread):
         writes_needed = target_total_frames - self._segment_frames
 
         if writes_needed <= 0:
+            # Keep the latest capture for future slots, even when its own
+            # surplus frame is dropped. Own the pixels: capture may reuse buffers.
+            self._held_frame = img.copy()
             return
 
         try:
             for _ in range(writes_needed):
-                self._writer.write(img)
+                # A between-slot capture also cannot replace the preceding
+                # CFR slot. It becomes the held image for a later slot instead.
+                slot_elapsed = self._segment_frames / float(self._cfg.target_fps)
+                image = (
+                    self._held_frame
+                    if self._held_frame is not None and slot_elapsed < capture_elapsed
+                    else img
+                )
+                self._writer.write(image)
                 self._segment_frames += 1
                 self._metrics.on_frame_recorded()
+            self._held_frame = img.copy()
         except Exception:
             log.exception(
                 "failed writing frame to %s",
@@ -453,6 +478,7 @@ class SegmentRecorder(threading.Thread):
         self._writer_size = None
         self._current_path = None
         self._segment_capture_started_monotonic = 0.0
+        self._held_frame = None
         self._metrics.on_segment_finalized()
 
         if not path or not os.path.exists(path):

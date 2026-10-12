@@ -17,8 +17,11 @@ import { useApi } from '../lib/hooks.js'
 import { apiFetch } from '../lib/api.js'
 import { AddOperatorModal, TempPasswordModal } from '../components/AddOperator.jsx'
 import { getViewState, VIEW_STATE } from '../lib/viewState.js'
+import { useLocale } from '../lib/Locale.jsx'
+import { adminErrorMessage } from '../lib/localeAdmin.js'
 
 export default function Operators() {
+  const { t } = useLocale()
   // /api/operators คืน { operators, assignments } — assignments เป็น map camId → userId|'SOC'|null
   const api = useApi('/api/operators', { refreshMs: 30_000 })
   const camsApi = useApi('/api/cameras')
@@ -51,16 +54,15 @@ export default function Operators() {
   const head = (
     <div className="pagehead">
       <div>
-        <h1 className="h1">Operators</h1>
+        <h1 className="h1">{t('Operators')}</h1>
         <p className="sub">
-          Accounts in this app&apos;s own identity store, and which cameras each one is
-          responsible for. Assignment drives both Scoped View and alert routing.
+          {t("Accounts in this app's own identity store, and which cameras each one is responsible for. Assignment drives both Scoped View and alert routing.")}
         </p>
       </div>
       <div className="pagehead-actions">
         {state === VIEW_STATE.SUCCESS_EMPTY || state === VIEW_STATE.SUCCESS_DATA ? (
           <button type="button" className="ackbtn" onClick={() => setModal('form')}>
-            <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />Add operator
+            <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Add operator')}
           </button>
         ) : null}
       </div>
@@ -69,14 +71,14 @@ export default function Operators() {
 
   if (state === VIEW_STATE.ERROR) {
     return (
-      <EmptyState icon={ServerOff} title="Could not load operators"
-        hint="The Monitor backend did not respond. Check the server, then retry."
-        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />Retry</button>} />
+      <EmptyState icon={ServerOff} title={t('Could not load operators')}
+        hint={t('The Monitor backend did not respond. Check the server, then retry.')}
+        action={<button type="button" className="ackbtn" onClick={api.retry}><RefreshCw aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Retry')}</button>} />
     )
   }
 
   if (state === VIEW_STATE.LOADING) {
-    return <EmptyState icon={Users} title="Loading operators" hint="Retrieving operator accounts and assignments." />
+    return <EmptyState icon={Users} title={t('Loading operators')} hint={t('Retrieving operator accounts and assignments.')} />
   }
 
   return (
@@ -85,11 +87,11 @@ export default function Operators() {
       {state === VIEW_STATE.SUCCESS_EMPTY ? (
         <EmptyState
           icon={Users}
-          title="No operator accounts yet"
-          hint="Add one to give a CCTV-Operator a scoped view of specific cameras."
+          title={t('No operator accounts yet')}
+          hint={t('Add one to give a CCTV-Operator a scoped view of specific cameras.')}
           action={
             <button type="button" className="ackbtn" onClick={() => setModal('form')}>
-              <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />Add operator
+              <UserPlus aria-hidden="true" size={13} style={{ marginRight: 6 }} />{t('Add operator')}
             </button>
           }
         />
@@ -99,11 +101,11 @@ export default function Operators() {
             <table className="dt">
               <thead>
                 <tr>
-                  <th scope="col">Operator</th>
-                  <th scope="col">Role</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Assigned cameras</th>
-                  <th scope="col" style={{ textAlign: 'right' }}>Assignment</th>
+                  <th scope="col">{t('Operator')}</th>
+                  <th scope="col">{t('Role')}</th>
+                  <th scope="col">{t('Status')}</th>
+                  <th scope="col">{t('Assigned cameras')}</th>
+                  <th scope="col" style={{ textAlign: 'right' }}>{t('Assignment')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,6 +143,7 @@ export default function Operators() {
 }
 
 function Row({ op, held, open, cameras, assignments, operators, onToggle, onSaved }) {
+  const { t } = useLocale()
   return (
     <>
       <tr>
@@ -150,19 +153,19 @@ function Row({ op, held, open, cameras, assignments, operators, onToggle, onSave
             {op.name}
           </span>
         </td>
-        <td><span className="badge-role font-mono">{op.role}</span></td>
+        <td><span className="badge-role font-mono">{['CCTV-Operator', 'SOC-Responder'].includes(op.role) ? t(op.role) : op.role}</span></td>
         <td>
           <span className={op.active ? 'statustag on' : 'statustag off'}>
             <span className={op.active ? 'tdot on' : 'tdot off'} />
-            {op.active ? 'Active' : 'Suspended'}
+            {t(op.active ? 'Active' : 'Suspended')}
           </span>
         </td>
         <td className="mono">
-          {held.length ? held.join(', ') : <span style={{ opacity: 0.5 }}>none</span>}
+          {held.length ? held.join(', ') : <span style={{ opacity: 0.5 }}>{t('none')}</span>}
         </td>
         <td style={{ textAlign: 'right' }}>
           <button type="button" className="opassign" onClick={onToggle} aria-expanded={open}>
-            {open ? 'Cancel' : 'Edit'}
+            {t(open ? 'Cancel' : 'Edit')}
           </button>
         </td>
       </tr>
@@ -189,6 +192,7 @@ function Row({ op, held, open, cameras, assignments, operators, onToggle, onSave
 // ⚠️ ส่ง "ชุดกล้องทั้งหมดของ operator คนนี้" ไปแทนที่ของเดิม (semantics ของ endpoint:
 //    store.assignCameras แทนที่ทั้งชุด ไม่ใช่เพิ่มทีละตัว) — UI จึงเป็น multi-select
 function AssignEditor({ op, held, cameras, assignments, operators, onCancel, onSaved }) {
+  const { t } = useLocale()
   const [sel, setSel] = useState(() => new Set(held))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -219,7 +223,7 @@ function AssignEditor({ op, held, cameras, assignments, operators, onCancel, onS
 
   return (
     <div className="edform">
-      <div className="edtitle">Cameras for {op.name}</div>
+      <div className="edtitle">{t('Cameras for {name}', { name: op.name })}</div>
       <div className="camopts">
         {cameras.map((c) => {
           const owner = assignments[c.id]
@@ -231,17 +235,17 @@ function AssignEditor({ op, held, cameras, assignments, operators, onCancel, onS
               <input type="checkbox" checked={on} onChange={() => toggle(c.id)} />
               <span>{c.id} · {c.name}</span>
               {/* บอกตรง ๆ ว่ากล้องนี้ถูกถือครองโดยใครอยู่ — ติ๊กทับได้ แต่ต้องรู้ตัว */}
-              {takenByOther && <span className="from">from {nameById.get(ownerId) ?? ownerId}</span>}
-              {owner === 'SOC' && <span className="from">SOC-Team</span>}
+              {takenByOther && <span className="from">{t('from {name}', { name: nameById.get(ownerId) ?? ownerId })}</span>}
+              {owner === 'SOC' && <span className="from">{t('SOC-Team')}</span>}
             </label>
           )
         })}
       </div>
-      {error && <p role="alert" className="ederr">{error}</p>}
+      {error && <p role="alert" className="ederr">{adminErrorMessage(error, t)}</p>}
       <div className="edactions">
-        <button type="button" className="ackbtn" onClick={onCancel} disabled={busy}>Cancel</button>
+        <button type="button" className="ackbtn" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
         <button type="button" className="ackbtn aop-primary" onClick={save} disabled={busy}>
-          {busy ? 'Saving…' : 'Save assignment'}
+          {t(busy ? 'Saving…' : 'Save assignment')}
         </button>
       </div>
     </div>

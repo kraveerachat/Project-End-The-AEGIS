@@ -16,18 +16,27 @@ function safeUrl(url) {
   }
 }
 
-function buildHeaders(token) {
+function buildHeaders(token, tokenHeader = 'Authorization') {
   const headers = { accept: 'application/json' }
-  if (typeof token === 'string' && SAFE_CREDENTIAL.test(token)) headers.authorization = `Bearer ${token}`
+  if (typeof token === 'string' && SAFE_CREDENTIAL.test(token)) {
+    const headerName = tokenHeader === 'Authorization' ? 'authorization' : tokenHeader
+    headers[headerName] = tokenHeader === 'Authorization' ? `Bearer ${token}` : token
+  }
   return headers
 }
 
 /**
  * Read one bounded JSON document from an upstream integration feed.
- * The credential is only ever placed in the outgoing Authorization header; no
+ * The credential is only ever placed in the configured outgoing header; no
  * result, error, or code returned from here ever carries it or the raw body.
  */
-export async function fetchJsonDocument(url, { fetchImpl = fetch, timeoutMs, token = null, maxBytes = MAX_RESPONSE_BYTES } = {}) {
+export async function fetchJsonDocument(url, {
+  fetchImpl = fetch,
+  timeoutMs,
+  token = null,
+  tokenHeader = 'Authorization',
+  maxBytes = MAX_RESPONSE_BYTES,
+} = {}) {
   const target = safeUrl(url)
   if (!target) return rejected('NOT_CONFIGURED')
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return rejected('ADAPTER_RESPONSE_REJECTED')
@@ -37,7 +46,7 @@ export async function fetchJsonDocument(url, { fetchImpl = fetch, timeoutMs, tok
   try {
     const response = await fetchImpl(target, {
       method: 'GET',
-      headers: buildHeaders(token),
+      headers: buildHeaders(token, tokenHeader),
       redirect: 'error',
       credentials: 'omit',
       cache: 'no-store',

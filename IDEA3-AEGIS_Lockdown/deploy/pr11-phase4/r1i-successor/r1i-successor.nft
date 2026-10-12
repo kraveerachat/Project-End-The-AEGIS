@@ -1,0 +1,3 @@
+create table inet aegis_idea3_r1i
+add chain inet aegis_idea3_r1i input { type filter hook input priority -10; policy accept; }
+add rule inet aegis_idea3_r1i input meta nfproto ipv4 ct state new tcp flags & (syn | ack) == syn limit rate 50/second burst 60 packets log prefix "AEGIS_NEWCONN " level info

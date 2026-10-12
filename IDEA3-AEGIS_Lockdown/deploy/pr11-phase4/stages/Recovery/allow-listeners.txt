@@ -1,0 +1,1 @@
+# Recovery creates no listener. The existing Core Recovery AF_UNIX socket is reused; no new listener and no externally supplied target is allowed.
