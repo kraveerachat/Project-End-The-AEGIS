@@ -98,14 +98,10 @@ async function extendEpoch(client, generation, demandOwnerId) {
 export function createProducerLifecycle({ transact = withTransaction, secret = process.env.SESSION_SECRET, randomBytes = cryptoRandomBytes } = {}) {
   async function transaction(fn) {
     const dbObservationStartMs = Date.now()
-    const dbObservationStartMonoMs = performance.now()
     try {
       const result = await transact(fn)
-      const dbObservationEndMonoMs = performance.now()
-      const dbObservationEndMs = Date.now()
       return Object.freeze({ ...result, ...(Object.hasOwn(result, 'leaseExpiresAtMs')
-        ? { dbObservationStartMs, dbObservationEndMs,
-          dbObservationStartMonoMs, dbObservationEndMonoMs } : {}) })
+        ? { dbObservationStartMs, dbObservationEndMs: Date.now() } : {}) })
     }
     catch (error) {
       if (error instanceof CameraAccessError) throw error
