@@ -22,7 +22,7 @@ The original clock experiment is preserved in prior commits and historical PR
 discussion, **not** accepted into `main` or claimed Production-validated.
 The existing `main` clock/grant security contract remains untouched by this PR.
 
-## What changed (current diff only)
+## What changed
 
 - Synchronously revalidate existing StreamHub viewer/demand/capture lease
   authority at the physical capture boundary, including in-flight reads.
@@ -34,7 +34,7 @@ The existing `main` clock/grant security contract remains untouched by this PR.
 - Maintain existing Machine A always-on behavior and existing signing,
   generation, session, RBAC and grant minting contracts unchanged.
 
-## Source files changed (current diff)
+## Source files changed
 
 - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/engine.py` — synchronous authority validation around annotation, recording, Live and capture callback.
 - `IDEA2-AEGIS_CCTV-Operator/detection-engine/aegis_engine/stream_hub.py` — synchronous expired-demand sweeps, viewer/frame deadline guards.
@@ -45,6 +45,7 @@ The existing `main` clock/grant security contract remains untouched by this PR.
 
 ## Verification evidence
 
+- Historical checkpoint command `python -m unittest discover -s tests -p "test_*.py"` — PASS 403 / FAIL 0 / SKIP 0 on the OLD source checkpoint; NOT rerun for the revised HEAD.
 - Historical PR checkpoints before current-main reconciliation reported focused
   Engine 93 PASS / 0 FAIL / 0 SKIP and full Engine/Agent 403 PASS / 0 FAIL /
   0 SKIP on an older source checkout, with deterministic fake-clock tests
