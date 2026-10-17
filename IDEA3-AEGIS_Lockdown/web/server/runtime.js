@@ -2,6 +2,7 @@ import { createApp } from './createApp.js'
 import { createMachineApp } from './createMachineApp.js'
 import { createSqliteRepository } from './repositories/sqliteRepository.js'
 import { createMachineContactTracker } from './security/machineIdentity.js'
+import { createStatusIngestStore } from './domain/statusIngest.js'
 
 function defaultListen(app, port, host) {
   return app.listen(port, host)
@@ -37,8 +38,9 @@ function closeServer(server) {
 }
 
 /**
- * Start the browser listener and, only when PR10 S2 dispatch is enabled, the
- * separate machine listener on the configured dispatch host and port. The
+ * Start the browser listener and, only when PR10 S2 dispatch or the independent
+ * status ingest is enabled, the separate machine listener on the configured
+ * machine host and port. With both features off no machine listener starts. The
  * machine port is application/container-internal and never host-published.
  * Both apps share one audit repository, which is closed exactly once.
  */
@@ -51,19 +53,31 @@ export function startServer({
   clock = () => new Date(),
 }) {
   const dispatchEnabled = config.dispatch?.enabled === true
+  const statusEnabled = config.statusIngest?.enabled === true
+  const machineListener = config.machine?.enabled ? config.machine : config.dispatch
   const sharedRepository = repository
     ?? (dispatchEnabled ? createSqliteRepository({ path: config.auditDbPath, clock }) : undefined)
   // One tracker: the machine app records authenticated contact, and the browser
   // app reads it to show DISPATCH_PENDING or DISPATCH_UNAVAILABLE.
   const machineContact = dispatchEnabled ? createMachineContactTracker({ clock }) : null
-  const app = appFactory({ config, repository: sharedRepository, machineContact })
-  const machineApp = dispatchEnabled
-    ? machineAppFactory({ config, repository: sharedRepository, contact: machineContact })
+  // One in-memory store, shared by the machine route (writer) and the Web live provider (reader). It is never durable.
+  const statusStore = statusEnabled
+    ? createStatusIngestStore({ maxAgeMs: config.maxEvidenceAgeMs, allowedProfiles: config.production ? ['production'] : null })
+    : null
+  const app = appFactory({ config, repository: sharedRepository, machineContact, statusStore })
+  const machineApp = dispatchEnabled || statusEnabled
+    ? machineAppFactory({
+      config,
+      repository: sharedRepository,
+      contact: machineContact ?? createMachineContactTracker({ clock }),
+      statusStore,
+      clock,
+    })
     : null
   let closePromise = null
 
   const server = listen(app, config.port, config.bindHost)
-  const machineServer = machineApp ? listen(machineApp, config.dispatch.port, config.dispatch.host) : null
+  const machineServer = machineApp ? listen(machineApp, machineListener.port, machineListener.host) : null
 
   function close() {
     if (closePromise) return closePromise

@@ -66,46 +66,114 @@ def test_missing_status_fails_closed(tmp_path):
     assert evidence.physical_verification == "NOT_VERIFIED"
 
 
-def test_permission_denied_uses_only_exact_fixed_file_sudo_n_read(monkeypatch):
+def _forbid_subprocess(monkeypatch):
+    """Any process spawn from the status reader is a failure."""
+    import os
+
+    def spawn(*_args, **_kwargs):
+        raise AssertionError("the status reader must not start a subprocess")
+
+    for owner, name in (
+        (subprocess, "run"), (subprocess, "Popen"), (subprocess, "call"),
+        (subprocess, "check_call"), (subprocess, "check_output"),
+        (os, "system"), (os, "popen"), (os, "execv"), (os, "execvp"),
+    ):
+        monkeypatch.setattr(owner, name, spawn)
+
+
+def test_permission_denied_never_starts_sudo_or_any_subprocess(monkeypatch):
     from aegis_soc import observer
 
-    calls = []
-    payload = json.dumps(_status()).encode()
+    _forbid_subprocess(monkeypatch)
 
-    def denied(_self, **_kwargs):
+    def denied(*_args, **_kwargs):
         raise PermissionError("status directory is not traversable")
 
-    def sudo_read(args, **kwargs):
-        calls.append((args, kwargs))
-        return subprocess.CompletedProcess(args, 0, stdout=payload.decode(), stderr="")
-
+    monkeypatch.setattr(Path, "open", denied)
     monkeypatch.setattr(Path, "read_text", denied)
-    monkeypatch.setattr(observer.subprocess, "run", sudo_read)
-
-    evidence = observer.read_observer_status(observer.STATUS_PATH, now=1_700_000_030.0)
-
-    assert evidence.valid is True
-    assert calls == [(
-        ["sudo", "-n", "cat", str(observer.STATUS_PATH)],
-        {"capture_output": True, "text": True, "check": False, "timeout": 2.0},
-    )]
-
-
-def test_permission_denied_without_authorized_read_is_explicitly_unavailable(monkeypatch):
-    from aegis_soc import observer
-
-    monkeypatch.setattr(Path, "read_text", lambda *_args, **_kwargs: (_ for _ in ()).throw(PermissionError("denied")))
-    monkeypatch.setattr(
-        observer.subprocess,
-        "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(["sudo"], 1, stdout="", stderr="not authorized"),
-    )
+    monkeypatch.setattr("os.open", denied)
 
     evidence = observer.read_observer_status(observer.STATUS_PATH, now=1_700_000_030.0)
 
     assert evidence.valid is False
     assert evidence.freshness == "UNAVAILABLE"
     assert "permission" in evidence.reason.lower()
+    assert evidence.runtime_state == UNKNOWN
+    assert evidence.broker == UNKNOWN and evidence.uplink == UNKNOWN
+
+
+def test_observer_module_has_no_subprocess_dependency():
+    from aegis_soc import observer
+
+    assert not hasattr(observer, "subprocess")
+    source = Path(observer.__file__).read_text(encoding="utf-8")
+    assert "sudo" not in source.replace("no sudo", "").lower().replace("passwordless", "")
+    assert "import subprocess" not in source
+
+
+def test_real_unreadable_file_is_unavailable_without_a_subprocess(tmp_path, monkeypatch):
+    import os
+
+    if os.geteuid() == 0:
+        return
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps(_status()), encoding="utf-8")
+    path.chmod(0)
+    _forbid_subprocess(monkeypatch)
+    try:
+        evidence = read_observer_status(path, now=1_700_000_030.0)
+    finally:
+        path.chmod(0o600)
+    assert evidence.valid is False
+    assert evidence.freshness == "UNAVAILABLE"
+
+
+def test_unreadable_default_path_is_handled_without_a_subprocess(monkeypatch):
+    from aegis_soc import observer
+
+    _forbid_subprocess(monkeypatch)
+    evidence = observer.read_observer_status(observer.STATUS_PATH, now=1_700_000_030.0)
+    assert evidence.valid is False
+    assert evidence.freshness in {"UNAVAILABLE", "MISSING"}
+
+
+def test_invalid_custom_paths_are_handled_safely(tmp_path, monkeypatch):
+    _forbid_subprocess(monkeypatch)
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    fifo = tmp_path / "fifo"
+    import os
+
+    os.mkfifo(fifo)
+    for candidate in (directory, fifo, tmp_path / "missing" / "status.json", Path("")):
+        evidence = read_observer_status(candidate, now=1_700_000_030.0)
+        assert evidence.valid is False
+        assert evidence.runtime_state == UNKNOWN
+
+
+def test_symlinked_status_file_is_refused(tmp_path):
+    real = tmp_path / "real.json"
+    real.write_text(json.dumps(_status()), encoding="utf-8")
+    link = tmp_path / "status.json"
+    link.symlink_to(real)
+    evidence = read_observer_status(link, now=1_700_000_030.0)
+    assert evidence.valid is False
+    assert evidence.freshness == "INVALID"
+
+
+def test_oversized_status_file_is_invalid(tmp_path):
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps({**_status(), "pad": "x" * (128 * 1024)}), encoding="utf-8")
+    evidence = read_observer_status(path, now=1_700_000_030.0)
+    assert evidence.valid is False
+    assert evidence.freshness == "INVALID"
+
+
+def test_valid_status_file_still_reads_without_a_subprocess(tmp_path, monkeypatch):
+    path = tmp_path / "status.json"
+    path.write_text(json.dumps(_status()), encoding="utf-8")
+    _forbid_subprocess(monkeypatch)
+    assert read_observer_status(path, now=1_700_000_030.0).valid is True
 
 
 def test_stale_status_does_not_display_historical_operational_values(tmp_path):
@@ -144,3 +212,16 @@ def test_operator_cable_observation_is_never_reported_as_python_verified(tmp_pat
     assert evidence.physical_source == "OPERATOR_OBSERVED_ONLY"
     assert evidence.physical_verification == "NOT_VERIFIED"
     assert "Pin 2 open" in evidence.physical_observation
+
+
+def test_symlink_is_refused_even_where_o_nofollow_is_unavailable(tmp_path, monkeypatch):
+    import os
+
+    real = tmp_path / "real.json"
+    real.write_text(json.dumps(_status()), encoding="utf-8")
+    link = tmp_path / "status.json"
+    link.symlink_to(real)
+    for name in ("O_NOFOLLOW", "O_NONBLOCK"):
+        monkeypatch.delattr(os, name, raising=False)
+    assert read_observer_status(link, now=1_700_000_030.0).freshness == "INVALID"
+    assert read_observer_status(real, now=1_700_000_030.0).valid is True

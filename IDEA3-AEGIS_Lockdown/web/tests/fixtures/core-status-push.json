@@ -1,0 +1,25 @@
+{
+  "projection": {
+    "components": {
+      "broker": "CONNECTED",
+      "detector": "RUNNING",
+      "device": "ONLINE",
+      "uplink": "NORMAL"
+    },
+    "dispatch": "DISABLED",
+    "evidenceSource": "RUNTIME_STATUS_FILE",
+    "generatedAt": "2023-11-14T22:14:55.000Z",
+    "issues": [],
+    "modes": {
+      "armed": "MONITOR_ONLY",
+      "autoContain": false,
+      "dryRun": false,
+      "profile": "production"
+    },
+    "schemaVersion": 1,
+    "status": "HEALTHY"
+  },
+  "schema": "aegis.idea3.status-push",
+  "sentAtMs": 1700000100000,
+  "version": 1
+}

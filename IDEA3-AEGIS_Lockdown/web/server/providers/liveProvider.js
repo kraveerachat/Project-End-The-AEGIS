@@ -117,8 +117,25 @@ function runtimeOperationalError(result, now) {
   return createOperationalError(code, { occurredAt: now.toISOString(), component: 'IDEA3 Runtime Adapter' })
 }
 
-export function createLiveProvider({ config, fetchImpl = fetch, clock = () => new Date() }) {
+export function createLiveProvider({ config, fetchImpl = fetch, clock = () => new Date(), statusStore = null }) {
   const lifecycles = { IDEA1: 'STEADY', IDEA2: 'STEADY' }
+
+  // With the status ingest enabled the pushed projection is the ONLY runtime source: there is no URL fallback, so a
+  // missing, rejected or unavailable push is UNKNOWN, never a quiet read of some other endpoint.
+  async function runtimeSource() {
+    if (!statusStore) {
+      return fetchJsonDocument(config.adapters.runtimeUrl, {
+        fetchImpl,
+        timeoutMs: config.adapterTimeoutMs,
+        token: config.adapters.runtimeToken,
+        tokenHeader: 'X-AEGIS-Evidence-Token',
+      })
+    }
+    const projection = statusStore.current()
+    return projection
+      ? { ok: true, code: null, data: projection }
+      : { ok: false, code: 'ADAPTER_UNAVAILABLE', data: null }
+  }
 
   return {
     async getSnapshot({ limit = 100 } = {}) {
@@ -126,12 +143,7 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
       const [idea1Feed, idea2Feed, runtimeDocument] = await Promise.all([
         fetchIdea1Events({ config, fetchImpl, clock }),
         fetchIdea2Events({ config, fetchImpl, clock }),
-        fetchJsonDocument(config.adapters.runtimeUrl, {
-          fetchImpl,
-          timeoutMs: config.adapterTimeoutMs,
-          token: config.adapters.runtimeToken,
-          tokenHeader: 'X-AEGIS-Evidence-Token',
-        }),
+        runtimeSource(),
       ])
       const runtimeResult = runtimeDocumentState(runtimeDocument)
 

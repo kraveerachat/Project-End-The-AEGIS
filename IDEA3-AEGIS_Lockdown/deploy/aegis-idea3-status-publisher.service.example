@@ -1,0 +1,57 @@
+# AEGIS IDEA3 status projection publisher — TEMPLATE, NOT INSTALLED, NOT REVIEWED FOR PRODUCTION.
+# Runs from the immutable status sidecar package (deploy/status-sidecar), not from the Core release.
+# Owner decisions are required before any use: the dedicated group, the group members, the runtime directory and the
+# host's systemd version. Never edit /run/aegis-idea3 or its mode; this unit only writes its own directory.
+#
+# It runs as the Core user so it can read the Core's private status.json as that file's owner, and as a dedicated group so
+# the files it creates are readable by the Desktop operators in that group (HYPOTHESIS: verify on the host).
+[Unit]
+Description=AEGIS IDEA3 read-only status projection publisher
+After=aegis-idea3-core.service
+# Ordering only. Deliberately NO Requires=/BindsTo=/PartOf=/Wants= on the Core: the publisher can fail independently.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=aegis-idea3
+Group=<AEGIS_STATUS_GROUP>
+RuntimeDirectory=aegis-idea3-status
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/python3 -E -s -B -m tools.status_projection_publisher \
+    --source /run/aegis-idea3/status.json --dest-dir /run/aegis-idea3-status --allow-group-readable-dir
+WorkingDirectory=/opt/aegis-idea3-status/current
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/run/aegis-idea3
+ReadOnlyPaths=/opt/aegis-idea3-status
+ReadWritePaths=/run/aegis-idea3-status
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+SystemCallFilter=@system-service
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+UMask=0077
+TimeoutStopSec=10
+
+# Intentionally no [Install] section: enabling at boot is a separate, explicit owner decision. Nothing in the sidecar installer
+# installs, enables, starts or restarts this unit. Failure or restart of this unit never touches aegis-idea3-core.service.
+# The runtime directory is removed when the unit stops, so a stopped publisher makes the Desktop read UNKNOWN (fail-closed).
