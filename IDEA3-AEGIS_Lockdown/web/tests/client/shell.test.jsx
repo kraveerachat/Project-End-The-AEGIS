@@ -50,6 +50,24 @@ describe('authenticated application shell', () => {
     expect(onThemeChange).toHaveBeenCalledWith('dark')
   })
 
+  it('uses the supplied theme-aware AEGIS mark in the sidebar without changing the brand text', () => {
+    const { rerender } = render(
+      <AppShell identity={identity} mode="LIVE" currentRoute="dashboard" theme="dark">
+        <p>Page</p>
+      </AppShell>,
+    )
+
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-light-ink.png')
+    expect(screen.getByText('AEGIS Security')).toBeVisible()
+
+    rerender(
+      <AppShell identity={identity} mode="LIVE" currentRoute="dashboard" theme="light">
+        <p>Page</p>
+      </AppShell>,
+    )
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-dark-ink.png')
+  })
+
   it('shows the IDEA1 and IDEA2-style language control only on Dashboard', () => {
     const onLanguageChange = vi.fn()
     const { rerender } = render(

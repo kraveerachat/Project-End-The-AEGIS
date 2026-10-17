@@ -177,8 +177,9 @@ describe('vault login behaviour', () => {
   it('uses the theme-aware IDEA background and mark assets that already ship with IDEA3', () => {
     const { container, rerender } = render(<LoginPage onLogin={vi.fn()} theme="dark" />)
     expect(container.querySelector('.vault-gate-bg').getAttribute('style')).toMatch(/BG_AEGIS02\.png/)
-    expect(container.querySelector('img.vault-mark').getAttribute('src')).toMatch(/aegis-mark-light-ink\.png$/)
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-light-ink.png')
     rerender(<LoginPage onLogin={vi.fn()} theme="light" />)
     expect(container.querySelector('.vault-gate-bg').getAttribute('style')).toMatch(/BG_AEGIS01\.png/)
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-dark-ink.png')
   })
 })

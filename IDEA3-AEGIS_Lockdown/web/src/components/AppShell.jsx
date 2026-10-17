@@ -1,17 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { FlaskConical, LogOut, Menu, Moon, Radio, ShieldCheck, Sun, X } from 'lucide-react'
+import { FlaskConical, LogOut, Menu, Moon, Radio, Sun, X } from 'lucide-react'
 import { htmlLanguage, LANGUAGE_OPTIONS, localeFor, makeT, normalizeLanguage } from '../lib/i18n.js'
 import { APP_ROUTES, routeById } from '../lib/routes.js'
+import { AegisLogo } from './AegisLogo.jsx'
 import { DemoBanner } from './DemoBanner.jsx'
-
-function AegisMark() {
-  return (
-    <div className="brand-mark" aria-hidden="true">
-      <ShieldCheck size={24} />
-      <span /><span /><span />
-    </div>
-  )
-}
 
 function initialsOf(name) {
   const words = String(name || '').trim().split(/\s+/).filter(Boolean)
@@ -79,7 +71,7 @@ export function AppShell({ identity, mode, currentRoute, onNavigate = () => {}, 
       {drawerOpen && <button type="button" className="drawer-scrim" aria-label="ปิดเมนู" tabIndex={-1} onClick={closeDrawer} />}
       <aside id="app-sidebar" lang="th" className={`sidebar${drawerOpen ? ' sidebar--open' : ''}`}>
         <div className="sidebar__brand">
-          <AegisMark />
+          <AegisLogo theme={theme} className="brand-logo" size={40} />
           <div><strong>AEGIS Security</strong><span>ศูนย์หลักฐานและการตอบสนอง</span></div>
           <button ref={closeButtonRef} type="button" className="sidebar__close" aria-label="ปิดเมนู" onClick={closeDrawer}><X aria-hidden="true" /></button>
         </div>
