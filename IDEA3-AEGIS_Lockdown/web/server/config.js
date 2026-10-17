@@ -137,6 +137,31 @@ const LOOPBACK_ADDRESSES = new net.BlockList()
 LOOPBACK_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4')
 LOOPBACK_ADDRESSES.addAddress('::1', 'ipv6')
 
+// Explicit LAB opt-in for the read-only runtime status feed. Unset/false changes nothing; when enabled the feed may
+// only be a loopback http(s) URL, and never in production (the Production Core uses its own TLS path).
+function labRuntimeStatusEnabled(value) {
+  if (value === undefined || value === null || value === '' || value === 'false') return false
+  if (value === 'true') return true
+  throw new Error('AEGIS_IDEA3_LAB_RUNTIME_STATUS must be true or false')
+}
+
+function labRuntimeStatusUrl(value, production) {
+  if (production) throw new Error('AEGIS_IDEA3_LAB_RUNTIME_STATUS is not allowed in production')
+  let parsed
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error('AEGIS_IDEA3_RUNTIME_STATUS_URL must be a loopback http(s) URL when LAB runtime status is enabled')
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '')
+  const family = net.isIP(host)
+  const loopback = host === 'localhost' || (family !== 0 && LOOPBACK_ADDRESSES.check(host, family === 6 ? 'ipv6' : 'ipv4'))
+  if (!['http:', 'https:'].includes(parsed.protocol) || !loopback || parsed.username || parsed.password) {
+    throw new Error('AEGIS_IDEA3_RUNTIME_STATUS_URL must be a loopback http(s) URL when LAB runtime status is enabled')
+  }
+  return value
+}
+
 function dispatchEnabled(value) {
   if (value === undefined || value === null || value === '' || value === 'false') return false
   if (value === 'true') return true
@@ -257,6 +282,8 @@ export function loadConfig(env = process.env) {
     ? loopbackHost(env.AEGIS_BIND_HOST)
     : proxiedBindHost(env.AEGIS_BIND_HOST, trustedProxy)
   const dispatch = dispatchConfig(env, { production, webPort: port })
+  const labRuntimeStatus = labRuntimeStatusEnabled(env.AEGIS_IDEA3_LAB_RUNTIME_STATUS)
+  if (labRuntimeStatus) labRuntimeStatusUrl(env.AEGIS_IDEA3_RUNTIME_STATUS_URL, production)
   if (dispatch.enabled && trustedProxy !== null && !sameAddress(trustedProxy, dispatch.trustedProxy)) {
     throw new Error('AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY must equal AEGIS_WEB_TRUSTED_PROXY (one pinned proxy)')
   }
@@ -278,6 +305,7 @@ export function loadConfig(env = process.env) {
     bindHost,
     webTrustedProxy: trustedProxy,
     dispatch,
+    labRuntimeStatus,
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
     maxEvidenceAgeMs: configuredPositiveInteger(
       'AEGIS_MAX_EVIDENCE_AGE_MS',

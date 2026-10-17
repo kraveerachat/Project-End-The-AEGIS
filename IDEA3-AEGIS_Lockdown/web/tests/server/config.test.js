@@ -163,6 +163,52 @@ describe('configuration boundaries', () => {
     expect(config.adapterTimeoutMs).toBe(1_500)
   })
 
+  describe('LAB runtime status loopback guard (explicit opt-in only)', () => {
+    const lab = (extra) => ({ NODE_ENV: 'test', AEGIS_IDEA3_LAB_RUNTIME_STATUS: 'true', ...extra })
+
+    it('leaves existing behavior untouched when the flag is absent or false', () => {
+      for (const flag of [undefined, '', 'false']) {
+        const config = loadConfig({
+          NODE_ENV: 'test',
+          AEGIS_IDEA3_LAB_RUNTIME_STATUS: flag,
+          AEGIS_IDEA3_RUNTIME_STATUS_URL: 'https://idea3.internal/api/runtime/status',
+        })
+        expect(config.labRuntimeStatus).toBe(false)
+        expect(config.adapters.runtimeUrl).toBe('https://idea3.internal/api/runtime/status')
+      }
+    })
+
+    it.each([
+      'http://127.0.0.1:8765/v1/core-status',
+      'http://127.1.2.3/v1/core-status',
+      'http://localhost:8765/v1/core-status',
+      'http://[::1]:8765/v1/core-status',
+    ])('accepts loopback %s', (url) => {
+      const config = loadConfig(lab({ AEGIS_IDEA3_RUNTIME_STATUS_URL: url }))
+      expect(config.labRuntimeStatus).toBe(true)
+      expect(config.adapters.runtimeUrl).toBe(url)
+    })
+
+    it.each([
+      undefined,
+      '',
+      'not a url',
+      'http://192.168.40.199:1883/status',
+      'http://192.168.40.198/status',
+      'https://idea3.internal/api/runtime/status',
+      'http://127.0.0.1.evil.test/status',
+      'http://user:pw@127.0.0.1/status',
+      'ftp://127.0.0.1/status',
+    ])('rejects non-loopback or invalid %s', (url) => {
+      expect(() => loadConfig(lab({ AEGIS_IDEA3_RUNTIME_STATUS_URL: url }))).toThrow(/loopback/)
+    })
+
+    it('rejects an invalid flag value and any production use', () => {
+      expect(() => loadConfig({ NODE_ENV: 'test', AEGIS_IDEA3_LAB_RUNTIME_STATUS: 'yes' })).toThrow(/true or false/)
+      expect(() => loadConfig(productionConfig({ AEGIS_IDEA3_LAB_RUNTIME_STATUS: 'true', AEGIS_IDEA3_RUNTIME_STATUS_URL: 'http://127.0.0.1/s' }))).toThrow(/not allowed in production/)
+    })
+  })
+
   it('falls back to safe defaults when the five adapter keys are absent', () => {
     const config = loadConfig({ NODE_ENV: 'test' })
 
