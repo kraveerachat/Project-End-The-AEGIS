@@ -49,6 +49,8 @@ def built(tmp_path_factory):
 def host(tmp_path):
     """A disposable host root holding a fake Core release tree and Recovery state that must never change."""
     root = tmp_path / "host"
+    root.mkdir()
+    (root / ".aegis-sidecar-fixture-root").write_text("disposable fixture root\n")
     core = root / "opt" / "aegis-idea3"
     (core / "releases" / "core-1" / "venv" / "bin").mkdir(parents=True)
     (core / "releases" / "core-1" / "venv" / "bin" / "python").write_text("#!/bin/sh\n")
@@ -58,6 +60,8 @@ def host(tmp_path):
     (core / "recovery").mkdir()
     (core / "recovery" / "state.json").write_text("{}")
     for path in [root, root / "opt", core, *core.rglob("*")]:
+        if path == root / ".aegis-sidecar-fixture-root":
+            continue
         if not path.is_symlink():
             os.chmod(path, 0o755 if path.is_dir() else 0o644)
     return root
@@ -111,7 +115,7 @@ def test_first_install_and_activate_create_only_the_sidecar_tree(inst, built, ho
     assert sorted(p.name for p in root.iterdir()) == ["current", "releases"]
     assert os.readlink(root / "current") == f"releases/{RID1}"
     assert snapshot(host / "opt" / "aegis-idea3") == core_before
-    assert sorted(p.name for p in host.iterdir()) == ["opt"] and sorted(p.name for p in (host / "opt").iterdir()) == ["aegis-idea3", "aegis-idea3-status"]
+    assert sorted(p.name for p in host.iterdir()) == [".aegis-sidecar-fixture-root", "opt"] and sorted(p.name for p in (host / "opt").iterdir()) == ["aegis-idea3", "aegis-idea3-status"]
     for path in [root, *root.rglob("*")]:
         if not path.is_symlink():
             assert not path.lstat().st_mode & 0o022, path
@@ -193,7 +197,8 @@ def test_the_default_ownership_contract_refuses_a_user_owned_install(inst, built
 @pytest.mark.skipif(os.geteuid() == 0, reason="live mode behaves differently for root")
 def test_live_mode_without_root_is_refused_and_the_fixture_override_needs_a_host_root(inst) -> None:
     assert "LIVE_INSTALL_REQUIRES_ROOT" in refuses(inst.Layout, "", False)
-    assert "FIXTURE_OWNER_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", True)
+    assert "FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", True)
+    assert "FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", False, True)
     assert "HOST_ROOT_MUST_BE_ABSOLUTE" in refuses(inst.Layout, "relative/dir", True)
 
 
@@ -223,8 +228,9 @@ def test_a_symlinked_or_writable_destination_ancestor_is_refused(inst, built, ho
 def test_a_missing_opt_ancestor_is_not_created(inst, built, tmp_path) -> None:
     empty = tmp_path / "empty-host"
     empty.mkdir()
+    (empty / ".aegis-sidecar-fixture-root").write_text("x\n")
     assert "DESTINATION_ANCESTOR_MISSING" in refuses(inst.install, inst.Layout(str(empty), True), RID1, built[RID1], PY, False)
-    assert list(empty.iterdir()) == []
+    assert [p.name for p in empty.iterdir()] == [".aegis-sidecar-fixture-root"]
 
 
 def test_the_sidecar_root_cannot_alias_the_core_tree(inst, host, monkeypatch) -> None:
@@ -433,3 +439,211 @@ def test_the_cli_reports_no_systemd_action_and_no_core_touch(inst, built, host, 
     assert rc == 0 and "STATUS_SIDECAR_INSTALL=PASS" in out and "SYSTEMD_ACTION=NONE" in out and "CORE_TOUCHED=NO" in out
     rc = inst.main(["--host-root", str(host), "--fixture-dest-owner-any", "--python", PY, "install", "--release-id", RID1, "--source", str(built[RID1])])
     assert rc == 1 and "RELEASE_ALREADY_INSTALLED" in capsys.readouterr().out
+
+
+# ---- STEP 38.8: fixture-root isolation (construction and refusal only; the real /opt is never mutated) ----
+REAL_ROOT = "/opt/aegis-idea3-status"
+
+
+@pytest.mark.parametrize("bad,reason", [
+    ("/", "HOST_ROOT_IS_FILESYSTEM_ROOT"),
+    ("//", "HOST_ROOT_"),
+    ("/.", "HOST_ROOT_NOT_CANONICAL"),
+    ("/./", "HOST_ROOT_NOT_CANONICAL"),
+    ("/tmp/..", "HOST_ROOT_NOT_CANONICAL"),
+    ("/opt/..", "HOST_ROOT_NOT_CANONICAL"),
+    ("/tmp/x/../..", "HOST_ROOT_NOT_CANONICAL"),
+    ("/tmp/", "HOST_ROOT_NOT_CANONICAL"),
+    ("relative", "HOST_ROOT_MUST_BE_ABSOLUTE"),
+    ("/opt", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+    ("/opt/aegis-idea3-status", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+    ("/opt/aegis-idea3", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+    ("/etc", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+    ("/usr", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+    ("/run", "HOST_ROOT_IN_SYSTEM_LOCATION"),
+])
+def test_dangerous_fixture_roots_are_refused_even_with_every_override(inst, bad, reason) -> None:
+    for owner_any in (True, False):
+        for dirty in (True, False):
+            assert reason in refuses(inst.Layout, bad, owner_any, dirty), (bad, owner_any, dirty)
+
+
+def test_the_real_destination_is_unreachable_through_any_fixture_spelling(inst) -> None:
+    for spelling in ("/", "//", "/.", "/tmp/..", "/opt/..", "/proc/self/root", "/proc/1/root"):
+        with pytest.raises(Exception) as e:
+            inst.Layout(spelling, True, True)
+        assert type(e.value).__name__ == "Refusal", spelling
+    assert not Path(REAL_ROOT).exists()
+
+
+def test_a_symlinked_fixture_root_cannot_alias_the_real_destination(inst, tmp_path) -> None:
+    link = tmp_path / "rootlink"
+    link.symlink_to("/")
+    assert "HOST_ROOT_IS_SYMLINK" in refuses(inst.Layout, str(link), True)
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / ".aegis-sidecar-fixture-root").write_text("x\n")
+    alias = tmp_path / "alias"
+    alias.symlink_to(tmp_path / "real")
+    assert "HOST_ROOT_IS_SYMLINK" in refuses(inst.Layout, str(alias), True)
+    # a symlinked PARENT of the fixture root is an alias too
+    nested = tmp_path / "alias" / "inner"
+    (tmp_path / "real" / "inner").mkdir()
+    (tmp_path / "real" / "inner" / ".aegis-sidecar-fixture-root").write_text("x\n")
+    assert "HOST_ROOT_ALIAS" in refuses(inst.Layout, str(nested), True)
+
+
+def test_a_fixture_root_without_the_approval_marker_is_refused(inst, tmp_path) -> None:
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert "HOST_ROOT_NOT_APPROVED_FIXTURE" in refuses(inst.Layout, str(bare), True)
+    (bare / ".aegis-sidecar-fixture-root").symlink_to("/etc/hostname")
+    assert "HOST_ROOT_NOT_APPROVED_FIXTURE" in refuses(inst.Layout, str(bare), True)
+    assert "HOST_ROOT_NOT_A_DIRECTORY" in refuses(inst.Layout, str(tmp_path / "missing"), True)
+
+
+def test_a_fixture_root_cannot_contain_or_sit_inside_the_real_production_tree(inst, tmp_path, monkeypatch) -> None:
+    fake_real = tmp_path / "pretend-opt"
+    (fake_real / "aegis-idea3-status").mkdir(parents=True)
+    monkeypatch.setattr(inst, "LOGICAL_ROOT", str(fake_real / "aegis-idea3-status"))
+    monkeypatch.setattr(inst, "CORE_ROOT", str(fake_real / "aegis-idea3"))
+    for candidate in (fake_real, tmp_path):
+        (candidate / ".aegis-sidecar-fixture-root").write_text("x\n")
+        assert "HOST_ROOT_ALIASES_PRODUCTION" in refuses(inst.Layout, str(candidate), True), candidate
+
+
+def test_a_fixture_whose_opt_is_a_symlink_to_the_real_tree_is_refused_and_nothing_is_written(inst, built, host, tmp_path) -> None:
+    real_like = tmp_path / "outside"
+    real_like.mkdir()
+    (host / "opt" / "aegis-idea3-status").symlink_to(real_like)
+    assert "HOST_ROOT_ESCAPE" in refuses(inst.Layout, str(host), True)
+    assert list(real_like.iterdir()) == []
+
+
+def test_the_ownership_bypass_cannot_be_combined_with_a_live_path(inst) -> None:
+    assert "FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", True)
+    assert "FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", True, True)
+    for argv in (["--fixture-dest-owner-any", "status"], ["--fixture-allow-dirty", "status"], ["--host-root", "/", "--fixture-dest-owner-any", "status"]):
+        assert inst.main(argv) == 1
+
+
+def test_a_legitimate_disposable_fixture_root_is_still_accepted(inst, host) -> None:
+    lay = inst.Layout(str(host), True)
+    assert lay.owner == "any" and lay.allow_dirty is False and str(lay.root).startswith(str(host))
+
+
+# ---- STEP 38.8: clean-source provenance ----
+@pytest.fixture(scope="module")
+def dirty(tmp_path_factory):
+    base = tmp_path_factory.mktemp("dirty")
+    repo = rel_tests.make_repo(base)
+    (repo / "IDEA3-AEGIS_Lockdown" / "stray.txt").write_text("uncommitted\n")  # untracked file makes the tree dirty
+    return rel_tests.load().build_sidecar(repo, base / "staging", "dirty-1", allow_dirty=True)
+
+
+def test_a_dirty_package_records_the_flag_and_still_verifies_as_a_package(inst, dirty) -> None:
+    info = inst._builder.verify_sidecar(dirty, expect_owner="self", release_id="dirty-1")
+    assert info["source_tree_dirty"] is True
+
+
+def test_a_dirty_package_is_refused_for_install_plan_and_the_fixture_default(inst, dirty, host) -> None:
+    lay = layout(inst, host)
+    before = snapshot(host)
+    assert "DIRTY_SOURCE_NOT_ALLOWED" in refuses(inst.install, lay, "dirty-1", dirty, PY, False)
+    assert "DIRTY_SOURCE_NOT_ALLOWED" in refuses(inst.plan, lay, "dirty-1", dirty, PY, False)
+    assert snapshot(host) == before and not sidecar_root(host).exists()
+
+
+def test_a_dirty_package_needs_the_explicit_fixture_switch_for_every_later_step(inst, dirty, host) -> None:
+    allowed = inst.Layout(str(host), True, True)
+    inst.install(allowed, "dirty-1", dirty, PY, False)
+    strict = layout(inst, host)
+    assert "DIRTY_SOURCE_NOT_ALLOWED" in refuses(inst.activate, strict, "dirty-1", PY, False)
+    assert not (sidecar_root(host) / "current").is_symlink()
+    inst.activate(allowed, "dirty-1", PY, False)
+    assert os.readlink(sidecar_root(host) / "current") == "releases/dirty-1"
+
+
+def test_the_dirty_switch_exists_only_for_validated_fixture_roots(inst, dirty, tmp_path) -> None:
+    assert "FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT" in refuses(inst.Layout, "", False, True)
+    assert "HOST_ROOT_NOT_APPROVED_FIXTURE" in refuses(inst.Layout, str(tmp_path), False, True)
+
+
+def test_rollback_refuses_a_dirty_previous_release(inst, built, dirty, host) -> None:
+    allowed = inst.Layout(str(host), True, True)
+    inst.install(allowed, "dirty-1", dirty, PY, False)
+    inst.install(allowed, RID1, built[RID1], PY, False)
+    inst.activate(allowed, "dirty-1", PY, False)
+    inst.activate(allowed, RID1, PY, False)
+    strict = layout(inst, host)
+    assert os.readlink(sidecar_root(host) / "previous") == "releases/dirty-1"
+    assert "DIRTY_SOURCE_NOT_ALLOWED" in refuses(inst.rollback, strict, PY, False)
+    assert os.readlink(sidecar_root(host) / "current") == f"releases/{RID1}"
+
+
+def test_the_dirty_flag_in_the_manifest_cannot_be_laundered_by_editing_it(inst, dirty, host, tmp_path) -> None:
+    import json
+
+    src = fresh_copy({"d": dirty}, "d", tmp_path, "launder")
+    manifest = json.loads((src / "SIDECAR-MANIFEST.json").read_text())
+    manifest["source_tree_dirty"] = False
+    (src / "SIDECAR-MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    assert "CHECKSUM_MISMATCH" in refuses(inst.install, layout(inst, host), "dirty-1", src, PY, False)
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("source_git_sha", "not-a-sha", "MANIFEST_SOURCE_SHA_MALFORMED"),
+    ("source_git_sha", "A" * 40, "MANIFEST_SOURCE_SHA_MALFORMED"),
+    ("source_git_sha", "a" * 39, "MANIFEST_SOURCE_SHA_MALFORMED"),
+    ("release_id", "someone-else", "MANIFEST_RELEASE_ID_MISMATCH"),
+    ("source_tree_dirty", "no", "MANIFEST_DIRTY_FLAG_INVALID"),
+    ("kind", "aegis-idea3-core-release", "MANIFEST_KIND_INVALID"),
+])
+def test_tampered_provenance_fields_are_refused_even_when_checksums_are_recomputed(inst, built, host, tmp_path, field, value, reason) -> None:
+    import json
+
+    src = fresh_copy(built, RID1, tmp_path)
+    manifest = json.loads((src / "SIDECAR-MANIFEST.json").read_text())
+    manifest[field] = value
+    (src / "SIDECAR-MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    lines = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(src).as_posix()}"
+             for p in sorted(src.rglob("*")) if p.is_file() and p.name != "SIDECAR-SHA256SUMS"]
+    (src / "SIDECAR-SHA256SUMS").write_text("\n".join(lines) + "\n")
+    before = snapshot(host)
+    assert reason in refuses(inst.install, layout(inst, host), RID1, src, PY, False)
+    assert snapshot(host) == before
+
+
+def test_a_refusal_leaves_an_existing_release_byte_identical(inst, built, host, tmp_path) -> None:
+    lay = layout(inst, host)
+    inst.install(lay, RID1, built[RID1], PY, False)
+    inst.activate(lay, RID1, PY, False)
+    before = snapshot(sidecar_root(host))
+    bad = fresh_copy(built, RID2, tmp_path)
+    (bad / "tools" / "status_push_client.py").write_text("x = 1\n")
+    assert "CHECKSUM_MISMATCH" in refuses(inst.install, lay, RID2, bad, PY, False)
+    assert "RELEASE_ALREADY_INSTALLED" in refuses(inst.install, lay, RID1, built[RID1], PY, False)
+    assert "RELEASE_NOT_INSTALLED" in refuses(inst.activate, lay, RID2, PY, False)
+    assert snapshot(sidecar_root(host)) == before
+
+
+# ---- STEP 38.8: substitution after install ----
+def test_an_installed_release_replaced_by_a_symlink_is_never_activated(inst, built, host, tmp_path) -> None:
+    lay = layout(inst, host)
+    inst.install(lay, RID1, built[RID1], PY, False)
+    inst.install(lay, RID2, built[RID2], PY, False)
+    inst.activate(lay, RID1, PY, False)
+    target = sidecar_root(host) / "releases" / RID2
+    shutil.rmtree(target)
+    target.symlink_to(built[RID2])
+    assert "RELEASE_NOT_INSTALLED" in refuses(inst.activate, lay, RID2, PY, False)
+    assert os.readlink(sidecar_root(host) / "current") == f"releases/{RID1}"
+
+
+def test_a_releases_directory_replaced_by_a_symlink_is_refused(inst, built, host, tmp_path) -> None:
+    lay = layout(inst, host)
+    inst.install(lay, RID1, built[RID1], PY, False)
+    releases = sidecar_root(host) / "releases"
+    moved = tmp_path / "moved"
+    releases.rename(moved)
+    releases.symlink_to(moved)
+    assert "DESTINATION_PARENT_IS_SYMLINK" in refuses(inst.install, lay, RID2, built[RID2], PY, False)

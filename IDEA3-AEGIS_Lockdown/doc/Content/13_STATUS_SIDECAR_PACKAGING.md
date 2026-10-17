@@ -45,6 +45,11 @@ Rejected shortcut: running from a development checkout in Production (mutable so
 * Offline end-to-end now runs the pusher from a freshly built sidecar package (Node E2E, 17 tests) and the publisher through the Desktop reader (`tests/test_status_sidecar_integration.py`).
 * Deployment package for the owner: `doc/Content/14_STATUS_SIDECAR_DEPLOYMENT_READINESS.md`.
 
+### Confirmed installer defects fixed in STEP 38.8 (reproduced by constructing the layout only; the real `/opt` was never touched)
+
+1. **Fixture-root aliasing.** `--host-root /` (and `//`, `/.`, `/tmp/..`, `/opt/..`) resolved to the real `/opt/aegis-idea3-status` while `--fixture-dest-owner-any` set the ownership check to `any`. Fixed by `validate_fixture_root`: canonical absolute path, no symlink or symlinked parent, not `/`, not inside a system location, no overlap with the real Production trees, an owner-created approval marker file, and a post-check that the resulting root really lives inside the fixture. All fixture switches are refused in live mode. Root ownership checks are unchanged.
+2. **Dirty source reaching install.** `source_tree_dirty: true` was recorded but not enforced by the installer. It is now refused for plan, install, activation and rollback unless a validated fixture explicitly allows it.
+
 ### Still open (owner gates)
 
 1. Running the installer for real (root, written maintenance window). Root ownership cannot be simulated by an unprivileged test; the default root-owned contract is asserted to REFUSE a user-owned fixture instead of being weakened.

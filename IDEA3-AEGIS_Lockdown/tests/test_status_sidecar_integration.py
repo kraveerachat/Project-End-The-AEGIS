@@ -191,3 +191,88 @@ def test_the_pusher_in_the_sidecar_is_inert_without_explicit_enablement(sidecar,
     result = subprocess.run([sys.executable, "-E", "-s", "-B", "-m", "tools.status_push_client", "--once"], cwd=sidecar, capture_output=True,
                             text=True, env=env, timeout=20, check=False)
     assert result.returncode == 0 and "disabled" in result.stdout and "nothing was sent" in result.stdout
+
+
+# ---- STEP 38.8: side effects of the units and the programs ----
+def publish_with_umask(sidecar: Path, source: Path, out: Path, *extra: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-E", "-s", "-B", "-m", "tools.status_projection_publisher", "--source", str(source), "--dest-dir",
+                           str(out), "--once", *extra], cwd=sidecar, capture_output=True, text=True, env=ENV, check=False,
+                          preexec_fn=lambda: os.umask(0o077))  # the unit's UMask=0077
+
+
+def test_umask_0077_does_not_break_the_group_readable_projection(sidecar, lanes) -> None:
+    source, out = lanes
+    write_status(source)
+    os.chmod(out, 0o750)  # what RuntimeDirectoryMode=0750 gives
+    result = publish_with_umask(sidecar, source, out, "--allow-group-readable-dir")
+    assert result.returncode == 0, result.stderr
+    assert oct(os.stat(out / "status.projection.json").st_mode & 0o777) == "0o640", "explicit fchmod, independent of the umask"
+    assert oct(os.stat(out).st_mode & 0o777) == "0o750"
+
+
+def test_without_the_owner_switch_the_projection_stays_private_under_the_same_umask(sidecar, lanes) -> None:
+    source, out = lanes
+    write_status(source)
+    assert publish_with_umask(sidecar, source, out).returncode == 0
+    assert oct(os.stat(out / "status.projection.json").st_mode & 0o777) == "0o600"
+    os.chmod(out, 0o750)
+    refused = publish_with_umask(sidecar, source, out)
+    assert refused.returncode == 2 and "allow-group-readable-dir" in refused.stderr
+
+
+def test_the_publisher_cannot_expose_the_private_core_status_file(sidecar, lanes, tmp_path) -> None:
+    source, out = lanes
+    write_status(source, detail="TOKEN-SHOULD-NEVER-LEAK", pid=4242, secret_path="/etc/shadow", extra={"password": "hunter2"})
+    secret_before = (source.read_bytes(), oct(source.stat().st_mode), source.stat().st_mtime_ns)
+    assert publish(sidecar, source, out).returncode == 0
+    published = (out / "status.projection.json").read_text()
+    for needle in ("TOKEN-SHOULD-NEVER-LEAK", "4242", "/etc/shadow", "hunter2", "password", str(source)):
+        assert needle not in published, needle
+    assert (source.read_bytes(), oct(source.stat().st_mode), source.stat().st_mtime_ns) == secret_before
+    assert not os.stat(source).st_mode & 0o077
+
+
+def test_a_planted_symlink_at_the_output_name_is_replaced_never_followed(sidecar, lanes, tmp_path) -> None:
+    source, out = lanes
+    write_status(source)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me")
+    (out / "status.projection.json").symlink_to(victim)
+    assert publish(sidecar, source, out).returncode == 0
+    assert victim.read_text() == "keep me"
+    assert not (out / "status.projection.json").is_symlink()
+    link_dir = tmp_path / "linkdir"
+    link_dir.symlink_to(out)
+    refused = publish(sidecar, source, link_dir)
+    assert refused.returncode == 2 and "symlink" in refused.stderr
+
+
+def test_the_publisher_refuses_the_private_runtime_locations(sidecar, lanes) -> None:
+    source, _ = lanes
+    write_status(source)
+    for forbidden in ("/run/aegis-idea3", "/var/lib/aegis-idea3", "/etc", "/opt/aegis-idea3-status"):
+        result = publish(sidecar, source, Path(forbidden))
+        assert result.returncode == 2, forbidden
+    assert not Path("/opt/aegis-idea3-status").exists()
+
+
+def test_the_pusher_is_disabled_by_default_in_the_shipped_environment_template() -> None:
+    template = (rel_tests.ROOT / "deploy" / "aegis-idea3-status-push.env.example").read_text()
+    active = [line for line in template.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    enabled = [line for line in active if line.startswith("AEGIS_CORE_STATUS_PUSH_ENABLED=")]
+    assert enabled in ([], ["AEGIS_CORE_STATUS_PUSH_ENABLED=0"])
+    for line in active:
+        name, _, value = line.partition("=")
+        if "KEY" in name or "CERT" in name or "CA_FILE" in name:
+            assert value.startswith("/") and "BEGIN" not in value, line  # paths only, never key material
+
+
+def test_the_sidecar_has_no_cut_restore_mqtt_or_device_identifiers(sidecar) -> None:
+    import ast
+
+    forbidden = {"publish", "issue_cut", "cut", "restore", "restore_request", "serial", "gpio", "subscribe", "mqtt", "relay", "esp32"}
+    for rel in rel_tests.FILES:
+        tree = ast.parse((sidecar / rel).read_text())
+        names = {n.id.lower() for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr.lower() for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        names |= {n.name.lower() for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+        assert not names & forbidden, (rel, names & forbidden)

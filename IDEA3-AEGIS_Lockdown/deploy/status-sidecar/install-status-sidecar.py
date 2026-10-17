@@ -56,6 +56,11 @@ DEFAULT_PYTHON = "/usr/bin/python3"
 RELEASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", re.ASCII)
 PARENT_DIR_MODE = 0o755
 STAGE_PREFIX = ".install-tmp-"
+FIXTURE_MARKER = ".aegis-sidecar-fixture-root"
+# A fixture root may never be, or sit inside, one of these locations.
+SYSTEM_LOCATIONS = tuple(Path(p) for p in (
+    "/opt", "/etc", "/usr", "/boot", "/bin", "/sbin", "/lib", "/lib64", "/sys", "/proc", "/dev", "/root", "/run",
+    "/var/lib", "/var/log", "/var/run"))
 
 
 class Refusal(Exception):
@@ -74,21 +79,59 @@ def _within(path: Path, base: Path) -> bool:
     return path == base or base in path.parents
 
 
+def validate_fixture_root(host_root: str) -> Path:
+    """Return the checked fixture root or refuse. The result is a disposable directory that cannot alias the real destination."""
+    raw = Path(host_root)
+    if not raw.is_absolute():
+        refuse("HOST_ROOT_MUST_BE_ABSOLUTE")
+    if host_root != os.path.normpath(host_root) or any(part in ("..", ".") for part in raw.parts):
+        refuse("HOST_ROOT_NOT_CANONICAL")
+    if raw == Path("/"):
+        refuse("HOST_ROOT_IS_FILESYSTEM_ROOT")
+    if raw.is_symlink():
+        refuse("HOST_ROOT_IS_SYMLINK")
+    real = Path(os.path.realpath(raw))
+    if real != raw:
+        refuse("HOST_ROOT_ALIAS")
+    for system in SYSTEM_LOCATIONS:
+        if _within(real, system):
+            refuse("HOST_ROOT_IN_SYSTEM_LOCATION")
+    if not raw.is_dir():
+        refuse("HOST_ROOT_NOT_A_DIRECTORY")
+    for production in (Path(LOGICAL_ROOT), Path(CORE_ROOT)):
+        resolved = Path(os.path.realpath(production))
+        if _within(resolved, real) or _within(real, resolved):
+            refuse("HOST_ROOT_ALIASES_PRODUCTION")
+    marker = raw / FIXTURE_MARKER
+    try:
+        info = marker.lstat()
+    except OSError:
+        refuse("HOST_ROOT_NOT_APPROVED_FIXTURE")
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        refuse("HOST_ROOT_NOT_APPROVED_FIXTURE")
+    return real
+
+
 class Layout:
-    def __init__(self, host_root: str, fixture_owner_any: bool):
-        if fixture_owner_any and not host_root:
-            refuse("FIXTURE_OWNER_OVERRIDE_REQUIRES_HOST_ROOT")
+    def __init__(self, host_root: str, fixture_owner_any: bool, fixture_allow_dirty: bool = False):
+        if (fixture_owner_any or fixture_allow_dirty) and not host_root:
+            refuse("FIXTURE_OVERRIDE_REQUIRES_HOST_ROOT")
         if not host_root and os.geteuid() != 0:
             refuse("LIVE_INSTALL_REQUIRES_ROOT")
-        if host_root and not Path(host_root).is_absolute():
-            refuse("HOST_ROOT_MUST_BE_ABSOLUTE")
+        if host_root:
+            validate_fixture_root(host_root)
         self.host_root = host_root
         self.root = _host(host_root, LOGICAL_ROOT)
         self.releases = self.root / "releases"
         self.core = _host(host_root, CORE_ROOT)
         self.owner = "any" if fixture_owner_any else "root"
+        self.allow_dirty = bool(fixture_allow_dirty)
         if _within(self.root, self.core) or _within(self.core, self.root):
             refuse("SIDECAR_ROOT_ALIASES_CORE")
+        if host_root:
+            real_root = Path(os.path.realpath(self.root))
+            if not _within(real_root, Path(os.path.realpath(host_root))) or real_root in (Path(LOGICAL_ROOT), Path(CORE_ROOT)):
+                refuse("HOST_ROOT_ESCAPE")
 
     def release_path(self, release_id: str) -> Path:
         return self.releases / release_id
@@ -160,6 +203,14 @@ def _verify(path: Path, owner: str, release_id: str | None = None) -> dict:
     raise AssertionError  # pragma: no cover
 
 
+def _verify_clean(layout: Layout, path: Path, owner: str, release_id: str | None = None) -> dict:
+    """Verify, then refuse a package built from a dirty source tree unless a validated fixture explicitly allows it."""
+    info = _verify(path, owner, release_id)
+    if info["source_tree_dirty"] and not layout.allow_dirty:
+        refuse("DIRTY_SOURCE_NOT_ALLOWED")
+    return info
+
+
 def _runtime(source: Path, python: str, accept_untested: bool) -> str:
     try:
         version = _builder.check_runtime_compatible(source, python, accept_untested=accept_untested)
@@ -203,7 +254,7 @@ def _leftovers(layout: Layout) -> list[str]:
 
 def plan(layout: Layout, release_id: str, source: Path, python: str, accept_untested: bool) -> dict:
     _validate_id(release_id)
-    info = _verify(source, "any", release_id)
+    info = _verify_clean(layout, source, "any", release_id)
     version = _runtime(source, python, accept_untested)
     dest = layout.release_path(release_id)
     return {"release_id": release_id, "source_git_sha": info["source_git_sha"], "python_runtime": version,
@@ -213,7 +264,7 @@ def plan(layout: Layout, release_id: str, source: Path, python: str, accept_unte
 
 def install(layout: Layout, release_id: str, source: Path, python: str, accept_untested: bool) -> dict:
     _validate_id(release_id)
-    _verify(source, "any", release_id)
+    _verify_clean(layout, source, "any", release_id)
     _runtime(source, python, accept_untested)
     dest = layout.release_path(release_id)
     if dest.is_symlink() or dest.exists():
@@ -224,14 +275,14 @@ def install(layout: Layout, release_id: str, source: Path, python: str, accept_u
     stage.rmdir()
     try:
         _copy_tree(source, stage)
-        _verify(stage, layout.owner, release_id)
+        _verify_clean(layout, stage, layout.owner, release_id)
         if dest.is_symlink() or dest.exists():
             refuse("RELEASE_ALREADY_INSTALLED")
         os.rename(stage, dest)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
-    info = _verify(dest, layout.owner, release_id)
+    info = _verify_clean(layout, dest, layout.owner, release_id)
     return {"release_id": release_id, "source_git_sha": info["source_git_sha"]}
 
 
@@ -240,7 +291,7 @@ def activate(layout: Layout, release_id: str, python: str, accept_untested: bool
     dest = layout.release_path(release_id)
     if not dest.is_dir() or dest.is_symlink():
         refuse("RELEASE_NOT_INSTALLED")
-    info = _verify(dest, layout.owner, release_id)
+    info = _verify_clean(layout, dest, layout.owner, release_id)
     _runtime(dest, python, accept_untested)
     current = _read_link(layout.root / "current")
     if current == release_id:
@@ -264,7 +315,7 @@ def rollback(layout: Layout, python: str, accept_untested: bool, to: str | None 
     dest = layout.release_path(target)
     if not dest.is_dir() or dest.is_symlink():
         refuse("ROLLBACK_TARGET_NOT_INSTALLED")
-    _verify(dest, layout.owner, target)
+    _verify_clean(layout, dest, layout.owner, target)
     _runtime(dest, python, accept_untested)
     _set_link(layout, "previous", current)
     _set_link(layout, "current", target)
@@ -282,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--host-root", default="", help="FIXTURE ONLY: prefix for a disposable filesystem root")
     ap.add_argument("--fixture-dest-owner-any", action="store_true", help="FIXTURE ONLY: refused without --host-root")
+    ap.add_argument("--fixture-allow-dirty", action="store_true", help="FIXTURE ONLY: accept a synthetic dirty-source package; refused in live mode")
     ap.add_argument("--python", default=DEFAULT_PYTHON)
     ap.add_argument("--accept-untested-python", action="store_true")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -296,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     args = ap.parse_args(argv)
     try:
-        layout = Layout(args.host_root, args.fixture_dest_owner_any)
+        layout = Layout(args.host_root, args.fixture_dest_owner_any, args.fixture_allow_dirty)
         if args.cmd == "plan":
             result = plan(layout, args.release_id, Path(args.source), args.python, args.accept_untested_python)
         elif args.cmd == "install":
