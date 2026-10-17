@@ -22,8 +22,9 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog
 from types import SimpleNamespace
 
-from tools import live_purple_observer as live
+from tools import graceful_exit
 from tools import live_purple_incident_desktop as incident_desktop
+from tools import live_purple_observer as live
 
 ENABLE_ENV = "AEGIS_DESKTOP_CUT_ENABLED"
 SOCKET_ENV = "AEGIS_LOCAL_CUT_SOCKET"
@@ -216,6 +217,7 @@ def main():
         return 2
     root = tk.Tk()
     app, _isolation = create_cut_app(root, flow=client.ManualCutFlow(path))
+    graceful_exit.install(root, app)
     root.mainloop()
     return 0 if app else 1
 

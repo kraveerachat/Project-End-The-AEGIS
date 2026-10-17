@@ -2763,3 +2763,21 @@ restart while Detector is inactive remains NOT PROVEN. Do not implement or run
 a live executor until exact installed unit/drop-in evidence and a separately
 approved, fail-closed systemd behavior contract exist. Core restart, Detector,
 Production, network, markers, CTu/CTv, and Recovery were untouched.
+
+## Current task continuation — local Web + Python Desktop completion — 2026-10-17
+
+Branch `feat/idea3-complete-local-software`, based on PR #438 (`3f26e77`). Local software only; no sudo, MQTT publish,
+CUT/RESTORE, Mosquitto, ESP32, network or Production action.
+
+Added: `tools/local_status_bridge.py` (loopback, GET `/status` only, serves the Core `safe_status_projection` of an
+explicit status file; absent/malformed/oversized/stale → UNKNOWN), `tools/local_stack.py` (start/status/stop of the
+bridge + Web, state dir `~/.local/state/aegis-idea3-local`, dev password in a 0600 file), `tools/graceful_exit.py`
+(SIGTERM/SIGINT close the purple Desktop through its own `_on_close`; fixes leaked `aegis-purple-demo-*` temp dirs and
+a 143 exit), and `AEGIS_CORE_STATUS_FILE` for `tools.live_purple_desktop` so an explicit readable file avoids the
+observer's exact-file `sudo -n cat` fallback. README section "Local software runtime (no hardware)" documents the commands.
+
+Boundaries unchanged: relay, ACK and heartbeat stay UNKNOWN; Demo never becomes Live; Desktop CUT/RESTORE stay disabled
+outside the offline in-memory demo. Hardware E2E is NOT observed. Pre-existing failure outside this work:
+`tests/test_pr11_phase4_dnsmasq_unit_repair_owner_run_flow.py` fails 27 tests identically on pristine `origin/main`.
+
+Resume: `cd IDEA3-AEGIS_Lockdown && .venv-dev/bin/python -m pytest -q tests/test_local_status_bridge.py tests/test_graceful_exit.py`.

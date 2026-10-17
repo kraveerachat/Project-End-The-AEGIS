@@ -39,7 +39,7 @@ function invalid(res, code = 'REQUEST_INVALID') {
   return res.status(400).json({ error: { code, message: 'ข้อมูลคำขอไม่ถูกต้อง' } })
 }
 
-export function createSecurityRouter({ config, demoProvider, liveProvider, repository, demoRegistry, machineContact = null }) {
+export function createSecurityRouter({ config, demoProvider, liveProvider, repository, demoRegistry, machineContact = null, labEvidence = null }) {
   const router = Router()
   router.use(requireAdmin)
   // Demo Mode is simulated: while it is active every read and write goes to a session-scoped, memory-only
@@ -68,6 +68,13 @@ export function createSecurityRouter({ config, demoProvider, liveProvider, repos
     } catch (error) {
       next(error)
     }
+  })
+
+  // LAB observation: read-only, Admin-only, never part of the Core snapshot. A Demo session never sees LAB evidence.
+  // `labEvidence` is injected ({ snapshot, disabled }) so this router imports no broker or MQTT module.
+  router.get('/lab-mqtt', (req, res) => {
+    if (req.session.demoMode || !labEvidence?.active) return res.json(labEvidence?.disabled() ?? { enabled: false })
+    return res.json(labEvidence.snapshot())
   })
 
   router.get('/audit', async (req, res, next) => {

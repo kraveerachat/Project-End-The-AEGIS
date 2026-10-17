@@ -12,6 +12,8 @@ import pytest
 from aegis_soc.observer import ObserverEvidence, UNKNOWN
 from tools import live_purple_observer as live
 
+pytestmark = pytest.mark.usefixtures("restore_aegis_soc_imports")
+
 
 def _fresh_evidence():
     return ObserverEvidence(

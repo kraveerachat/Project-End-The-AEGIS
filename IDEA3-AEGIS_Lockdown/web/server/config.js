@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 
 const MINIMUM_SESSION_SECRET_LENGTH = 32
@@ -162,6 +163,18 @@ function labRuntimeStatusUrl(value, production) {
   return value
 }
 
+// Explicit LAB opt-in for the read-only MQTT observer (aegis/status on the fixed loopback broker). Off by default and
+// refused in production. The credential file is only a path here; it is never read by the config loader.
+function labMqttConfig(env, production) {
+  const value = env.AEGIS_IDEA3_LAB_MQTT_OBSERVER
+  if (value === undefined || value === null || value === '' || value === 'false') return Object.freeze({ enabled: false })
+  if (value !== 'true') throw new Error('AEGIS_IDEA3_LAB_MQTT_OBSERVER must be true or false')
+  if (production) throw new Error('AEGIS_IDEA3_LAB_MQTT_OBSERVER is not allowed in production')
+  const optionsFile = env.AEGIS_IDEA3_LAB_MQTT_OPTS_FILE || path.join(os.homedir(), '.config', 'aegis-lab-observer', 'mosquitto.opts')
+  if (!path.isAbsolute(optionsFile)) throw new Error('AEGIS_IDEA3_LAB_MQTT_OPTS_FILE must be an absolute path')
+  return Object.freeze({ enabled: true, optionsFile })
+}
+
 function dispatchEnabled(value) {
   if (value === undefined || value === null || value === '' || value === 'false') return false
   if (value === 'true') return true
@@ -282,6 +295,7 @@ export function loadConfig(env = process.env) {
     ? loopbackHost(env.AEGIS_BIND_HOST)
     : proxiedBindHost(env.AEGIS_BIND_HOST, trustedProxy)
   const dispatch = dispatchConfig(env, { production, webPort: port })
+  const labMqtt = labMqttConfig(env, production)
   const labRuntimeStatus = labRuntimeStatusEnabled(env.AEGIS_IDEA3_LAB_RUNTIME_STATUS)
   if (labRuntimeStatus) labRuntimeStatusUrl(env.AEGIS_IDEA3_RUNTIME_STATUS_URL, production)
   if (dispatch.enabled && trustedProxy !== null && !sameAddress(trustedProxy, dispatch.trustedProxy)) {
@@ -306,6 +320,7 @@ export function loadConfig(env = process.env) {
     webTrustedProxy: trustedProxy,
     dispatch,
     labRuntimeStatus,
+    labMqtt,
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
     maxEvidenceAgeMs: configuredPositiveInteger(
       'AEGIS_MAX_EVIDENCE_AGE_MS',

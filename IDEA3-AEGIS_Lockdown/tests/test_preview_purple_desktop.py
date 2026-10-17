@@ -12,6 +12,8 @@ import pytest
 
 from tools import preview_purple_desktop
 
+pytestmark = pytest.mark.usefixtures("restore_aegis_soc_imports")
+
 
 def test_preview_module_has_no_operational_launcher_or_transport():
     source = inspect.getsource(preview_purple_desktop)
