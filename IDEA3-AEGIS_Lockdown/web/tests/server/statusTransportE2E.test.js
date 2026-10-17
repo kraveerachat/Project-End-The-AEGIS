@@ -1,4 +1,4 @@
-// Offline end-to-end: synthetic Core status -> real Python push client -> real mTLS front (nginx stand-in) ->
+// Offline end-to-end: synthetic Core status -> real Python push client (run from a freshly BUILT status sidecar package, not the checkout) -> real mTLS front (nginx stand-in) ->
 // machine app -> status store -> Web live provider -> UI-facing snapshot. Everything is disposable: test-only
 // certificates, ephemeral loopback ports, synthetic status files. It never contacts a HUB, Core broker or ESP32.
 import { execFile, execFileSync } from 'node:child_process'
@@ -25,6 +25,7 @@ const SESSION_SECRET = 'test-session-secret-with-at-least-32-characters'
 
 let dir
 let pki
+let sidecar
 let canRun = true
 
 const openssl = (...args) => execFileSync('openssl', args, { stdio: 'pipe' })
@@ -134,11 +135,11 @@ function writeStatus(file, overrides = {}) {
 
 function push(web, { source, client = pki.core, ca = pki.serverCa, host = SERVER_NAME } = {}) {
   return new Promise((resolve) => {
-    execFile(PYTHON, [path.join(LOCKDOWN_ROOT, 'tests/fixtures/status_push_driver.py')], {
-      cwd: LOCKDOWN_ROOT,
+    execFile(PYTHON, ['-E', '-s', '-B', path.join(LOCKDOWN_ROOT, 'tests/fixtures/status_push_driver.py')], {
+      cwd: sidecar,
       env: {
         PATH: process.env.PATH,
-        PYTHONPATH: LOCKDOWN_ROOT,
+        AEGIS_TEST_SIDECAR_ROOT: sidecar,
         AEGIS_TEST_HOST_MAP: `${host}=127.0.0.1`,
         AEGIS_CORE_STATUS_PUSH_ENABLED: '1',
         AEGIS_CORE_STATUS_PUSH_BASE_URL: `https://${host}:${web.frontPort}${BASE}`,
@@ -178,7 +179,10 @@ beforeAll(() => {
   mkdirSync(dir, { recursive: true })
   try {
     pki = buildPki()
-    execFileSync(PYTHON, ['-c', 'import aegis_soc.runtime, tools.status_push_client'], { cwd: LOCKDOWN_ROOT, env: { PATH: process.env.PATH, PYTHONPATH: LOCKDOWN_ROOT }, stdio: 'pipe' })
+    const work = path.join(dir, 'sidecar-work')
+    mkdirSync(work, { recursive: true })
+    sidecar = execFileSync(PYTHON, ['-B', path.join(LOCKDOWN_ROOT, 'tests/fixtures/build_sidecar_fixture.py'), work], { env: { PATH: process.env.PATH }, stdio: 'pipe' }).toString().trim().split('\n').pop()
+    execFileSync(PYTHON, ['-E', '-s', '-B', '-c', 'import aegis_soc.observer, tools.status_push_client'], { cwd: sidecar, env: { PATH: process.env.PATH }, stdio: 'pipe' })
   } catch {
     canRun = false
   }
@@ -282,6 +286,43 @@ describe('offline Core push -> Web snapshot (disposable mTLS)', () => {
     writeStatus(source)
     expect((await push(web, { source })).code).toBe(0)
     expect(Date.parse(web.store.current().generatedAt)).toBeGreaterThan(Date.parse(first))
+  })
+
+  it('the authenticated UI API serves the pushed evidence: UNKNOWN before the first push, LIVE with the Core timestamp after, 401 without a session', async () => {
+    const app = createApp({ config: web.config, statusStore: web.store })
+    expect((await request(app).get('/api/security/snapshot')).status).toBe(401)
+    const agent = request.agent(app)
+    const loggedIn = await agent.post('/api/auth/login').set('Origin', 'http://localhost').set('Host', 'localhost')
+      .send({ username: 'admin', password: 'correct-horse-battery-staple' })
+    expect(loggedIn.status).toBe(200)
+    const before = await agent.get('/api/security/snapshot').set('Host', 'localhost')
+    expect(before.status).toBe(200)
+    expect(before.body.runtime.status).toBe('UNKNOWN')
+    writeStatus(source)
+    expect((await push(web, { source })).code).toBe(0)
+    const after = await agent.get('/api/security/snapshot').set('Host', 'localhost')
+    expect(after.status).toBe(200)
+    expect(after.body.runtime.status).toBe('HEALTHY')
+    expect(after.body.runtime.generatedAt).toBe(web.store.current().generatedAt)
+    expect(after.body.runtime.components.find((item) => item.id === 'heartbeat').status).toBe('UNKNOWN')
+  })
+
+  it('pusher failure is contained: with the Web endpoint down the push exits non-zero, sends nothing and the Web keeps its state', async () => {
+    writeStatus(source)
+    expect((await push(web, { source })).code).toBe(0)
+    const kept = web.store.current()
+    const unreachable = { ...web, frontPort: 1 }
+    const failed = await push(unreachable, { source })
+    expect(failed.code).not.toBe(0)
+    expect(failed.out).not.toMatch(/Traceback/)
+    expect(web.store.current()).toEqual(kept)
+  })
+
+  it('the pusher runs from the built sidecar package and loads no Core, MQTT or controller module', async () => {
+    writeStatus(source)
+    const result = await push(web, { source })
+    expect(result.code).toBe(0)
+    expect(result.out).not.toMatch(/isolation violated/)
   })
 
   it('Web restart: the new process holds nothing (UNKNOWN) until the next push; no persistence', async () => {

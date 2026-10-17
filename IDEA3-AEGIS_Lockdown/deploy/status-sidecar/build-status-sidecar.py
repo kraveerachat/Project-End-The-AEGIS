@@ -21,6 +21,9 @@ Deliberate boundaries:
 * The manifest and checksum file names differ from the Core release's, so neither verifier can accept the other layout.
 * It never writes ``/opt`` or any system location, never uses sudo/chown, never touches systemd, and installs nothing.
   Installing a built sidecar is a separate owner-run step.
+* Python: pure Python, no architecture dependence. The manifest records the interpreter it was built and smoke-tested with
+  (``python_version``) and the declared floor (``python_requires_min``); the installer checks the target interpreter with
+  ``check_runtime_compatible`` and refuses an older one, a non-CPython/non-POSIX one, and (unless the owner accepts it) another minor.
 * Sources must come from a clean git tree (``--allow-dirty`` records ``source_tree_dirty: true``).
 """
 
@@ -61,9 +64,15 @@ PROJECT_DIR = _core.PROJECT_DIR
 MANIFEST_NAME = "SIDECAR-MANIFEST.json"
 SUMS_NAME = "SIDECAR-SHA256SUMS"
 MANIFEST_FIELDS = (
-    "schema_version", "kind", "release_id", "source_git_sha", "source_tree_dirty", "python_version", "file_count",
-    "created_by_tool_version",
+    "schema_version", "kind", "release_id", "source_git_sha", "source_tree_dirty", "python_version", "python_requires_min",
+    "file_count", "created_by_tool_version",
 )
+# Declared interpreter floor: the Core itself needs 3.11 (StrEnum), and the shipped syntax is valid from 3.8. Only `python_version`
+# (the builder's interpreter) was actually executed; the manifest never claims more than that. A runtime of another minor version is
+# refused unless the owner explicitly accepts it at install time.
+PYTHON_MIN = (3, 11)
+PYTHON_MIN_TEXT = ".".join(map(str, PYTHON_MIN))
+_RUNTIME_PROBE = "import os,platform,sys;print(sys.version_info[0],sys.version_info[1],sys.version_info[2],platform.python_implementation(),os.name)"
 # The ONLY source files that enter the sidecar, relative to IDEA3-AEGIS_Lockdown/.
 SIDECAR_FILES = (
     "aegis_soc/__init__.py",
@@ -117,7 +126,39 @@ def _payload_files(root: Path) -> list[str]:
                   if not p.is_symlink() and p.is_file() and p.name != SUMS_NAME)
 
 
+def probe_runtime(python: str | os.PathLike, *, runner=subprocess.run) -> tuple[int, int, int]:
+    """Run ``python -I`` (scrubbed environment, bounded) and return its version, or raise ReleaseError.
+
+    Only CPython on a POSIX host is accepted: the publisher relies on ``O_NOFOLLOW``/``O_DIRECTORY`` directory-fd semantics.
+    """
+    try:
+        result = runner([str(python), "-I", "-c", _RUNTIME_PROBE], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                        timeout=20, check=False, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ReleaseError("PYTHON_RUNTIME_UNUSABLE") from exc
+    parts = (result.stdout or "").split()
+    if result.returncode != 0 or len(parts) != 5 or not all(p.isdigit() for p in parts[:3]):
+        raise ReleaseError("PYTHON_RUNTIME_UNUSABLE")
+    if parts[3] != "CPython" or parts[4] != "posix":
+        raise ReleaseError("PYTHON_RUNTIME_UNSUPPORTED_PLATFORM")
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def check_runtime_compatible(release_dir, python: str | os.PathLike, *, accept_untested: bool = False, runner=subprocess.run) -> tuple[int, int, int]:
+    """Refuse an interpreter below the declared floor, and a different minor than the one the package was tested with unless accepted."""
+    manifest = json.loads((Path(release_dir) / MANIFEST_NAME).read_text(encoding="utf-8"))
+    version = probe_runtime(python, runner=runner)
+    if version[:2] < PYTHON_MIN:
+        raise ReleaseError(f"PYTHON_RUNTIME_TOO_OLD:{version[0]}.{version[1]}<{PYTHON_MIN_TEXT}")
+    tested = tuple(int(x) for x in manifest["python_version"].split(".")[:2])
+    if version[:2] != tested and not accept_untested:
+        raise ReleaseError(f"PYTHON_RUNTIME_UNTESTED_MINOR:{version[0]}.{version[1]}!={tested[0]}.{tested[1]}")
+    return version
+
+
 def build_sidecar(source_root, staging_root, release_id, *, allow_dirty=False, runner=subprocess.run) -> Path:
+    if sys.version_info[:2] < PYTHON_MIN:
+        raise ReleaseError("BUILDER_PYTHON_TOO_OLD")
     source = Path(source_root)
     _core.validate_release_id(release_id)
     staging = _core._check_staging(Path(staging_root), source, release_id)
@@ -151,7 +192,7 @@ def build_sidecar(source_root, staging_root, release_id, *, allow_dirty=False, r
         payload = _payload_files(tmp)
         manifest = {
             "schema_version": SCHEMA_VERSION, "kind": KIND, "release_id": release_id, "source_git_sha": sha,
-            "source_tree_dirty": bool(dirty), "python_version": platform.python_version(), "file_count": len(payload),
+            "source_tree_dirty": bool(dirty), "python_version": platform.python_version(), "python_requires_min": PYTHON_MIN_TEXT, "file_count": len(payload),
             "created_by_tool_version": TOOL_VERSION,
         }
         (tmp / MANIFEST_NAME).write_text(json.dumps({k: manifest[k] for k in MANIFEST_FIELDS}, indent=2) + "\n", encoding="utf-8")
@@ -276,6 +317,10 @@ def verify_sidecar(release_dir, *, expect_owner: str = "self", release_id: str |
         raise ReleaseError("MANIFEST_DIRTY_FLAG_INVALID")
     if not isinstance(manifest["python_version"], str) or not _core.PYVER_RE.fullmatch(manifest["python_version"]):
         raise ReleaseError("MANIFEST_PYTHON_VERSION_INVALID")
+    if manifest["python_requires_min"] != PYTHON_MIN_TEXT:
+        raise ReleaseError("MANIFEST_PYTHON_REQUIRES_INVALID")
+    if tuple(int(x) for x in manifest["python_version"].split(".")[:2]) < PYTHON_MIN:
+        raise ReleaseError("MANIFEST_PYTHON_VERSION_BELOW_FLOOR")
     count = manifest["file_count"]
     if not isinstance(count, int) or isinstance(count, bool) or count != len([p for p in payload if p != MANIFEST_NAME]):
         raise ReleaseError("MANIFEST_FILE_COUNT_MISMATCH")

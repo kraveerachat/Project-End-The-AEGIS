@@ -10,6 +10,9 @@
 Description=AEGIS IDEA3 Core read-only status push client
 After=aegis-idea3-core.service network-online.target
 Wants=network-online.target
+# Ordering only on the Core. Deliberately NO Requires=/BindsTo=/PartOf= on aegis-idea3-core.service: the pusher can fail independently.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -26,9 +29,25 @@ ProtectHome=true
 ReadOnlyPaths=/run/aegis-idea3 /etc/aegis-idea3/pki /opt/aegis-idea3-status
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6
+# Owner decision: restrict egress to the HUB machine endpoint once its address is known, e.g. IPAddressDeny=any plus
+# IPAddressAllow=<HUB_ADDRESS>. Left open here because the Core-to-HUB route is unverified (doc/Content/12).
 LockPersonality=true
 MemoryDenyWriteExecute=true
 RestrictNamespaces=true
 SystemCallFilter=@system-service
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+UMask=0077
+TimeoutStopSec=10
 
 # Intentionally no [Install] section: enabling at boot is a separate, explicit owner decision.

@@ -37,11 +37,20 @@ Rejected shortcut: running from a development checkout in Production (mutable so
 * `tools/status_projection_publisher.py` now imports the mirror instead of `aegis_soc.runtime` (a one-line change; behaviour identical, 46 prior tests unchanged and passing).
 * Unit templates now run from the sidecar. Still templates; no `[Install]`.
 
-## 4. Not done / owner gates
+## 4. Installer, runtime check, units (STEP 38.7)
 
-1. A root-owned installer for `/opt/aegis-idea3-status` (analogue of `p4-l7-install-release.py`) and a governed stage. Not written: it is a privileged install path and needs owner approval.
-2. Python version on the Core host is not verified; the manifest records the builder's version only.
-3. Readable-status-file permission, group, HUB/network/mTLS readiness remain as in doc 12.
+* `deploy/status-sidecar/install-status-sidecar.py` (`plan`, `install`, `activate`, `rollback`, `status`) is implemented and tested on disposable roots only (`tests/test_status_sidecar_installer.py`). It is inert unless an owner runs it; live use requires root and root-owned results; it touches only `/opt/aegis-idea3-status`, never the Core tree, and performs no systemd, Docker, network or device action.
+* The manifest gained `python_requires_min` (3.11). `check_runtime_compatible` refuses an older interpreter, a non-CPython/non-POSIX one, and another minor than the tested one unless explicitly accepted. The manifest makes no architecture or portability claim.
+* Both unit templates were reviewed and hardened; the publisher's `[Install]` section was removed (`tests/test_status_sidecar_units.py`).
+* Offline end-to-end now runs the pusher from a freshly built sidecar package (Node E2E, 17 tests) and the publisher through the Desktop reader (`tests/test_status_sidecar_integration.py`).
+* Deployment package for the owner: `doc/Content/14_STATUS_SIDECAR_DEPLOYMENT_READINESS.md`.
+
+### Still open (owner gates)
+
+1. Running the installer for real (root, written maintenance window). Root ownership cannot be simulated by an unprivileged test; the default root-owned contract is asserted to REFUSE a user-owned fixture instead of being weakened.
+2. The dedicated status group and Desktop operator membership.
+3. HUB/NGINX, certificates, Core-to-HUB route, Web flag enablement.
+4. Python on the host can change with a rolling-release upgrade.
 
 ## 5. Pre-existing finding (not caused by this work)
 
