@@ -383,3 +383,12 @@ def test_publisher_refuses_non_posix_hosts(paths, monkeypatch):
     _write(source, _core_status())
     monkeypatch.setattr(os, "name", "nt")
     assert publisher.publish_once(source, dest, now=NOW).outcome == publisher.DESTINATION_REFUSED
+
+
+def test_reference_unit_destination_is_not_inside_a_protected_prefix():
+    reference = Path("/run/aegis-idea3-status")
+    for forbidden in publisher.FORBIDDEN_DESTINATION_PREFIXES:
+        assert reference != forbidden and forbidden not in reference.parents
+    unit = (Path(__file__).resolve().parents[1] / "deploy" / "aegis-idea3-status-publisher.service.example").read_text(encoding="utf-8")
+    assert "NOT INSTALLED" in unit and "--dest-dir /run/aegis-idea3-status" in unit
+    assert "ReadOnlyPaths=/run/aegis-idea3\n" in unit

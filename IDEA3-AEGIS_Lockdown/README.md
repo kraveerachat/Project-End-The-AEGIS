@@ -254,6 +254,12 @@ python3 -m venv .venv-dev && .venv-dev/bin/pip install -r requirements-dev.txt
   On the Production host that directory is private (`0700`, `aegis-idea3`), so a normal operator account sees
   `UNAVAILABLE` until the owner provides a readable projection; set `AEGIS_CORE_STATUS_FILE` to an absolute, readable
   status file (read only, never written) before starting `tools.live_purple_desktop`.
+- `tools/status_projection_publisher.py` re-emits the Core status as an allowlisted, versioned file for same-host
+  consumers (the Purple Desktop reads it through `AEGIS_CORE_STATUS_FILE`). It reads the private Core file as its owner,
+  keeps the Core's own `updated_at`, publishes nothing when the source is missing, unreadable, malformed, oversized,
+  stale, future-dated or contradictory, replaces the output atomically, and refuses any destination that is not an
+  owner-controlled plain directory. It has no listener, subprocess, chmod or chown and is not installed anywhere; see
+  `doc/Content/09_LIVE_STATUS_TRANSPORT_DESIGN.md` and `doc/Content/10_PRODUCTION_READINESS_PACKAGE.md`.
 - Demo and Live are separate: a Web Demo session never receives LAB MQTT or Core evidence, and the Demo/offline
   Desktop uses synthetic data only. Neither proves hardware behavior.
 

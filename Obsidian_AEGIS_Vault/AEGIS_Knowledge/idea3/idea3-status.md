@@ -11,6 +11,25 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 live read-only status integration readiness — repository-only — 2026-10-17
+
+> [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. This task prepared source, tests and an owner handoff; it did not deploy, install, restart, publish MQTT, touch hardware or change any network.
+
+Branch `feat/idea3-live-status-readonly-integration` (owner `music`, one Draft PR) starts from `main` `5a67384835dda50b5d4fb45a9551f117048bb5f0` after PR #442 reconciled PRs #437/#438/#439/#441 into `main`.
+
+| ID | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| LIVE-A | Desktop status reader no longer has the `sudo -n cat` fallback; reads only the configured file (no symlink, regular file, 64 KiB, non-blocking, portable) | LOCAL_VERIFIED | `tests/test_observer.py` 14 tests, subprocess-forbidding fixtures | host acceptance on the real Core file |
+| LIVE-B | `tools/status_projection_publisher.py`: allowlisted versioned projection, Core timestamp preserved, atomic replace, destination guards | IMPLEMENTED_AND_TESTED offline (disposable dirs) | `tests/test_status_projection_publisher.py` | not installed; needs owner group/directory/unit |
+| LIVE-C | Desktop reads the published projection; unreadable/invalid paths fail closed without a subprocess | LOCAL_VERIFIED | `tests/test_live_purple_desktop.py` | GUI-only manual acceptance pending |
+| LIVE-D | Core→Web transport: recommended authenticated Core-side push over the existing Phase 2B mTLS channel; pure `statusIngest` contract | REVIEW_READY design; contract implemented offline, **not mounted** | `doc/Content/09_LIVE_STATUS_TRANSPORT_DESIGN.md`, `web/tests/server/statusIngest.test.js` | Web route + independent enable flag, Core pusher (Core release), HUB reachability, owner approvals |
+| LIVE-E | Web/Desktop consistency matrix (17 synthetic scenarios), production LAB guards, unauthorized access | LOCAL_VERIFIED | `tests/test_live_status_consistency.py`, `web/tests/server/statusConsistency.test.js`, `liveStatusProductionGuards.test.js` | not cross-host evidence |
+| LIVE-H | Operator readiness package and reference unit (not installed) | DOCUMENTED | `doc/Content/10_PRODUCTION_READINESS_PACKAGE.md`, `deploy/aegis-idea3-status-publisher.service.example` | owner execution |
+
+Facts carried forward (read-only inspection, STEP 38.1/38.2; not re-run here): Core `aegis-idea3-core.service` active under the installed release `954ce1c191885e9e90198a6f54a3d990bcf144fc`, 13 `aegis_soc` files behind `main`; the Core's private `/run/aegis-idea3` is `0700`; the IDEA3 Wi-Fi interface was a client, so the AP, `aegis-idea3-mosquitto` (8883 bind) and `aegis-idea3-dnsmasq` were failing; system `mosquitto` listens plaintext on `1883`; the Core host had no route to the HUB; the Production Web state is UNKNOWN and its compose files configure no runtime status feed. These are infrastructure items outside this task.
+
+Known limitations preserved: 135 inherited Python failures (the full suite is not green), no functional CI, status badge clipping (VISUAL_MINOR), human-reported 390px result, no hardware E2E; ACK, relay and heartbeat never prove physical isolation. A known Web/Desktop divergence is recorded in the consistency matrix: for a contradictory document (LOCKDOWN with a NORMAL uplink) the Desktop shows UNKNOWN while the Web adapter shows DEGRADED; neither is HEALTHY and the publisher refuses to publish it.
+
 ## Accepted purple Python Desktop — local software verified, Production control blocked — 2026-10-10
 
 The owner accepted the uncommitted purple `AegisAdminGUI` and its Login →

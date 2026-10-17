@@ -1,0 +1,37 @@
+# AEGIS IDEA3 status projection publisher — TEMPLATE, NOT INSTALLED, NOT REVIEWED FOR PRODUCTION.
+# Owner decisions are required before any use: the dedicated group, the group members, the runtime directory and the
+# host's systemd version. Never edit /run/aegis-idea3 or its mode; this unit only writes its own directory.
+#
+# It runs as the Core user so it can read the Core's private status.json as that file's owner, and as a dedicated group so
+# the files it creates are readable by the Desktop operators in that group (HYPOTHESIS: verify on the host).
+[Unit]
+Description=AEGIS IDEA3 read-only status projection publisher
+After=aegis-idea3-core.service
+
+[Service]
+Type=simple
+User=aegis-idea3
+Group=<AEGIS_STATUS_GROUP>
+RuntimeDirectory=aegis-idea3-status
+RuntimeDirectoryMode=0750
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -m tools.status_projection_publisher \
+    --source /run/aegis-idea3/status.json --dest-dir /run/aegis-idea3-status --allow-group-readable-dir
+WorkingDirectory=/opt/aegis-idea3/current
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/run/aegis-idea3
+ReadWritePaths=/run/aegis-idea3-status
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
