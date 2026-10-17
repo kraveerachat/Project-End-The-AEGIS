@@ -248,9 +248,12 @@ python3 -m venv .venv-dev && .venv-dev/bin/pip install -r requirements-dev.txt
 - `tools/local_status_bridge.py` serves only `GET /status` on loopback: the Core's `safe_status_projection` of the given
   file. A missing, malformed, oversized or stale file is shown as UNKNOWN. Relay, ACK and heartbeat stay UNKNOWN because
   the projection carries no physical evidence for them.
-- The live Desktop's default status path is `/run/aegis-idea3/status.json`. Its reader falls back to one exact-file
-  `sudo -n cat` when that file is permission-denied. To avoid that fallback, set `AEGIS_CORE_STATUS_FILE` to an
-  absolute, readable status file (read only, never written) before starting `tools.live_purple_desktop`.
+- The live Desktop's default status path is `/run/aegis-idea3/status.json`. The reader opens only the configured file
+  directly (no symlink, regular file, 64 KiB bound) and never runs `sudo` or any subprocess: if the file is missing,
+  unreadable (permission denied), malformed, oversized, stale, future-dated or contradictory, the Desktop shows UNKNOWN.
+  On the Production host that directory is private (`0700`, `aegis-idea3`), so a normal operator account sees
+  `UNAVAILABLE` until the owner provides a readable projection; set `AEGIS_CORE_STATUS_FILE` to an absolute, readable
+  status file (read only, never written) before starting `tools.live_purple_desktop`.
 - Demo and Live are separate: a Web Demo session never receives LAB MQTT or Core evidence, and the Demo/offline
   Desktop uses synthetic data only. Neither proves hardware behavior.
 

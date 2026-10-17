@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import math
-import subprocess
+import os
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any
 
 STATUS_PATH = Path("/run/aegis-idea3/status.json")
 DEFAULT_MAX_AGE_SECONDS = 120.0
+MAX_STATUS_BYTES = 64 * 1024
 UNKNOWN = "UNKNOWN"
 
 _REQUIRED_FIELDS = frozenset(
@@ -77,25 +79,28 @@ def _unknown(freshness: str, reason: str) -> ObserverEvidence:
     return ObserverEvidence(valid=False, freshness=freshness, reason=reason)
 
 
-def _read_status_text(path: Path) -> str:
-    """Read status directly, with one exact-file passwordless sudo fallback."""
+class _UnsafeStatusFile(OSError):
+    """The configured path is not a plain, bounded, regular status file."""
 
+
+def _read_status_text(path: Path) -> str:
+    """Read the configured status file directly: no subprocess, no privilege change.
+
+    The file is opened without following a final symlink and without blocking, must be a
+    regular file, and is read with a hard size bound.
+    """
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
     try:
-        return path.read_text(encoding="utf-8")
-    except PermissionError:
-        if path != STATUS_PATH:
-            raise
-        result = subprocess.run(
-            ["sudo", "-n", "cat", str(STATUS_PATH)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=2.0,
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or "not authorized").strip()
-            raise PermissionError(f"permission denied for fixed Core status file: {detail}")
-        return result.stdout
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise _UnsafeStatusFile("Core status path is not a regular file")
+        data = os.read(descriptor, MAX_STATUS_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(data) > MAX_STATUS_BYTES:
+        raise _UnsafeStatusFile("Core status file exceeds the size bound")
+    return data.decode("utf-8")
 
 
 def _is_bool(value: Any) -> bool:
@@ -146,8 +151,8 @@ def read_observer_status(
         document = json.loads(_read_status_text(Path(path)))
     except FileNotFoundError:
         return _unknown("MISSING", "Core status file is unavailable")
-    except PermissionError as error:
-        return _unknown("UNAVAILABLE", str(error))
+    except PermissionError:
+        return _unknown("UNAVAILABLE", "permission denied for the Core status file; no privileged read is attempted")
     except (OSError, UnicodeError, json.JSONDecodeError):
         return _unknown("INVALID", "Core status file is unreadable or invalid")
     if not isinstance(document, dict):
