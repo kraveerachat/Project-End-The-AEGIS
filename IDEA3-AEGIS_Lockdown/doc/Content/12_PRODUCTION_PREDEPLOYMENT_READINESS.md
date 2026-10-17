@@ -6,9 +6,9 @@ Classification vocabulary: **VERIFIED** (proved by evidence gathered in this rep
 
 | Item | Class | Basis |
 |---|---|---|
-| Core status publisher (`tools/status_projection_publisher.py`, PR #443) | READY FOR REVIEW | 46 offline tests; not installed; `tools/` is not in the Core release (see 3) |
+| Core status publisher (`tools/status_projection_publisher.py`, PR #443) | READY FOR REVIEW | 46 offline tests; not installed; ships in the status sidecar package (STEP 38.6, doc 13), not the Core release |
 | Purple Desktop reader (no sudo, PR #443) | READY FOR REVIEW | offline tests; no manual GUI check against the real Core file |
-| Core status pusher (`tools/status_push_client.py`) | READY FOR REVIEW; **install BLOCKED** | 38 tests + offline mTLS E2E; cannot run from an installed release (packaging gap) |
+| Core status pusher (`tools/status_push_client.py`) | READY FOR REVIEW; **install BLOCKED** | 38 tests + offline mTLS E2E; packaged in the sidecar (source), but no owner-run sidecar installer exists |
 | Web machine status route / flag | READY FOR REVIEW | route tests + E2E; default disabled; deployed Web image unknown |
 | Deployed Web container (identity, digest, revision) | UNKNOWN | HUB not reachable from the Core host |
 | HUB nginx machine block / Phase 2B | UNKNOWN | repository file exists; installed state unverified |
@@ -40,7 +40,7 @@ Compared the installed release `954ce1c191885e9e90198a6f54a3d990bcf144fc` (an an
 | mTLS client configuration | Reuses the Core's dispatch client certificate/CA files by path (`AEGIS_CORE_DISPATCH_*` paths already exist in the env example); separate `AEGIS_CORE_STATUS_PUSH_*` variables keep it independent of dispatch enablement. |
 | `main` vs release | 13 `aegis_soc` files differ, including new `cut_client.py`, `local_cut.py`, `incident_view.py` and supervisor changes (local manual CUT, inert unless configured). A new Core release is therefore a larger change than the status work alone and needs the governed upgrade path. |
 
-Conclusion: the status data contract is compatible with the installed release; the **delivery** is not (packaging gap). A new release must not be assumed safe because offline tests pass.
+Conclusion: the status data contract is compatible with the installed release. STEP 38.6 resolves the **packaging** gap in source with a separate sidecar package that leaves the Core release contract untouched (doc 13); an owner-run sidecar installer is still missing. A new Core release must not be assumed safe because offline tests pass (and four pinned closure tests are already stale on `main`, doc 13 section 5).
 
 ## 3. HUB read-only command package (for an authorized HUB operator)
 

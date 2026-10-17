@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 
 from aegis_soc import observer
-from aegis_soc.runtime import safe_status_projection
+from aegis_soc.status_projection import project_status_document
 
 PROJECTION_SCHEMA = "aegis.idea3.status-projection"
 PROJECTION_VERSION = 1
@@ -98,7 +98,7 @@ def build_projection(document: dict, *, published_at: float) -> dict:
         "published_at": published_at,
         "physical_verification": "NOT_VERIFIED",
     }
-    projection["web_projection"] = safe_status_projection(
+    projection["web_projection"] = project_status_document(
         {**{field: document[field] for field in _DESKTOP_FIELDS}, "updated_at": document["updated_at"], "components": components}
     )
     return projection

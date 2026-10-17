@@ -1,4 +1,5 @@
 # AEGIS IDEA3 status projection publisher — TEMPLATE, NOT INSTALLED, NOT REVIEWED FOR PRODUCTION.
+# Runs from the immutable status sidecar package (deploy/status-sidecar), not from the Core release.
 # Owner decisions are required before any use: the dedicated group, the group members, the runtime directory and the
 # host's systemd version. Never edit /run/aegis-idea3 or its mode; this unit only writes its own directory.
 #
@@ -14,9 +15,9 @@ User=aegis-idea3
 Group=<AEGIS_STATUS_GROUP>
 RuntimeDirectory=aegis-idea3-status
 RuntimeDirectoryMode=0750
-ExecStart=/opt/aegis-idea3/current/venv/bin/python -m tools.status_projection_publisher \
+ExecStart=/usr/bin/python3 -E -s -B -m tools.status_projection_publisher \
     --source /run/aegis-idea3/status.json --dest-dir /run/aegis-idea3-status --allow-group-readable-dir
-WorkingDirectory=/opt/aegis-idea3/current
+WorkingDirectory=/opt/aegis-idea3-status/current
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -24,6 +25,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/run/aegis-idea3
+ReadOnlyPaths=/opt/aegis-idea3-status
 ReadWritePaths=/run/aegis-idea3-status
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX

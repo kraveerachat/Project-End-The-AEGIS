@@ -77,9 +77,11 @@ Relay, ACK and heartbeat stay UNKNOWN: the Core projection carries no per-messag
 
 Offline tests use synthetic Core status, test-only certificates and ephemeral loopback ports; they prove the code's fail-closed behavior. They do **not** prove the HUB nginx block, the real certificates, DNS/routing from the Core host, the real Core status schema on the installed release, clocks, or any physical state. Production acceptance (section 6) is a separate, owner-run, human-observed step and is not performed by this repository work.
 
-## 6b. Release packaging gap (found in STEP 38.5 — BLOCKER for installing the push client)
+## 6b. Release packaging (STEP 38.5 found the gap; STEP 38.6 closes it in source)
 
-The Core release builder (`deploy/pr11-phase4/p4-l7-build-release.py`) ships only the `aegis_soc` module closure of four entrypoints (supervisor, recovery_ui, production_detector, cli). `tools/` is not part of any release, and `aegis_soc/observer.py` is not reachable from those entrypoints. The push client lives in `tools/` and imports `aegis_soc.observer`, so **it cannot run from an installed release as the unit template assumes**. Decision needed before any install (outside this task; touches the release builder, infrastructure-reviewed): either add a fifth manifested entrypoint (for example a module `aegis_soc/status_push.py` plus `observer.py`) through a reviewed builder change and a new Core release, or run the client from a separate, reviewed checkout. Do not copy files into `/opt/aegis-idea3`. See `doc/Content/12_PRODUCTION_PREDEPLOYMENT_READINESS.md`.
+The Core release builder (`deploy/pr11-phase4/p4-l7-build-release.py`) ships only the `aegis_soc` module closure of four entrypoints, and the release guard, the installer and the F1u/R1Du/RRu upgrade engines pin that exact layout. `tools/` and `aegis_soc/observer.py` are not in it, so the push client and publisher can never run from an installed Core release. The Core release contract is deliberately **unchanged**.
+
+Instead the status components ship in a separate, immutable, stdlib-only **status sidecar** package built by `deploy/status-sidecar/build-status-sidecar.py` (explicit six-file allowlist, `SIDECAR-MANIFEST.json`, `SIDECAR-SHA256SUMS`, no venv, no Core module). Units run `/usr/bin/python3 -E -s -B -m tools.<module>` from `/opt/aegis-idea3-status/current` (templates only). The installed Core release stays byte-identical. **Still open:** an owner-run, root-owned installer for `/opt/aegis-idea3-status/releases/<id>` and its `current` switch does not exist and is not authorized; nothing was installed. See `doc/Content/13_STATUS_SIDECAR_PACKAGING.md`.
 
 ## 7. Known limitations
 
