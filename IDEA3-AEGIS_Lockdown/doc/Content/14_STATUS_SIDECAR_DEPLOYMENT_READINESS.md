@@ -1,5 +1,7 @@
 # 14 — Status sidecar deployment readiness package (STEP 38.7)
 
+The step-by-step owner procedure is `doc/Content/15_PRODUCTION_ACTIVATION_RUNBOOK.md`.
+
 Owner-facing. **Nothing here is installed, enabled, started or deployed**, and no Production credential, systemd unit, Docker, network, broker, AP, ESP32 or relay was touched. This package prepares a later, separately authorized deployment of the **read-only status feature**. It is **not** evidence that the cyber-physical system works.
 
 ## 0. Scope: read-only status is not hardware-control readiness
