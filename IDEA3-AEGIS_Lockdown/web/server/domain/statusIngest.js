@@ -1,9 +1,10 @@
 import { evaluateFreshness } from './status.js'
 
 /**
- * Pure contract for a future Core -> Web read-only status push (design: doc/Content/05_LIVE_STATUS_TRANSPORT_DESIGN.md).
+ * Contract for the Core -> Web read-only status push (design: doc/Content/09_LIVE_STATUS_TRANSPORT_DESIGN.md).
  *
  * Nothing here opens a socket, mounts a route, reads a file or touches the clock on its own: the caller passes `now`.
+ * The machine route (routes/machineRoutes.js) is the only caller, and only when the status-ingest flag is enabled.
  * The envelope carries only the Core's own allowlisted `safe_status_projection`. Every unknown key is refused rather than
  * ignored, evidence outside the freshness window or from the future is refused, and a replay or reordering (an envelope
  * that is not strictly newer than the stored one) is refused. A refusal never changes the stored record.
@@ -58,8 +59,10 @@ function validProjection(projection) {
  * @param options.now Date supplied by the caller
  * @param options.maxAgeMs freshness window for the Core evidence and for the push itself
  * @param options.previous record returned by an earlier accepted push, or null
+ * @param options.allowedProfiles when set, the only Core profiles accepted (Production accepts only `production`, so
+ *   LAB/development evidence is never taken as genuine Production Core evidence)
  */
-export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = null } = {}) {
+export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = null, allowedProfiles = null } = {}) {
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) return refuse('STATUS_PUSH_INVALID')
   if (!isPlainObject(body) || !hasOnlyKeys(body, ENVELOPE_KEYS) || !ENVELOPE_KEYS.every((key) => key in body)) {
     return refuse('STATUS_PUSH_INVALID')
@@ -68,6 +71,7 @@ export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = n
   if (!Number.isSafeInteger(body.sentAtMs) || body.sentAtMs <= 0) return refuse('STATUS_PUSH_INVALID')
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_STATUS_PUSH_BYTES) return refuse('STATUS_PUSH_INVALID')
   if (!validProjection(body.projection)) return refuse('STATUS_PUSH_INVALID')
+  if (allowedProfiles && !allowedProfiles.includes(body.projection.modes.profile)) return refuse('STATUS_PUSH_PROFILE')
 
   const sentAge = now.getTime() - body.sentAtMs
   if (sentAge < -MAX_FUTURE_SKEW_MS) return refuse('STATUS_PUSH_FUTURE')
@@ -91,11 +95,11 @@ export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = n
 }
 
 /** In-memory holder for the latest accepted record. It stores nothing durable and never invents evidence. */
-export function createStatusIngestStore({ maxAgeMs = 120_000 } = {}) {
+export function createStatusIngestStore({ maxAgeMs = 120_000, allowedProfiles = null } = {}) {
   let latest = null
   return {
     accept(body, now) {
-      const result = validateStatusPush(body, { now, maxAgeMs, previous: latest })
+      const result = validateStatusPush(body, { now, maxAgeMs, previous: latest, allowedProfiles })
       if (result.ok) latest = result.record
       return { ok: result.ok, code: result.code }
     },

@@ -69,3 +69,30 @@ export function createMachineRouter({ repository }) {
 
   return router
 }
+
+const STATUS_REFUSALS = Object.freeze({
+  STATUS_PUSH_INVALID: 400,
+  STATUS_PUSH_UNSUPPORTED: 400,
+  STATUS_PUSH_REPLAY: 409,
+  STATUS_PUSH_STALE: 422,
+  STATUS_PUSH_FUTURE: 422,
+  STATUS_PUSH_PROFILE: 422,
+})
+
+/**
+ * Read-only Core status ingest. Mounted only when the independent status-ingest flag is on. The router holds no
+ * repository and reaches no dispatch, MQTT, relay or database code: it can only hand one validated envelope to the
+ * bounded in-memory store. A 200 means "the envelope was well formed, authentic-by-transport and newer"; it is not
+ * evidence that the Core or any hardware is healthy.
+ */
+export function createStatusRouter({ store, clock = () => new Date() }) {
+  const router = Router({ caseSensitive: true, strict: true })
+
+  router.post('/status', (req, res) => {
+    const result = store.accept(req.body, clock())
+    if (result.ok) return res.json({ status: 'ACCEPTED' })
+    return res.status(STATUS_REFUSALS[result.code] ?? 400).json({ error: { code: result.code } })
+  })
+
+  return router
+}

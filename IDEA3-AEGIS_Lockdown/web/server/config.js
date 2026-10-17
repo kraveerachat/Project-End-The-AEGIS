@@ -224,9 +224,16 @@ function dispatchHost(value, production) {
   return address
 }
 
-function dispatchConfig(env, { production, webPort }) {
-  if (!dispatchEnabled(env.AEGIS_IDEA3_DISPATCH_ENABLED)) return Object.freeze({ enabled: false })
+function statusIngestEnabled(value) {
+  if (value === undefined || value === null || value === '' || value === 'false') return false
+  if (value === 'true') return true
+  throw new Error('AEGIS_IDEA3_STATUS_INGEST_ENABLED must be true or false')
+}
 
+// The machine listener is shared by two independent features: PR10 S2 dispatch and the read-only status ingest. Its
+// address, pinned HUB peer and expected client subject are one setting (the AEGIS_IDEA3_DISPATCH_* variables keep
+// their names for compatibility). It exists only when at least one feature is enabled.
+function machineListenerConfig(env, { production, webPort }) {
   const expectedSubject = env.AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT
   if (typeof expectedSubject !== 'string' || !DISPATCH_SUBJECT.test(expectedSubject)) {
     throw new Error('AEGIS_IDEA3_DISPATCH_EXPECTED_SUBJECT must be a lower-case machine name')
@@ -238,6 +245,11 @@ function dispatchConfig(env, { production, webPort }) {
     trustedProxy: ipLiteral('AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY', env.AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY).address,
     expectedSubject,
   })
+}
+
+function dispatchConfig(env, { production, webPort }) {
+  if (!dispatchEnabled(env.AEGIS_IDEA3_DISPATCH_ENABLED)) return Object.freeze({ enabled: false })
+  return machineListenerConfig(env, { production, webPort })
 }
 
 // PR11 Phase 2 proxied browser listener (design §4.2, D3). Without a trusted
@@ -295,10 +307,20 @@ export function loadConfig(env = process.env) {
     ? loopbackHost(env.AEGIS_BIND_HOST)
     : proxiedBindHost(env.AEGIS_BIND_HOST, trustedProxy)
   const dispatch = dispatchConfig(env, { production, webPort: port })
+  const statusIngest = Object.freeze({ enabled: statusIngestEnabled(env.AEGIS_IDEA3_STATUS_INGEST_ENABLED) })
+  const machine = dispatch.enabled
+    ? dispatch
+    : statusIngest.enabled
+      ? machineListenerConfig(env, { production, webPort: port })
+      : Object.freeze({ enabled: false })
+  if (statusIngest.enabled && (env.AEGIS_IDEA3_RUNTIME_STATUS_URL || env.AEGIS_IDEA3_LAB_RUNTIME_STATUS === 'true')) {
+    // One authoritative runtime source: a pushed projection never silently coexists with, or falls back to, a polled feed.
+    throw new Error('AEGIS_IDEA3_STATUS_INGEST_ENABLED cannot be combined with AEGIS_IDEA3_RUNTIME_STATUS_URL or LAB runtime status')
+  }
   const labMqtt = labMqttConfig(env, production)
   const labRuntimeStatus = labRuntimeStatusEnabled(env.AEGIS_IDEA3_LAB_RUNTIME_STATUS)
   if (labRuntimeStatus) labRuntimeStatusUrl(env.AEGIS_IDEA3_RUNTIME_STATUS_URL, production)
-  if (dispatch.enabled && trustedProxy !== null && !sameAddress(trustedProxy, dispatch.trustedProxy)) {
+  if (machine.enabled && trustedProxy !== null && !sameAddress(trustedProxy, machine.trustedProxy)) {
     throw new Error('AEGIS_IDEA3_DISPATCH_TRUSTED_PROXY must equal AEGIS_WEB_TRUSTED_PROXY (one pinned proxy)')
   }
 
@@ -319,6 +341,8 @@ export function loadConfig(env = process.env) {
     bindHost,
     webTrustedProxy: trustedProxy,
     dispatch,
+    statusIngest,
+    machine,
     labRuntimeStatus,
     labMqtt,
     demoAllowed: !production && env.AEGIS_DEMO_ALLOWED !== 'false',
