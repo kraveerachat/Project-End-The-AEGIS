@@ -11,12 +11,12 @@ from __future__ import annotations
 import sys
 import tempfile
 import tkinter as tk
-from tkinter import messagebox
 from pathlib import Path
+from tkinter import messagebox
 from types import SimpleNamespace
 
+from tools import graceful_exit
 from tools import preview_purple_desktop as preview
-
 
 DEMO_TITLE = "AEGIS IDEA3 — OFFLINE PURPLE DESKTOP DEMO — SIMULATED"
 
@@ -204,6 +204,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="aegis-purple-demo-") as data_dir:
         root = tk.Tk()
         app, _fakes = create_demo_app(root, data_dir=Path(data_dir))
+        graceful_exit.install(root, app)
         root.mainloop()
         _ = app
 
