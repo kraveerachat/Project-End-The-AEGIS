@@ -104,6 +104,26 @@ def build_projection(document: dict, *, published_at: float) -> dict:
     return projection
 
 
+PUSH_SCHEMA = "aegis.idea3.status-push"
+PUSH_VERSION = 1
+
+
+def build_push_envelope(projection: dict, *, sent_at_ms: int) -> dict:
+    """Pure builder for the Web-side ``statusIngest`` envelope (design only; nothing here sends it).
+
+    Only the Core's own ``web_projection`` crosses; the Desktop-specific top-level fields never do.
+    """
+
+    if isinstance(sent_at_ms, bool) or not isinstance(sent_at_ms, int) or sent_at_ms <= 0:
+        raise ValueError("sent_at_ms must be a positive integer")
+    return {
+        "schema": PUSH_SCHEMA,
+        "version": PUSH_VERSION,
+        "sentAtMs": sent_at_ms,
+        "projection": projection["web_projection"],
+    }
+
+
 def validate_destination(directory: Path, *, source: Path, allow_group_readable: bool = False) -> Path:
     """Return the checked destination directory or raise :class:`DestinationRefused`.
 

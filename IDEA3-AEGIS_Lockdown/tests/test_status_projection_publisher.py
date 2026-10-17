@@ -345,3 +345,21 @@ def test_run_loop_stops_on_event_and_survives_a_bad_cycle(paths):
 def test_run_loop_ends_when_destination_is_refused(paths, tmp_path):
     source, _dest = paths
     assert publisher.run(source, tmp_path / "missing", interval=0.01, stop=threading.Event()) == 2
+
+
+def test_push_envelope_matches_the_committed_cross_language_fixture():
+    document = {
+        "state": "RUNNING", "profile": "production", "dry_run": False, "auto_contain": False, "broker": "CONNECTED",
+        "device": "ONLINE", "uplink": "NORMAL", "armed": "MONITOR_ONLY", "dispatch": "DISABLED", "time_trust": "SYNCED",
+        "updated_at": 1_700_000_095.0, "components": {"detector": "RUNNING"},
+    }
+    envelope = publisher.build_push_envelope(publisher.build_projection(document, published_at=1_700_000_100.0), sent_at_ms=1_700_000_100_000)
+    fixture = Path(__file__).resolve().parents[1] / "web" / "tests" / "fixtures" / "core-status-push.json"
+    assert json.loads(fixture.read_text(encoding="utf-8")) == envelope
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 1.5, "1"])
+def test_push_envelope_requires_a_positive_integer_timestamp(bad):
+    projection = {"web_projection": {}}
+    with pytest.raises(ValueError):
+        publisher.build_push_envelope(projection, sent_at_ms=bad)
