@@ -139,6 +139,42 @@ def _validate(document: dict[str, Any]) -> str | None:
     return None
 
 
+def load_status_document(
+    path: Path,
+    *,
+    now: float | None = None,
+    max_age_seconds: float = DEFAULT_MAX_AGE_SECONDS,
+) -> tuple[dict[str, Any] | None, ObserverEvidence | None]:
+    """Return ``(document, None)`` for fresh, valid, consistent evidence, else ``(None, UNKNOWN evidence)``.
+
+    This is the single fail-closed gate shared by the Desktop reader and the status projection publisher.
+    """
+
+    try:
+        document = json.loads(_read_status_text(Path(path)))
+    except FileNotFoundError:
+        return None, _unknown("MISSING", "Core status file is unavailable")
+    except PermissionError:
+        return None, _unknown("UNAVAILABLE", "permission denied for the Core status file; no privileged read is attempted")
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None, _unknown("INVALID", "Core status file is unreadable or invalid")
+    if not isinstance(document, dict):
+        return None, _unknown("INVALID", "Core status document is not an object")
+
+    problem = _validate(document)
+    if problem:
+        freshness = "CONTRADICTORY" if "contradiction" in problem else "INVALID"
+        return None, _unknown(freshness, problem)
+
+    current = time.time() if now is None else now
+    age = current - float(document["updated_at"])
+    if age < 0:
+        return None, _unknown("INVALID", "Core status timestamp is in the future")
+    if age > max_age_seconds:
+        return None, _unknown("STALE", f"Core status is {age:.1f}s old")
+    return document, None
+
+
 def read_observer_status(
     path: Path = STATUS_PATH,
     *,
@@ -147,28 +183,9 @@ def read_observer_status(
 ) -> ObserverEvidence:
     """Read the fixed Core status shape without importing the Core runtime."""
 
-    try:
-        document = json.loads(_read_status_text(Path(path)))
-    except FileNotFoundError:
-        return _unknown("MISSING", "Core status file is unavailable")
-    except PermissionError:
-        return _unknown("UNAVAILABLE", "permission denied for the Core status file; no privileged read is attempted")
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return _unknown("INVALID", "Core status file is unreadable or invalid")
-    if not isinstance(document, dict):
-        return _unknown("INVALID", "Core status document is not an object")
-
-    problem = _validate(document)
-    if problem:
-        freshness = "CONTRADICTORY" if "contradiction" in problem else "INVALID"
-        return _unknown(freshness, problem)
-
-    current = time.time() if now is None else now
-    age = current - float(document["updated_at"])
-    if age < 0:
-        return _unknown("INVALID", "Core status timestamp is in the future")
-    if age > max_age_seconds:
-        return _unknown("STALE", f"Core status is {age:.1f}s old")
+    document, unknown = load_status_document(path, now=now, max_age_seconds=max_age_seconds)
+    if document is None:
+        return unknown
 
     allowlisted = frozenset(_REQUIRED_FIELDS)
     return ObserverEvidence(
