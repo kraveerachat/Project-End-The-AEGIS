@@ -13,18 +13,20 @@ beforeAll(async () => {
 })
 
 describe('Dashboard', () => {
-  it('shows system outcome, source evidence, recent events, and active incidents', () => {
+  it('shows prioritized operational counts, source summaries, recent events, and active incidents', () => {
     render(<DashboardPage snapshot={snapshot} />)
-    expect(screen.getByText('สถานะระบบโดยรวม')).toBeVisible()
-    expect(screen.getByText('IDEA1 Access Security')).toBeVisible()
+    expect(screen.getByText('Incident ที่กำลังดำเนินการ')).toBeVisible()
+    expect(screen.getByText('การแจ้งเตือนระดับสูง')).toBeVisible()
+    expect(screen.getByText('IDEA1 — ความปลอดภัยการเข้าถึง')).toBeVisible()
     expect(screen.getByText('PERSON_DETECTED')).toBeVisible()
     expect(screen.getByText('ตรวจพบกิจกรรมผิดปกติข้าม IDEA1 และ IDEA2')).toBeVisible()
   })
 
-  it('labels counts as evidence-backed values', () => {
+  it('labels the two prioritized KPI counts as evidence-backed values', () => {
     render(<DashboardPage snapshot={snapshot} />)
-    expect(screen.getByText('หลักฐาน 24 ชั่วโมง')).toBeVisible()
-    expect(screen.getByText('128')).toBeVisible()
+    const summary = screen.getByRole('region', { name: 'สรุปสถานะ' })
+    expect(within(summary).getByText('1')).toBeVisible()
+    expect(within(summary).getByText('2')).toBeVisible()
   })
 })
 

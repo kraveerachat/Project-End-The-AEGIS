@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Moon, Sun, X as XIcon } from 'lucide-react'
+import { AegisLogo } from '../components/AegisLogo.jsx'
 
 // One restrained reveal vocabulary, ported from the IDEA1 Production login.
 // Motion never owns input availability or authentication.
@@ -46,41 +47,8 @@ function useReducedMotion() {
 function themeAsset(theme) {
   const dark = theme === 'dark'
   return {
-    logo: dark ? 'assets/logo/aegis-mark-light-ink.png' : 'assets/logo/aegis-mark-dark-ink.png',
     background: dark ? 'assets/BG_AEGIS02.png' : 'assets/BG_AEGIS01.png',
   }
-}
-
-function AegisMark({ size, theme, className }) {
-  const [fallback, setFallback] = useState(false)
-  const dark = theme === 'dark'
-  const src = `${import.meta.env.BASE_URL}${themeAsset(theme).logo}`
-  useEffect(() => { setFallback(false) }, [src])
-  if (!fallback) {
-    return (
-      <img
-        src={src}
-        alt=""
-        aria-hidden="true"
-        width={size}
-        height={size}
-        className={className}
-        style={{ width: size, height: size, objectFit: 'contain', filter: dark ? 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3))' : 'none' }}
-        onError={() => setFallback(true)}
-        draggable={false}
-      />
-    )
-  }
-  const stroke = dark ? '#ffffff' : '#0f172a'
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" className={className} aria-hidden="true">
-      <g fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round">
-        <path d="M24 3 L42 13 V30 L24 45 L6 30 V13 Z" strokeDasharray="4 3" />
-        <path d="M24 10 L36 17 V28 L24 38 L12 28 V17 Z" strokeDasharray="2.5 3" opacity="0.7" />
-        <path d="M24 17 L30 20.5 V27 L24 32 L18 27 V20.5 Z" strokeDasharray="1.5 2.5" opacity="0.45" />
-      </g>
-    </svg>
-  )
 }
 
 function LayerRow({ layer, status, reduced }) {
@@ -195,7 +163,7 @@ export function LoginPage({ onLogin, onLoginComplete = () => {}, theme = documen
             <motion.div variants={reduced ? undefined : entranceVariants} initial={reduced ? false : 'hidden'} animate="show" className="vault-brand-lockup">
               <motion.div {...reveal} data-login-motion="mark" className="vault-mark-stage">
                 <span className="vault-mark-backlight" aria-hidden="true" />
-                <AegisMark size={180} theme={theme} className="vault-mark" />
+                <AegisLogo size={180} theme={theme} className="vault-mark" />
               </motion.div>
               <div className="vault-brand-text">
                 <motion.h1 {...reveal} data-login-motion="wordmark" lang="en" className="vault-brand-name">AEGIS</motion.h1>
