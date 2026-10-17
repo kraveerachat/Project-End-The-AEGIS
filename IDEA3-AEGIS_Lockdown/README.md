@@ -223,6 +223,37 @@ adapter จริง, MQTT, ESP32, Telegram, command gateway หรือ relay 
 
 ---
 
+## Local software runtime (no hardware)
+
+Development-only, loopback-only aid for running the Web Security Center and the purple Python Desktop side by side.
+It never runs sudo, publishes MQTT, starts the Core, or touches hardware, the broker, or the network.
+
+```bash
+# one-time
+python3 -m venv .venv-dev && .venv-dev/bin/pip install -r requirements-dev.txt
+(cd web && npm ci && npm run build)
+
+# Web + read-only Core status bridge (the status file is only ever read)
+.venv-dev/bin/python -m tools.local_stack start --status-file /absolute/path/to/status.json   # optional: --web-port N --lab-mqtt
+.venv-dev/bin/python -m tools.local_stack status
+.venv-dev/bin/python -m tools.local_stack stop
+
+# Purple Desktop
+.venv-dev/bin/python -m tools.demo_purple_desktop     # offline synthetic walkthrough; in-memory controller, no Core/MQTT/hardware
+.venv-dev/bin/python -m tools.live_purple_desktop     # read-only Core observer; CUT/RESTORE disabled
+```
+
+- Web login user is `admin`; the generated development password is in `<state-dir>/web-dev-password` (0600, never printed).
+  The default state directory is `~/.local/state/aegis-idea3-local`.
+- `tools/local_status_bridge.py` serves only `GET /status` on loopback: the Core's `safe_status_projection` of the given
+  file. A missing, malformed, oversized or stale file is shown as UNKNOWN. Relay, ACK and heartbeat stay UNKNOWN because
+  the projection carries no physical evidence for them.
+- The live Desktop's default status path is `/run/aegis-idea3/status.json`. Its reader falls back to one exact-file
+  `sudo -n cat` when that file is permission-denied. To avoid that fallback, set `AEGIS_CORE_STATUS_FILE` to an
+  absolute, readable status file (read only, never written) before starting `tools.live_purple_desktop`.
+- Demo and Live are separate: a Web Demo session never receives LAB MQTT or Core evidence, and the Demo/offline
+  Desktop uses synthetic data only. Neither proves hardware behavior.
+
 ## Windows Standalone Runtime (PR8)
 
 A one-folder Windows distribution is built from `windows/`: a launcher EXE plus a

@@ -24,11 +24,31 @@ describe('LAB read-only evidence contract (TEST_ONLY synthetic Core projections)
     expect(normalize(TEST_ONLY_labLockdownRaw).status).toBe('DEGRADED')
   })
 
-  // KNOWN GAP (reported, not changed here): the Core keeps status HEALTHY for RUNNING + uplink LOCKDOWN and the Web
-  // adapter trusts it, so the overall runtime status is HEALTHY while a component is DEGRADED. it.fails flips to a
-  // failure once the gap is closed, which is the cue to turn this into a normal assertion.
-  it.fails('KNOWN GAP: overall runtime status should not be HEALTHY while uplink is LOCKDOWN', () => {
-    expect(normalize(TEST_ONLY_labRunningUplinkLockdownRaw).status).not.toBe('HEALTHY')
+  // Issue #440: a fresh Core projection that says HEALTHY while the uplink is LOCKDOWN is self-contradictory (the real Core
+  // projects LOCKDOWN as DEGRADED). The Web fails safe: overall DEGRADED, component evidence stays independent.
+  it('does not present overall runtime HEALTHY while uplink is LOCKDOWN (HEALTHY + LOCKDOWN contradiction)', () => {
+    const normalized = normalize(TEST_ONLY_labRunningUplinkLockdownRaw)
+    expect(normalized.status).toBe('DEGRADED')
+    expect(componentStatus(normalized, 'uplink')).toBe('DEGRADED')
+    expect(componentStatus(normalized, 'broker')).toBe('HEALTHY')
+    expect(componentStatus(normalized, 'esp32')).toBe('HEALTHY')
+    expect(['relay', 'heartbeat', 'ack'].map((id) => componentStatus(normalized, id))).toEqual(['UNKNOWN', 'UNKNOWN', 'UNKNOWN'])
+  })
+
+  it('keeps a consistent HEALTHY + NORMAL projection HEALTHY and never promotes other statuses', () => {
+    const normal = { ...TEST_ONLY_labRunningUplinkLockdownRaw, components: { ...TEST_ONLY_labRunningUplinkLockdownRaw.components, uplink: 'NORMAL' } }
+    expect(normalize(normal).status).toBe('HEALTHY')
+    expect(componentStatus(normalize(normal), 'uplink')).toBe('HEALTHY')
+    for (const status of ['DEGRADED', 'FAILED', 'UNKNOWN']) {
+      expect(normalize({ ...TEST_ONLY_labRunningUplinkLockdownRaw, status }).status).toBe(status)
+    }
+  })
+
+  it('keeps stale, future-dated and hostile HEALTHY + LOCKDOWN documents fail-closed', () => {
+    expect(normalize({ ...TEST_ONLY_labRunningUplinkLockdownRaw, generatedAt: at(-MAX_AGE - 1000) }).status).toBe('UNKNOWN')
+    expect(normalize({ ...TEST_ONLY_labRunningUplinkLockdownRaw, generatedAt: at(600_000) }).status).toBe('UNKNOWN')
+    expect(normalize({ ...TEST_ONLY_labRunningUplinkLockdownRaw, status: 'healthy' }).status).toBe('UNKNOWN')
+    expect(normalize({ ...TEST_ONLY_labRunningUplinkLockdownRaw, components: { ...TEST_ONLY_labRunningUplinkLockdownRaw.components, uplink: '__proto__' } }).status).toBe('HEALTHY')
   })
 
   it('keeps the LAB profile and dry-run honest and never marks recovery authorized', () => {

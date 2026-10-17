@@ -111,7 +111,7 @@ describe('upstream evidence normalization', () => {
 
     it('maps only the documented Core values and never infers relay, heartbeat or ACK', () => {
       const normalized = normalizeRuntimeStatus(coreRaw, { now: fixedNow, maxAgeMs: 120_000 })
-      expect(normalized.status).toBe('HEALTHY')
+      expect(normalized.status).toBe('DEGRADED')
       expect(['runtime', 'broker', 'esp32', 'uplink'].map((id) => statusOf(normalized, id))).toEqual(['HEALTHY', 'HEALTHY', 'HEALTHY', 'DEGRADED'])
       expect(['relay', 'heartbeat', 'ack'].map((id) => statusOf(normalized, id))).toEqual(['UNKNOWN', 'UNKNOWN', 'UNKNOWN'])
       expect(normalized.modes).toEqual(expect.objectContaining({ armed: true, monitorOnly: false, recoveryAuthorized: false }))

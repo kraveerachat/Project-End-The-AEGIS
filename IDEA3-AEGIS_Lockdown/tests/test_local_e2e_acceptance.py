@@ -620,7 +620,7 @@ def test_the_evidence_class_is_simulated_and_never_physical():
 # ── scenario 18/Phase D: the Core's real runtime-status projection as the web displays it ────────────────────────────────────────────────
 def core_status_file(tmp_path: Path, **fields) -> Path:
     from aegis_soc.runtime import RuntimeState, RuntimeStatus, safe_status_projection
-    base = {"state": RuntimeState.RUNNING, "profile": "production", "dry_run": False, "broker": "CONNECTED", "device": "ONLINE", "uplink": "LOCKDOWN",
+    base = {"state": RuntimeState.RUNNING, "profile": "production", "dry_run": False, "broker": "CONNECTED", "device": "ONLINE", "uplink": "NORMAL",
             "armed": "ARMED", "dispatch": "ACTIVE", "time_trust": "SYNCED", "components": {"detector": "RUNNING"}, "updated_at": time.time() - 5}
     base.update(fields)
     path = tmp_path / "status-projection.json"
@@ -643,7 +643,7 @@ def snapshot_runtime(tmp_path, **fields):
 @needs_node
 def test_phase_d_the_web_shows_the_cores_real_status_projection_without_inferring_the_relay(tmp_path):
     snap, comps = snapshot_runtime(tmp_path)
-    assert comps == {"runtime": "HEALTHY", "broker": "HEALTHY", "esp32": "HEALTHY", "relay": "UNKNOWN", "uplink": "DEGRADED", "heartbeat": "UNKNOWN", "ack": "UNKNOWN"}
+    assert comps == {"runtime": "HEALTHY", "broker": "HEALTHY", "esp32": "HEALTHY", "relay": "UNKNOWN", "uplink": "HEALTHY", "heartbeat": "UNKNOWN", "ack": "UNKNOWN"}
     assert snap["runtime"]["modes"]["armed"] is True and snap["runtime"]["modes"]["recoveryAuthorized"] is False
     assert snap["runtime"]["freshness"] == "FRESH"
     idea3 = next(item for item in snap["sources"] if item["id"] == "idea3")
