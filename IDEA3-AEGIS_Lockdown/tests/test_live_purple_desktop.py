@@ -6,9 +6,10 @@ import tkinter as tk
 import pytest
 
 from aegis_soc import cut_client, incident_view
-from tools import live_purple_desktop as desktop
 from tools import live_purple_cut_desktop as cut_desktop
+from tools import live_purple_desktop as desktop
 from tools import live_purple_observer as live
+from tools import status_projection_publisher as publisher
 
 
 def _walk(widget):
@@ -172,3 +173,100 @@ def test_relative_core_status_file_is_refused_before_tk(monkeypatch, capsys):
     monkeypatch.setattr(desktop.tk, "Tk", lambda: pytest.fail("Tk must not start"))
     assert desktop.main() == 2
     assert "absolute" in capsys.readouterr().err
+
+
+def _forbid_subprocess(monkeypatch):
+    import os
+    import subprocess
+
+    def spawn(*_args, **_kwargs):
+        raise AssertionError("the Desktop status path must not start a subprocess")
+
+    for name in ("run", "Popen", "call", "check_call", "check_output"):
+        monkeypatch.setattr(subprocess, name, spawn)
+    monkeypatch.setattr(os, "system", spawn)
+
+
+def _core_status(**changes):
+    import time
+
+    value = {
+        "state": "RUNNING", "profile": "development", "dry_run": True, "auto_contain": False,
+        "broker": "CONNECTED", "device": "ONLINE", "uplink": "NORMAL", "armed": "MONITOR_ONLY",
+        "dispatch": "DISABLED", "time_trust": "SYNCED", "updated_at": time.time(), "components": {},
+    }
+    value.update(changes)
+    return value
+
+
+def test_desktop_reads_a_published_projection_without_any_subprocess(monkeypatch, purple_root, tmp_path):
+    import json
+
+    source = tmp_path / "core" / "status.json"
+    source.parent.mkdir(mode=0o700)
+    source.write_text(json.dumps(_core_status()), encoding="utf-8")
+    out = tmp_path / "out"
+    out.mkdir(mode=0o700)
+    assert publisher.publish_once(source, out).published
+    monkeypatch.delenv(cut_desktop.ENABLE_ENV, raising=False)
+    monkeypatch.setenv(desktop.STATUS_FILE_ENV, str(out / publisher.OUTPUT_NAME))
+    _forbid_subprocess(monkeypatch)
+
+    app, isolation = desktop.create_app(purple_root, incident_source=_incident, run_async=lambda function, *args: function(*args))
+    app.session.login("test-admin")
+    app._on_authenticated()
+    purple_root.update()
+
+    assert app.latest.valid is True
+    assert app.latest.runtime_state == "RUNNING" and app.latest.broker == "CONNECTED"
+    assert isolation.mqtt.publish_calls == isolation.controller.issue_calls == 0
+
+
+def test_unreadable_status_file_shows_unknown_and_never_crashes_or_escalates(monkeypatch, purple_root, tmp_path):
+    import json
+    import os
+
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses file permissions")
+    status = tmp_path / "status.json"
+    status.write_text(json.dumps(_core_status()), encoding="utf-8")
+    status.chmod(0)
+    monkeypatch.delenv(cut_desktop.ENABLE_ENV, raising=False)
+    monkeypatch.setenv(desktop.STATUS_FILE_ENV, str(status))
+    _forbid_subprocess(monkeypatch)
+    try:
+        app, isolation = desktop.create_app(purple_root, incident_source=_incident, run_async=lambda function, *args: function(*args))
+        app.session.login("test-admin")
+        app._on_authenticated()
+        for page in ("overview", "devices", "lockdown", "recovery", "diagnostics"):
+            app._show_page(page)
+            purple_root.update()
+    finally:
+        status.chmod(0o600)
+
+    assert app.latest.valid is False and app.latest.freshness == "UNAVAILABLE"
+    assert app.latest.runtime_state == "UNKNOWN" and app.latest.device == "UNKNOWN"
+    assert isolation.mqtt.publish_calls == isolation.controller.issue_calls == 0
+
+
+@pytest.mark.parametrize("candidate", ["directory", "missing-parent", "symlink"])
+def test_invalid_custom_status_paths_are_handled_safely(monkeypatch, purple_root, tmp_path, candidate):
+    import json
+
+    if candidate == "directory":
+        path = tmp_path
+    elif candidate == "missing-parent":
+        path = tmp_path / "nope" / "status.json"
+    else:
+        real = tmp_path / "real.json"
+        real.write_text(json.dumps(_core_status()), encoding="utf-8")
+        path = tmp_path / "link.json"
+        path.symlink_to(real)
+    monkeypatch.delenv(cut_desktop.ENABLE_ENV, raising=False)
+    monkeypatch.setenv(desktop.STATUS_FILE_ENV, str(path))
+    _forbid_subprocess(monkeypatch)
+    app, _ = desktop.create_app(purple_root, incident_source=_incident, run_async=lambda function, *args: function(*args))
+    app.session.login("test-admin")
+    app._on_authenticated()
+    purple_root.update()
+    assert app.latest.valid is False and app.latest.runtime_state == "UNKNOWN"
