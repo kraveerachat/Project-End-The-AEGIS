@@ -208,12 +208,16 @@ describe('Recovery honesty', () => {
 })
 
 describe('Dashboard truthfulness', () => {
-  it('shows Core runtime and containment state as separate global facts', () => {
+  it('keeps Core runtime in the compact summary and physical verification in IDEA3 evidence', () => {
     render(<DashboardPage snapshot={snapshot} />)
     const region = screen.getByRole('region', { name: 'สถานะระบบส่วนกลาง' })
     expect(within(region).getByText('สถานะ Core/runtime')).toBeVisible()
-    expect(within(region).getByText('สถานะการตอบสนอง/การกักกัน')).toBeVisible()
-    expect(within(region).getByText(/ACK หรือคำขอไม่ใช่หลักฐานว่ากักกันสำเร็จ/)).toBeVisible()
+    expect(within(region).queryByText('สถานะการตอบสนอง/การกักกัน')).not.toBeInTheDocument()
+
+    const idea3 = screen.getByTestId('idea3-status-card')
+    expect(within(idea3).getByText('สถานะรีเลย์จริง')).toBeVisible()
+    expect(within(idea3).getByText('ยังไม่ได้ยืนยัน')).toBeVisible()
+    expect(within(idea3).getByText(/ACK ไม่ใช่หลักฐานทางกายภาพ/)).toBeVisible()
   })
 
   it('does not render placeholder Live zeros as counts or HEALTHY badges', () => {

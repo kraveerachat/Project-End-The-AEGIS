@@ -45,6 +45,19 @@ beforeEach(() => {
 })
 
 describe('Dashboard language preference', () => {
+  it('uses the supplied theme-aware AEGIS mark while the session is loading', () => {
+    api.fetch.mockImplementation(() => new Promise(() => {}))
+    document.documentElement.dataset.theme = 'dark'
+
+    const { unmount } = render(<App />)
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-light-ink.png')
+
+    unmount()
+    document.documentElement.dataset.theme = 'light'
+    render(<App />)
+    expect(screen.getByRole('img', { name: 'AEGIS' })).toHaveAttribute('src', '/security/assets/logo/aegis-mark-dark-ink.png')
+  })
+
   it('initializes from an allowlisted preference and switches language without refetching evidence', async () => {
     localStorage.setItem('aegis_lang', 'en')
     render(<App />)

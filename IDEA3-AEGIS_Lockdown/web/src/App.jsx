@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { AegisLogo } from './components/AegisLogo.jsx'
 import { AppShell } from './components/AppShell.jsx'
 import { EvidenceState } from './components/EvidenceState.jsx'
 import { apiFetch, setCsrfToken } from './lib/api.js'
@@ -138,7 +139,7 @@ export default function App() {
     savePolicy: (policy) => performAction('/security/settings', { method: 'PATCH', body: JSON.stringify(policy) }),
   }
 
-  if (!session) return <div className="boot-screen"><span className="aegis-hatch" /><p>กำลังยืนยัน Security Center…</p></div>
+  if (!session) return <div className="boot-screen"><AegisLogo theme={theme} className="boot-logo" size={52} /><p>กำลังยืนยัน Security Center…</p></div>
   if (!session.authenticated) return <LoginPage onLogin={login} theme={theme} onThemeChange={changeTheme} />
 
   const dashboardLanguage = route === 'dashboard' ? language : 'th'

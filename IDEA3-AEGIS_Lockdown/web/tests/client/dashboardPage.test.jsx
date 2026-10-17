@@ -13,20 +13,33 @@ beforeAll(async () => {
 })
 
 describe('Dashboard mission control', () => {
-  it('shows global runtime truth and keeps environment, control mode, and hardware availability separate', () => {
+  it('keeps the mission summary compact and separates environment, API, runtime, and freshness', () => {
     render(<DashboardPage snapshot={snapshot} apiConnected={false} />)
 
     const runtime = screen.getByRole('region', { name: 'สถานะระบบส่วนกลาง' })
+    expect(runtime.querySelectorAll('.global-fact')).toHaveLength(4)
     expect(within(runtime).getByText('DEMO')).toBeVisible()
     expect(within(runtime).getByText('ขาดการเชื่อมต่อ')).toBeVisible()
-    expect(within(runtime).getByText('กลไกเชื่อมโยงเหตุการณ์')).toBeVisible()
-    expect(within(runtime).getByText('กลไกจัดการเหตุการณ์')).toBeVisible()
-    expect(within(runtime).getAllByLabelText('สถานะ: ไม่ทราบสถานะ')).toHaveLength(2)
+    expect(within(runtime).getByText('สถานะ Core/runtime')).toBeVisible()
+    expect(within(runtime).getByText('ความสดของข้อมูล')).toBeVisible()
+    expect(within(runtime).queryByText('กลไกเชื่อมโยงเหตุการณ์')).not.toBeInTheDocument()
+    expect(within(runtime).queryByText('สถานะการตอบสนอง/การกักกัน')).not.toBeInTheDocument()
 
     const idea3 = screen.getByTestId('idea3-status-card')
-    expect(within(idea3).getByText('ทดลองโดยไม่สั่งงาน')).toBeVisible()
-    expect(within(idea3).getByText('ฮาร์ดแวร์')).toBeVisible()
-    expect(within(idea3).getByText('ปิดใช้งาน')).toBeVisible()
+    expect(within(idea3).getByText('MQTT')).toBeVisible()
+    expect(within(idea3).getByText('สัญญาณ ESP32')).toBeVisible()
+    expect(within(idea3).getByText('สถานะรีเลย์จริง')).toBeVisible()
+  })
+
+  it('prioritizes only active incidents and high or critical alerts in the KPI row', () => {
+    render(<DashboardPage snapshot={snapshot} />)
+
+    const summary = screen.getByRole('region', { name: 'สรุปสถานะ' })
+    expect(summary.querySelectorAll('.metric-card')).toHaveLength(2)
+    expect(within(summary).getByText('Incident ที่กำลังดำเนินการ')).toBeVisible()
+    expect(within(summary).getByText('การแจ้งเตือนระดับสูง')).toBeVisible()
+    expect(within(summary).queryByText('สถานะระบบโดยรวม')).not.toBeInTheDocument()
+    expect(within(summary).queryByText('หลักฐาน 24 ชั่วโมง')).not.toBeInTheDocument()
   })
 
   it('summarizes all IDEA domains without duplicating their detailed ledgers', () => {
@@ -45,6 +58,16 @@ describe('Dashboard mission control', () => {
     expect(within(idea3).getByText('ยังไม่ได้ยืนยัน')).toBeVisible()
   })
 
+  it('top-aligns all three IDEA summaries so shorter cards do not stretch', () => {
+    render(<DashboardPage snapshot={snapshot} />)
+
+    const summaries = screen.getByRole('region', { name: 'สถานะ IDEA' })
+    expect(summaries).toHaveAttribute('data-layout', 'content-height')
+    expect(within(summaries).getByTestId('idea1-status-card')).toBeVisible()
+    expect(within(summaries).getByTestId('idea2-status-card')).toBeVisible()
+    expect(within(summaries).getByTestId('idea3-status-card')).toBeVisible()
+  })
+
   it('routes operational actions through the application navigation callback', () => {
     const onNavigate = vi.fn()
     render(<DashboardPage snapshot={snapshot} onNavigate={onNavigate} />)
@@ -56,7 +79,7 @@ describe('Dashboard mission control', () => {
     expect(onNavigate).toHaveBeenNthCalledWith(2, 'incidents')
   })
 
-  it('renders a truthful empty incident state and limits attention items to five', () => {
+  it('renders a truthful empty incident state and limits consolidated attention items to three', () => {
     const emptySnapshot = {
       ...snapshot,
       incidents: [],
@@ -75,7 +98,26 @@ describe('Dashboard mission control', () => {
     render(<DashboardPage snapshot={emptySnapshot} />)
 
     expect(screen.getByText('ไม่มี Incident ที่กำลังดำเนินการ')).toBeVisible()
-    expect(screen.getAllByTestId('attention-item')).toHaveLength(5)
+    expect(screen.getAllByTestId('attention-item')).toHaveLength(3)
+    expect(screen.queryByRole('heading', { name: 'สิ่งที่แนะนำให้ทำต่อ' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the Active Incidents and Latest Evidence empty states compact', () => {
+    render(<DashboardPage snapshot={{ ...snapshot, incidents: [], events: [] }} />)
+
+    const incidentEmpty = screen.getByText('ไม่มี Incident ที่กำลังดำเนินการ').closest('.empty-state')
+    const evidenceEmpty = screen.getByText('ไม่มีหลักฐานในช่วงเวลานี้').closest('.empty-state')
+    expect(incidentEmpty).toHaveAttribute('data-density', 'compact')
+    expect(evidenceEmpty.closest('.dashboard-latest-evidence')).toHaveAttribute('data-density', 'compact')
+  })
+
+  it('removes the duplicate source matrix and keeps navigation to Overview', () => {
+    const onNavigate = vi.fn()
+    render(<DashboardPage snapshot={snapshot} onNavigate={onNavigate} />)
+
+    expect(screen.queryByRole('heading', { name: 'สถานะแหล่งหลักฐาน' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'เปิดภาพรวมระบบ' }))
+    expect(onNavigate).toHaveBeenCalledWith('overview')
   })
 
   it('promotes stale evidence to the visible STALE state', () => {
@@ -93,16 +135,15 @@ describe('Dashboard mission control', () => {
   })
 
   it.each([
-    ['th', 'สถานะระบบส่วนกลาง', 'เชื่อมต่อแล้ว', 'สถานะแหล่งหลักฐาน', 'ตรวจสอบอะแดปเตอร์', 'ยังไม่ได้ยืนยัน'],
-    ['en', 'System status', 'Connected', 'Evidence sources', 'Review adapters', 'Not verified'],
-    ['zh', '系统状态', '已连接', '证据来源状态', '检查适配器', '未验证'],
-  ])('renders complete Dashboard presentation copy in %s', (language, regionLabel, connection, sourceHeading, adapterAction, relayState) => {
+    ['th', 'สถานะระบบส่วนกลาง', 'เชื่อมต่อแล้ว', 'เปิดภาพรวมระบบ', 'ยังไม่ได้ยืนยัน'],
+    ['en', 'System status', 'Connected', 'Open system overview', 'Not verified'],
+    ['zh', '系统状态', '已连接', '打开系统概览', '未验证'],
+  ])('renders complete Dashboard presentation copy in %s', (language, regionLabel, connection, overviewAction, relayState) => {
     render(<DashboardPage snapshot={snapshot} language={language} />)
 
     expect(screen.getByRole('region', { name: regionLabel })).toBeVisible()
     expect(screen.getByText(connection)).toBeVisible()
-    expect(screen.getByText(sourceHeading)).toBeVisible()
-    expect(screen.getByRole('link', { name: adapterAction })).toBeVisible()
+    expect(screen.getByRole('link', { name: overviewAction })).toBeVisible()
     expect(within(screen.getByTestId('idea3-status-card')).getByText(relayState)).toBeVisible()
   })
 
