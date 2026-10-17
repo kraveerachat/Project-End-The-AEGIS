@@ -1,4 +1,7 @@
 # AEGIS IDEA3 Core status push client — TEMPLATE, NOT INSTALLED, NOT REVIEWED FOR PRODUCTION.
+# BLOCKER: `tools/` and `aegis_soc/observer.py` are not in any Core release (the release builder ships only the aegis_soc
+# closure of four entrypoints), so the ExecStart below does not resolve on an installed release until a packaging decision
+# is made (doc/Content/11 section 6b). This file documents the intended hardening only.
 # Separate unit by design: it is not part of aegis-idea3-core.service, so a failure here cannot affect supervision.
 # Owner decisions needed first: the Web side must run with AEGIS_IDEA3_STATUS_INGEST_ENABLED=true, the HUB machine
 # route must be reachable from this host, and the Core user (or a dedicated group) must be allowed to read the

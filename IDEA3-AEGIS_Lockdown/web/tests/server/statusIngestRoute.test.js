@@ -232,6 +232,19 @@ describe('POST /status', () => {
     expect(statusStore.current()).toBeNull()
   })
 
+  it('accepting status touches no repository, database or audit store', async () => {
+    const touched = []
+    const repository = new Proxy({}, { get: (_t, name) => { touched.push(String(name)); return () => { throw new Error('repository must not be used') } } })
+    const config = loadConfig(env({ AEGIS_IDEA3_STATUS_INGEST_ENABLED: 'true' }))
+    const statusStore = createStatusIngestStore()
+    const app = createMachineApp({ config, repository, contact: { record() {} }, statusStore, clock: () => NOW })
+    expect((await post(app, PUSH)).status).toBe(200)
+    expect((await post(app, PUSH)).status).toBe(409)
+    expect(touched).toEqual([])
+    const bare = createMachineApp({ config, contact: { record() {} }, statusStore: createStatusIngestStore(), clock: () => NOW })
+    expect((await post(bare, PUSH)).status).toBe(200)
+  })
+
   it('does not let prototype-pollution keys through', async () => {
     const { app, statusStore } = statusMachine()
     const raw = JSON.stringify(PUSH).replace('{', '{"__proto__":{"polluted":true},')

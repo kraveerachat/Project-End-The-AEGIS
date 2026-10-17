@@ -66,9 +66,20 @@ Relay, ACK and heartbeat stay UNKNOWN: the Core projection carries no per-messag
 1. `curl` is **not** used with `-k`. From the Core host, with the Core client certificate: `GET` any non-status machine path must be 404 in status-only mode; an unauthenticated request must fail the TLS handshake.
 2. Start the Web with the flag; confirm the Admin snapshot is UNKNOWN (no projection).
 3. Run `python -m tools.status_push_client --once` with the enabled env: expect `ACCEPTED`; Admin snapshot shows the Core's own `generatedAt`, status not HEALTHY unless the Core says so; relay/ACK/heartbeat UNKNOWN.
-4. Stop the Core status writer for 3 minutes: snapshot returns UNKNOWN (no stale HEALTHY).
+4. Prove the Web cannot keep showing fresh evidence after updates cease **without touching the Core**. The Core, its status writer and its supervisor are never stopped, restarted or paused for this test. Choose one:
+   - **Offline (already automated, synthetic):** `web/tests/server/statusIngestRoute.test.js` ("an expired projection becomes UNKNOWN") and `statusTransportE2E.test.js` ("missing, stale, future and contradictory sources send nothing"). This proves the code path in a disposable environment only; it is **not** Production acceptance.
+   - **Production, push-client-only interruption (separate maintenance window, owner-authorized):** stop or disable only the optional push unit (`AEGIS_CORE_STATUS_PUSH_ENABLED=0` / stop `aegis-idea3-status-push`), leaving `aegis-idea3-core.service` running. Observe the Admin snapshot: it keeps the Core's last `generatedAt`; after the 120 s freshness window the runtime status must become UNKNOWN/STALE and must never show HEALTHY with a fresh age. Then re-enable the push unit and confirm recovery.
+   - **Production, passive check:** do not interrupt anything; read `generatedAt` and `evidenceAgeMs` over several minutes and confirm they advance only while pushes arrive (a frozen `generatedAt` must age into STALE).
 5. Replay the same envelope with the Core key: 409.
 6. Confirm no MQTT publish, no relay/CUT/RESTORE occurred and the audit database gained no row.
+
+## 6a. Offline verification versus Production acceptance
+
+Offline tests use synthetic Core status, test-only certificates and ephemeral loopback ports; they prove the code's fail-closed behavior. They do **not** prove the HUB nginx block, the real certificates, DNS/routing from the Core host, the real Core status schema on the installed release, clocks, or any physical state. Production acceptance (section 6) is a separate, owner-run, human-observed step and is not performed by this repository work.
+
+## 6b. Release packaging gap (found in STEP 38.5 — BLOCKER for installing the push client)
+
+The Core release builder (`deploy/pr11-phase4/p4-l7-build-release.py`) ships only the `aegis_soc` module closure of four entrypoints (supervisor, recovery_ui, production_detector, cli). `tools/` is not part of any release, and `aegis_soc/observer.py` is not reachable from those entrypoints. The push client lives in `tools/` and imports `aegis_soc.observer`, so **it cannot run from an installed release as the unit template assumes**. Decision needed before any install (outside this task; touches the release builder, infrastructure-reviewed): either add a fifth manifested entrypoint (for example a module `aegis_soc/status_push.py` plus `observer.py`) through a reviewed builder change and a new Core release, or run the client from a separate, reviewed checkout. Do not copy files into `/opt/aegis-idea3`. See `doc/Content/12_PRODUCTION_PREDEPLOYMENT_READINESS.md`.
 
 ## 7. Known limitations
 

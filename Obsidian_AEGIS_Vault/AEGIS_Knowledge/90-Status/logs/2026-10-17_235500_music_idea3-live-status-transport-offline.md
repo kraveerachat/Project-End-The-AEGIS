@@ -19,16 +19,18 @@ edit_policy: append-by-new-file
 - Web live provider: with the flag on, the accepted projection is the only runtime source; missing/expired/rejected evidence is UNKNOWN with no URL fallback. Without the flag the provider is unchanged.
 - New `tools/status_push_client.py`: optional Core-initiated mTLS pusher (disabled by default, no listener, no queue or replay, bounded backoff, no redirects, bounded response, no credentials on the command line). Not part of the Supervisor.
 - Offline end-to-end harness with disposable certificates over real TLS; deployment templates (not installed) and a Production runbook.
+- Hardening pass (STEP 38.5): the runbook's unsafe "stop the Core status writer" acceptance step was replaced by synthetic/offline, push-client-only and passive checks; a test proves accepting status touches no repository; `doc/Content/12_PRODUCTION_PREDEPLOYMENT_READINESS.md` adds the Core release compatibility report (installed `954ce1c1`), a read-only HUB command package and the readiness matrix.
+- Finding: the Core release builder ships only the `aegis_soc` closure of four entrypoints; `tools/` and `observer.py` are not in any release, so the push client cannot run from an installed release until a reviewed packaging change (not made here).
 
 ## Source files changed
 
 - `IDEA3-AEGIS_Lockdown/web/server/config.js`, `createMachineApp.js`, `createApp.js`, `runtime.js`, `index.js`, `routes/machineRoutes.js`, `security/machineIdentity.js`, `domain/statusIngest.js`, `providers/liveProvider.js`; `tools/status_push_client.py` (new).
 - Tests/fixtures: `web/tests/server/statusIngestRoute.test.js`, `statusTransportE2E.test.js`, `tests/test_status_push_client.py`, `tests/fixtures/status_push_driver.py`.
-- Docs/deploy templates: `doc/Content/09_…` (updated), `doc/Content/11_STATUS_TRANSPORT_RUNBOOK.md`, `deploy/aegis-idea3-status-push.env.example`, `deploy/aegis-idea3-status-push.service.example`.
+- Docs/deploy templates: `doc/Content/09_…` (updated), `doc/Content/11_STATUS_TRANSPORT_RUNBOOK.md`, `doc/Content/12_PRODUCTION_PREDEPLOYMENT_READINESS.md`, `deploy/aegis-idea3-status-push.env.example`, `deploy/aegis-idea3-status-push.service.example`.
 
 ## Verification evidence
 
-- `npx vitest run` (IDEA3-AEGIS_Lockdown/web) — 48 files, 905/905 passed (849 before this task); `npm run build` — passed. The Web package has no lint script.
+- `npx vitest run` (IDEA3-AEGIS_Lockdown/web) — 48 files, 906/906 passed (849 before this task); `npm run build` — passed. The Web package has no lint script.
 - `pytest tests/test_status_push_client.py tests/test_observer.py tests/test_status_projection_publisher.py tests/test_live_status_consistency.py tests/test_local_core_web_desktop_integration.py tests/test_local_status_bridge.py tests/test_live_purple_observer.py tests/test_preview_purple_desktop.py tests/test_live_purple_desktop.py tests/test_graceful_exit.py tests/test_local_e2e_acceptance.py tests/test_dispatch_client.py tests/test_dispatch_boundary.py` — 264 passed.
 - `ruff check` on the new Python files — passed (pre-existing findings in untouched `tools/preview_purple_desktop.py` and `purple_ui_source` remain).
 - Offline end-to-end (14 tests) ran the real Python client against a real mTLS front and the real machine app on loopback; no HUB, Core broker, MQTT or ESP32 was contacted.
