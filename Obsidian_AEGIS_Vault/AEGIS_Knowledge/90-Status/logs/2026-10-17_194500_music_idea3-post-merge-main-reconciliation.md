@@ -18,6 +18,10 @@ edit_policy: append-by-new-file
 - Delivered to `main` only by this PR: LAB MQTT read-only observer (#437), UI + LAB integration receipt (#438), `normalize.js` HEALTHY + uplink DEGRADED -> DEGRADED (#441), local Core status bridge / local stack / graceful exit / Phase D e2e (#439), and their four receipts.
 - No historical receipt was edited. All six receipts exist: 095900 (#436), 125900 (#437), 134954 (#438), 144752 (#439), 170000 (#441), 180046 (#435).
 
+## Source files changed
+
+- None edited by hand. The merge brings the already-reviewed files of #437, #438, #441 and #439 into `main` (33 files under `IDEA3-AEGIS_Lockdown/` and `Obsidian_AEGIS_Vault/`); the only new file authored here is this receipt.
+
 ## Verification evidence
 
 - `npx vitest run` (IDEA3-AEGIS_Lockdown/web, full checkout) — 43 files, 775/775 passed; `npm run build` passed.
