@@ -24,6 +24,7 @@ import tkinter as tk
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+from tools import graceful_exit
 from tools import live_purple_observer as live
 
 INCIDENT_TITLE = "AEGIS IDEA3 — PURPLE DESKTOP — LIVE INCIDENT VISIBILITY (READ ONLY)"
@@ -203,6 +204,7 @@ def create_incident_app(root, *, source=None, run_async=_thread_runner, status_p
 def main():
     root = tk.Tk()
     app, _isolation = create_incident_app(root)
+    graceful_exit.install(root, app)
     root.mainloop()
     return 0 if app else 1
 

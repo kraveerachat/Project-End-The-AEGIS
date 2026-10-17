@@ -157,3 +157,18 @@ def test_invalid_explicit_cut_configuration_fails_before_tk(monkeypatch, capsys)
     monkeypatch.setenv(cut_desktop.SOCKET_ENV, "relative.sock")
     assert desktop.main() == 2
     assert "absolute Core CUT socket" in capsys.readouterr().err
+
+
+def test_explicit_core_status_file_is_read_without_the_sudo_fallback(monkeypatch, purple_root, tmp_path):
+    monkeypatch.delenv(cut_desktop.ENABLE_ENV, raising=False)
+    monkeypatch.setenv(desktop.STATUS_FILE_ENV, str(tmp_path / "status.json"))
+    app, _ = desktop.create_app(purple_root, incident_source=_incident, run_async=lambda function, *args: function(*args))
+    assert app._status_path == tmp_path / "status.json"
+
+
+def test_relative_core_status_file_is_refused_before_tk(monkeypatch, capsys):
+    monkeypatch.setenv(desktop.STATUS_FILE_ENV, "status.json")
+    monkeypatch.delenv(cut_desktop.ENABLE_ENV, raising=False)
+    monkeypatch.setattr(desktop.tk, "Tk", lambda: pytest.fail("Tk must not start"))
+    assert desktop.main() == 2
+    assert "absolute" in capsys.readouterr().err

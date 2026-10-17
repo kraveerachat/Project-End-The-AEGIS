@@ -13,9 +13,9 @@ import tkinter as tk
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+from tools import graceful_exit
 from tools.preview_purple_desktop import PYTHONUI_ROOT as ACCEPTED_PURPLE_SOURCE
 from tools.preview_purple_desktop import _install_import_isolation, _preview_gui_class
-
 
 PYTHONUI_ROOT = Path(ACCEPTED_PURPLE_SOURCE).resolve()
 LIVE_TITLE = "AEGIS IDEA3 — PURPLE LIVE READ-ONLY OBSERVER — CORE EVIDENCE"
@@ -90,7 +90,7 @@ def _install_database_isolation() -> None:
     module.log_event = lambda *args, **kwargs: None
     module.log_to_file_only = lambda *args, **kwargs: None
     module.fetch_incidents = lambda **kwargs: []
-    module.fetch_all_logs = lambda: []
+    module.fetch_all_logs = list
     module.get_open_incident = lambda: None
     module.count_incidents_today = lambda: 0
     module.create_incident = lambda *args, **kwargs: None
@@ -368,6 +368,7 @@ def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=rea
 def main():
     root = tk.Tk()
     app, _isolation = create_live_app(root)
+    graceful_exit.install(root, app)
     root.mainloop()
     return app
 
