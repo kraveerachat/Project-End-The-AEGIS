@@ -256,12 +256,16 @@ export function normalizeRuntimeStatus(rawInput, { now = new Date(), maxAgeMs = 
       : []),
     ...runtimeIssueErrors(raw.issues, raw.generatedAt),
   ]
-  const status = !forceUnknown && isCanonicalStatus(raw.status) ? raw.status : 'UNKNOWN'
   const components = Object.entries(componentNames).map(([id, name]) => ({
     id,
     name,
     status: forceUnknown || !isCanonicalStatus(raw.components?.[id]) ? 'UNKNOWN' : raw.components[id],
   }))
+  // A fresh producer HEALTHY alongside a DEGRADED uplink (Core LOCKDOWN) is self-contradictory: the Core itself projects LOCKDOWN as
+  // DEGRADED. Fail safe to DEGRADED; component evidence is left untouched. Nothing is ever promoted.
+  const producerStatus = !forceUnknown && isCanonicalStatus(raw.status) ? raw.status : 'UNKNOWN'
+  const uplinkDegraded = components.some((component) => component.id === 'uplink' && component.status === 'DEGRADED')
+  const status = producerStatus === 'HEALTHY' && uplinkDegraded ? 'DEGRADED' : producerStatus
 
   return {
     schemaVersion: 1,
