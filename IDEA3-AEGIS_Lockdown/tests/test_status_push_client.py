@@ -159,6 +159,43 @@ def test_server_errors_and_missing_route_back_off_but_stay_bounded(source):
     assert pusher.backoff_seconds(10) == 10
 
 
+def test_redirects_are_never_followed_and_are_not_a_verdict(source):
+    handler = client._NoRedirect()
+    assert handler.redirect_request(object(), object(), 302, "Found", {}, "https://elsewhere.example/") is None
+    pusher = _pusher(source, Recorder((302, b"")))
+    assert pusher.push_once(now=NOW).outcome == client.RETRY
+
+
+def test_transport_is_https_only_and_bounds_the_response(monkeypatch):
+    import ssl
+
+    transport = client.no_redirect_transport(ssl.create_default_context())
+    with pytest.raises(ValueError):
+        transport("POST", "http://idea3-core.aegis.internal/x", b"{}", {})
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def read(self, limit):
+            assert limit == client.MAX_RESPONSE_BYTES
+            return b"x" * limit
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == client.REQUEST_TIMEOUT_SECONDS and request.get_method() == "POST"
+            return Response()
+
+    monkeypatch.setattr(client.urllib.request, "build_opener", lambda *_handlers: Opener())
+    status, body = client.no_redirect_transport(ssl.create_default_context())("POST", "https://h.example/x", b"{}", {})
+    assert (status, len(body)) == (200, client.MAX_RESPONSE_BYTES)
+
+
 def test_never_sends_to_a_non_https_url(source):
     for url in ("http://idea3-core.aegis.internal/x", "ftp://x/y", "", "https://h/x?q=1", "https:///x"):
         with pytest.raises(ValueError):
@@ -243,3 +280,14 @@ def test_source_has_no_forbidden_capability():
                     r"http\.server", r"chmod", r"chown", r"CERT_NONE", r"check_hostname\s*=\s*False", r"_create_unverified",
                     r"verify\s*=\s*False", r"\bcut\b", r"\brestore\b"):
         assert not re.search(pattern, code, flags=re.IGNORECASE), pattern
+
+
+def test_deployment_templates_are_inert():
+    root = Path(client.__file__).resolve().parents[1] / "deploy"
+    env_text = (root / "aegis-idea3-status-push.env.example").read_text(encoding="utf-8")
+    unit = (root / "aegis-idea3-status-push.service.example").read_text(encoding="utf-8")
+    assert "AEGIS_CORE_STATUS_PUSH_ENABLED=0" in env_text
+    assert "[Install]" not in unit.replace("# Intentionally no [Install] section", "")
+    assert "NOT INSTALLED" in unit and "NOT INSTALLED" in env_text
+    assert not re.search(r"(?im)^[A-Z_]*(TOKEN|PASSWORD|SECRET)[A-Z_]*=\S", env_text)
+    assert "--key" not in unit and "--token" not in unit

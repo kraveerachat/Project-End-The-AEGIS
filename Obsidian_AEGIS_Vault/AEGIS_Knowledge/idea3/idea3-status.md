@@ -11,6 +11,21 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 live status transport implementation — offline source — 2026-10-17
+
+> [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. Branch `feat/idea3-live-status-transport` is a **successor stacked on Draft PR #443** (head `b2c0a993`, not yet in `main` `5a673848`). It must not be merged into the #443 branch; its own Draft PR is opened against `main` only after #443 is integrated and the branch is refreshed. Everything below is repository source and synthetic offline tests.
+
+| ID | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| LIVE-I | Independent flag `AEGIS_IDEA3_STATUS_INGEST_ENABLED` (default false); machine listener exists only when dispatch OR status is on; status-only mounts only the status route | LOCAL_VERIFIED | `web/tests/server/statusIngestRoute.test.js` (truth table, 5 rows) | Production env decision |
+| LIVE-J | `POST /security/api/machine/v1/status`: identity guard first, exact schema, 8 KiB, strictly increasing order, bounded in-memory store, production accepts only `profile: production`; codes 200/400/403/409/413/422 | LOCAL_VERIFIED | same file (42 tests) | none in repo |
+| LIVE-K | Web live provider reads the accepted projection as the only runtime source when the flag is on (missing/expired/rejected = UNKNOWN, no URL fallback); config refuses ingest + polled/LAB runtime URL | LOCAL_VERIFIED | `statusIngestRoute.test.js`, `statusTransportE2E.test.js` | none in repo |
+| LIVE-L | `tools/status_push_client.py`: Core-initiated mTLS push, disabled by default, no listener, no queue/replay, bounded backoff, no redirects, bounded response; templates not installed | LOCAL_VERIFIED | `tests/test_status_push_client.py` (38 tests) | Core release + owner install |
+| LIVE-M | Offline end-to-end over real TLS (disposable certs, loopback ports): good/missing/stale/future/invalid cert/wrong CA/wrong hostname/wrong identity/replay/reorder/Core restart/Web restart/broker/device/lockdown/dry-run/flags/browser | LOCAL_VERIFIED | `web/tests/server/statusTransportE2E.test.js` (14 tests) | real HUB/Core run |
+| LIVE-N | Production runbook, flag table, rollback, manual acceptance (not executed) | DOCUMENTED | `doc/Content/11_STATUS_TRANSPORT_RUNBOOK.md` | owner execution |
+
+Not achieved: any Production, HUB, network, MQTT, ESP32 or hardware verification; Web, Desktop and the Core→Web transport are **not Production live**. Known limits: per-process in-memory store, a still-fresh replay is acceptable once after a Web restart, a compromised Core key can push false but well-formed evidence, no Web lint script, no functional CI, full Python suite not green (135 inherited).
+
 ## IDEA3 live read-only status integration readiness — repository-only — 2026-10-17
 
 > [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. This task prepared source, tests and an owner handoff; it did not deploy, install, restart, publish MQTT, touch hardware or change any network.

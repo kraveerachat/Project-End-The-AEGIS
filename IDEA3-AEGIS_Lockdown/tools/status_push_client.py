@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,6 +106,37 @@ def settings_from_environment(environ: Mapping[str, str]) -> PushSettings:
     )
 
 
+MAX_RESPONSE_BYTES = 16 * 1024
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: the client certificate must only ever be presented to the configured host."""
+
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+def no_redirect_transport(context, *, timeout: float = REQUEST_TIMEOUT_SECONDS) -> dispatch_client.Transport:
+    """HTTPS-only transport over the mTLS context: no redirects, bounded response, HTTP errors returned as responses."""
+
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect())
+
+    def transport(method: str, url: str, body: bytes | None, headers: Mapping[str, str]) -> tuple[int, bytes]:
+        if urlsplit(url).scheme != "https":
+            raise ValueError("The status push transport only speaks https")
+        request = urllib.request.Request(url, data=body, headers=dict(headers), method=method)
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                return response.status, response.read(MAX_RESPONSE_BYTES)
+        except urllib.error.HTTPError as error:
+            try:
+                return error.code, error.read(MAX_RESPONSE_BYTES)
+            finally:
+                error.close()
+
+    return transport
+
+
 class StatusPusher:
     """Pushes one fresh envelope per call. Holds only the last sent timestamp (never evidence) and a failure streak."""
 
@@ -154,7 +186,8 @@ class StatusPusher:
         if status == 403:
             self.failures += 1
             return PushResult(CREDENTIAL, "the machine identity was not accepted")
-        if status >= 500 or status == 413 or status == 404:
+        if not 400 <= status < 500 or status in (404, 413):
+            # 3xx (never followed), 5xx, a body-size refusal or a Web without the status route: not a verdict on the evidence.
             self.failures += 1
             return PushResult(RETRY, f"server answered {status}")
         code = _error_code(raw)
@@ -197,7 +230,7 @@ def main(argv=None, environ: Mapping[str, str] | None = None) -> int:
         context = dispatch_client.build_client_ssl_context(
             ca_file=settings.ca_file, cert_file=settings.cert_file, key_file=settings.key_file)
         pusher = StatusPusher(settings.source, settings.base_url,
-                              dispatch_client.urllib_transport(context, timeout=REQUEST_TIMEOUT_SECONDS))
+                              no_redirect_transport(context, timeout=REQUEST_TIMEOUT_SECONDS))
     except (SettingsError, ValueError, dispatch_client.DispatchCredentialError) as error:
         print(f"status push not started: {error}", file=sys.stderr)
         return 2

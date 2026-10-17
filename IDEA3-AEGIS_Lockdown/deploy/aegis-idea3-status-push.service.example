@@ -1,0 +1,31 @@
+# AEGIS IDEA3 Core status push client — TEMPLATE, NOT INSTALLED, NOT REVIEWED FOR PRODUCTION.
+# Separate unit by design: it is not part of aegis-idea3-core.service, so a failure here cannot affect supervision.
+# Owner decisions needed first: the Web side must run with AEGIS_IDEA3_STATUS_INGEST_ENABLED=true, the HUB machine
+# route must be reachable from this host, and the Core user (or a dedicated group) must be allowed to read the
+# client key. Do not start, enable or reload anything without a written maintenance window.
+[Unit]
+Description=AEGIS IDEA3 Core read-only status push client
+After=aegis-idea3-core.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aegis-idea3
+EnvironmentFile=/etc/aegis-idea3/status-push.env
+WorkingDirectory=/opt/aegis-idea3/current
+ExecStart=/opt/aegis-idea3/current/venv/bin/python -m tools.status_push_client
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/run/aegis-idea3 /etc/aegis-idea3/pki
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictNamespaces=true
+SystemCallFilter=@system-service
+
+# Intentionally no [Install] section: enabling at boot is a separate, explicit owner decision.

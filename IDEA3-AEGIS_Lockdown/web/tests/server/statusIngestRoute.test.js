@@ -232,6 +232,15 @@ describe('POST /status', () => {
     expect(statusStore.current()).toBeNull()
   })
 
+  it('does not let prototype-pollution keys through', async () => {
+    const { app, statusStore } = statusMachine()
+    const raw = JSON.stringify(PUSH).replace('{', '{"__proto__":{"polluted":true},')
+    const response = await request(app).post(`${BASE}/status`).set(IDENTITY).set('Content-Type', 'application/json').send(raw)
+    expect(response.status).toBe(400)
+    expect({}.polluted).toBeUndefined()
+    expect(statusStore.current()).toBeNull()
+  })
+
   it('serves only POST: GET and other verbs are 404', async () => {
     const { app } = statusMachine()
     for (const method of ['get', 'put', 'delete', 'patch']) {
