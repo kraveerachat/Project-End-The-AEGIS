@@ -1,0 +1,514 @@
+{
+  "divergences": [
+    "S13_contradictory_lockdown_with_normal_uplink",
+    "S14_unsupported_vocabulary",
+    "S15_production_profile_in_dry_run"
+  ],
+  "now": 1700000100.0,
+  "scenarios": {
+    "S01_fresh_running_healthy_uplink_normal": {
+      "desktop": {
+        "broker": "CONNECTED",
+        "device": "ONLINE",
+        "freshness": "FRESH",
+        "runtime_state": "RUNNING",
+        "uplink": "NORMAL",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "HEALTHY"
+      }
+    },
+    "S02_lockdown_state_uplink_lockdown": {
+      "desktop": {
+        "broker": "CONNECTED",
+        "device": "ONLINE",
+        "freshness": "FRESH",
+        "runtime_state": "LOCKDOWN",
+        "uplink": "LOCKDOWN",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "LOCKDOWN"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "DEGRADED"
+      }
+    },
+    "S03_running_with_uplink_lockdown": {
+      "desktop": {
+        "broker": "CONNECTED",
+        "device": "ONLINE",
+        "freshness": "FRESH",
+        "runtime_state": "RUNNING",
+        "uplink": "LOCKDOWN",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "LOCKDOWN"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "HEALTHY"
+      }
+    },
+    "S04_broker_disconnected": {
+      "desktop": {
+        "broker": "DISCONNECTED",
+        "device": "ONLINE",
+        "freshness": "FRESH",
+        "runtime_state": "DEGRADED",
+        "uplink": "NORMAL",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "DISCONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "MQTT_DISCONNECTED"
+        ],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "DEGRADED"
+      }
+    },
+    "S05_ap_unavailable_waiting_for_broker": {
+      "desktop": {
+        "broker": "DISCONNECTED",
+        "device": "UNKNOWN",
+        "freshness": "FRESH",
+        "runtime_state": "WAIT_BROKER",
+        "uplink": "UNKNOWN",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "DISCONNECTED",
+          "detector": "RUNNING",
+          "device": "UNKNOWN",
+          "uplink": "UNKNOWN"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "ESP32_UNAVAILABLE",
+          "MQTT_DISCONNECTED"
+        ],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S06_device_offline": {
+      "desktop": {
+        "broker": "CONNECTED",
+        "device": "OFFLINE",
+        "freshness": "FRESH",
+        "runtime_state": "DEGRADED",
+        "uplink": "NORMAL",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "OFFLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "ESP32_UNAVAILABLE"
+        ],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "DEGRADED"
+      }
+    },
+    "S07_missing_status": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "MISSING",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {},
+        "dispatch": "UNKNOWN",
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+        "generatedAt": null,
+        "issues": [],
+        "modes": {
+          "armed": "UNKNOWN",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "UNKNOWN"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S08_unreadable_status": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "UNAVAILABLE",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {},
+        "dispatch": "UNKNOWN",
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+        "generatedAt": null,
+        "issues": [],
+        "modes": {
+          "armed": "UNKNOWN",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "UNKNOWN"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S09_malformed_json": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "INVALID",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {},
+        "dispatch": "UNKNOWN",
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+        "generatedAt": null,
+        "issues": [],
+        "modes": {
+          "armed": "UNKNOWN",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "UNKNOWN"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S10_oversized_status": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "INVALID",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {},
+        "dispatch": "UNKNOWN",
+        "evidenceSource": "RUNTIME_STATUS_ABSENT",
+        "generatedAt": null,
+        "issues": [],
+        "modes": {
+          "armed": "UNKNOWN",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "UNKNOWN"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S11_expired_timestamp": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "STALE",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T21:15:00.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "HEALTHY"
+      }
+    },
+    "S12_future_timestamp": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "INVALID",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T23:15:00.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "HEALTHY"
+      }
+    },
+    "S13_contradictory_lockdown_with_normal_uplink": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "CONTRADICTORY",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "DEGRADED"
+      }
+    },
+    "S14_unsupported_vocabulary": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "INVALID",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "UNKNOWN",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "MQTT_DISCONNECTED"
+        ],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S15_production_profile_in_dry_run": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "CONTRADICTORY",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "CONNECTED",
+          "detector": "RUNNING",
+          "device": "ONLINE",
+          "uplink": "NORMAL"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S16_missing_required_fields": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "INVALID",
+        "runtime_state": "UNKNOWN",
+        "uplink": "UNKNOWN",
+        "usable": false
+      },
+      "web_input": {
+        "components": {
+          "broker": "UNKNOWN",
+          "device": "UNKNOWN",
+          "uplink": "UNKNOWN"
+        },
+        "dispatch": "UNKNOWN",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "ESP32_UNAVAILABLE",
+          "MQTT_DISCONNECTED"
+        ],
+        "modes": {
+          "armed": "UNKNOWN",
+          "autoContain": false,
+          "dryRun": true,
+          "profile": "UNKNOWN"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    },
+    "S17_unknown_components": {
+      "desktop": {
+        "broker": "UNKNOWN",
+        "device": "UNKNOWN",
+        "freshness": "FRESH",
+        "runtime_state": "RUNNING",
+        "uplink": "UNKNOWN",
+        "usable": true
+      },
+      "web_input": {
+        "components": {
+          "broker": "UNKNOWN",
+          "detector": "RUNNING",
+          "device": "UNKNOWN",
+          "uplink": "UNKNOWN"
+        },
+        "dispatch": "DISABLED",
+        "evidenceSource": "RUNTIME_STATUS_FILE",
+        "generatedAt": "2023-11-14T22:14:55.000Z",
+        "issues": [
+          "ESP32_UNAVAILABLE",
+          "MQTT_DISCONNECTED"
+        ],
+        "modes": {
+          "armed": "MONITOR_ONLY",
+          "autoContain": false,
+          "dryRun": false,
+          "profile": "production"
+        },
+        "schemaVersion": 1,
+        "status": "UNKNOWN"
+      }
+    }
+  }
+}

@@ -55,7 +55,7 @@ export function createMachineContactTracker({ clock = () => new Date() } = {}) {
  * subject has exactly one CN equal to the expected subject. A rejection writes
  * no durable state.
  */
-export function createMachineIdentityGuard({ trustedProxy, expectedSubject, contact }) {
+export function createMachineIdentityGuard({ trustedProxy, expectedSubject, contact, recordsContact = () => true }) {
   const isTrustedPeer = peerMatcher(trustedProxy)
   return function requireMachineIdentity(req, res, next) {
     if (
@@ -68,7 +68,7 @@ export function createMachineIdentityGuard({ trustedProxy, expectedSubject, cont
       return res.status(403).json({ error: { code: 'MACHINE_IDENTITY_INVALID' } })
     }
     req.machineSubject = expectedSubject
-    contact.record()
+    if (recordsContact(req)) contact.record()
     return next()
   }
 }

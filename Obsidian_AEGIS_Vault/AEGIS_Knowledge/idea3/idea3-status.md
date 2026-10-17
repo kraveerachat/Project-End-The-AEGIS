@@ -11,6 +11,44 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 live status transport implementation — offline source — 2026-10-17
+
+> [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. Branch `feat/idea3-live-status-transport` is a **successor stacked on Draft PR #443** (head `b2c0a993`, not yet in `main` `5a673848`). It must not be merged into the #443 branch; its own Draft PR is opened against `main` only after #443 is integrated and the branch is refreshed. Everything below is repository source and synthetic offline tests.
+
+| ID | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| LIVE-I | Independent flag `AEGIS_IDEA3_STATUS_INGEST_ENABLED` (default false); machine listener exists only when dispatch OR status is on; status-only mounts only the status route | LOCAL_VERIFIED | `web/tests/server/statusIngestRoute.test.js` (truth table, 5 rows) | Production env decision |
+| LIVE-J | `POST /security/api/machine/v1/status`: identity guard first, exact schema, 8 KiB, strictly increasing order, bounded in-memory store, production accepts only `profile: production`; codes 200/400/403/409/413/422 | LOCAL_VERIFIED | same file (42 tests) | none in repo |
+| LIVE-K | Web live provider reads the accepted projection as the only runtime source when the flag is on (missing/expired/rejected = UNKNOWN, no URL fallback); config refuses ingest + polled/LAB runtime URL | LOCAL_VERIFIED | `statusIngestRoute.test.js`, `statusTransportE2E.test.js` | none in repo |
+| LIVE-L | `tools/status_push_client.py`: Core-initiated mTLS push, disabled by default, no listener, no queue/replay, bounded backoff, no redirects, bounded response; templates not installed | LOCAL_VERIFIED | `tests/test_status_push_client.py` (38 tests) | Core release + owner install |
+| LIVE-M | Offline end-to-end over real TLS (disposable certs, loopback ports): good/missing/stale/future/invalid cert/wrong CA/wrong hostname/wrong identity/replay/reorder/Core restart/Web restart/broker/device/lockdown/dry-run/flags/browser | LOCAL_VERIFIED | `web/tests/server/statusTransportE2E.test.js` (14 tests) | real HUB/Core run |
+| LIVE-N | Production runbook, flag table, rollback, safe manual acceptance (not executed) | DOCUMENTED | `doc/Content/11_STATUS_TRANSPORT_RUNBOOK.md` | owner execution |
+| LIVE-O | Core release compatibility vs installed `954ce1c1`, read-only HUB command package, readiness matrix | DOCUMENTED | `doc/Content/12_PRODUCTION_PREDEPLOYMENT_READINESS.md` | Packaging gap found in 38.5, closed in source by LIVE-P (sidecar); HUB and network unverified |
+| LIVE-P | Status sidecar packaging: separate verified stdlib-only package for publisher/pusher/observer; Core release contract unchanged | IMPLEMENTED (source, offline-verified) | `deploy/status-sidecar/build-status-sidecar.py`, `aegis_soc/status_projection.py`, `doc/Content/13_STATUS_SIDECAR_PACKAGING.md`, `tests/test_status_sidecar_release.py` | Not installed. No owner-run sidecar installer exists. Four Core closure tests already fail on `main` (stale `local_cut` pin). |
+| LIVE-Q | Sidecar installer, Python runtime checks, unit hardening, sidecar-based offline E2E, owner deployment package | IMPLEMENTED (source, offline-verified) | `deploy/status-sidecar/install-status-sidecar.py`, `tests/test_status_sidecar_installer.py`, `doc/Content/14_STATUS_SIDECAR_DEPLOYMENT_READINESS.md` | Not installed or run for real (root, written window). No status group exists yet (owner decision). HUB/route/certs UNKNOWN; port 1883 plaintext still exposed. Fixture-root aliasing and dirty-source install fixed in 38.8. Not LIVE. |
+| LIVE-R | One consolidated integration PR (#444, supersedes #443) and the owner-only Production activation runbook | PREPARED (Draft, not merged) | `doc/Content/15_PRODUCTION_ACTIVATION_RUNBOOK.md` | Awaiting one final Human Review and merge, then separately authorized owner deployment. Core→HUB route UNVERIFIED (default-gateway only), AP/dnsmasq inactive, no 8883 listener, 1883 plaintext. Not LIVE. |
+
+Not achieved: any Production, HUB, network, MQTT, ESP32 or hardware verification; Web, Desktop and the Core→Web transport are **not Production live**. Known limits: per-process in-memory store, a still-fresh replay is acceptable once after a Web restart, a compromised Core key can push false but well-formed evidence, no Web lint script, no functional CI, full Python suite not green (135 inherited).
+
+## IDEA3 live read-only status integration readiness — repository-only — 2026-10-17
+
+> [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. This task prepared source, tests and an owner handoff; it did not deploy, install, restart, publish MQTT, touch hardware or change any network.
+
+Branch `feat/idea3-live-status-readonly-integration` (owner `music`, one Draft PR) starts from `main` `5a67384835dda50b5d4fb45a9551f117048bb5f0` after PR #442 reconciled PRs #437/#438/#439/#441 into `main`.
+
+| ID | Scope | State | Evidence | Remaining |
+|---|---|---|---|---|
+| LIVE-A | Desktop status reader no longer has the `sudo -n cat` fallback; reads only the configured file (no symlink, regular file, 64 KiB, non-blocking, portable) | LOCAL_VERIFIED | `tests/test_observer.py` 14 tests, subprocess-forbidding fixtures | host acceptance on the real Core file |
+| LIVE-B | `tools/status_projection_publisher.py`: allowlisted versioned projection, Core timestamp preserved, atomic replace, destination guards | IMPLEMENTED_AND_TESTED offline (disposable dirs) | `tests/test_status_projection_publisher.py` | not installed; needs owner group/directory/unit |
+| LIVE-C | Desktop reads the published projection; unreadable/invalid paths fail closed without a subprocess | LOCAL_VERIFIED | `tests/test_live_purple_desktop.py` | GUI-only manual acceptance pending |
+| LIVE-D | Core→Web transport: recommended authenticated Core-side push over the existing Phase 2B mTLS channel; pure `statusIngest` contract | REVIEW_READY design; contract implemented offline, **not mounted** | `doc/Content/09_LIVE_STATUS_TRANSPORT_DESIGN.md`, `web/tests/server/statusIngest.test.js` | Web route + independent enable flag, Core pusher (Core release), HUB reachability, owner approvals |
+| LIVE-E | Web/Desktop consistency matrix (17 synthetic scenarios), production LAB guards, unauthorized access | LOCAL_VERIFIED | `tests/test_live_status_consistency.py`, `web/tests/server/statusConsistency.test.js`, `liveStatusProductionGuards.test.js` | not cross-host evidence |
+| LIVE-H | Operator readiness package and reference unit (not installed) | DOCUMENTED | `doc/Content/10_PRODUCTION_READINESS_PACKAGE.md`, `deploy/aegis-idea3-status-publisher.service.example` | owner execution |
+
+Facts carried forward (read-only inspection, STEP 38.1/38.2; not re-run here): Core `aegis-idea3-core.service` active under the installed release `954ce1c191885e9e90198a6f54a3d990bcf144fc`, 13 `aegis_soc` files behind `main`; the Core's private `/run/aegis-idea3` is `0700`; the IDEA3 Wi-Fi interface was a client, so the AP, `aegis-idea3-mosquitto` (8883 bind) and `aegis-idea3-dnsmasq` were failing; system `mosquitto` listens plaintext on `1883`; the Core host had no route to the HUB; the Production Web state is UNKNOWN and its compose files configure no runtime status feed. These are infrastructure items outside this task.
+
+Known limitations preserved: 135 inherited Python failures (the full suite is not green), no functional CI, status badge clipping (VISUAL_MINOR), human-reported 390px result, no hardware E2E; ACK, relay and heartbeat never prove physical isolation. A known Web/Desktop divergence is recorded in the consistency matrix: for a contradictory document (LOCKDOWN with a NORMAL uplink) the Desktop shows UNKNOWN while the Web adapter shows DEGRADED; neither is HEALTHY and the publisher refuses to publish it.
+
 ## Accepted purple Python Desktop — local software verified, Production control blocked — 2026-10-10
 
 The owner accepted the uncommitted purple `AegisAdminGUI` and its Login →

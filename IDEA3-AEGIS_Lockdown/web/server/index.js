@@ -8,7 +8,7 @@ let shuttingDown = false
 process.stdout.write(`AEGIS IDEA3 Security Center listening on http://${config.bindHost}:${config.port}${config.webBasePath}/\n`)
 if (runtime.machineServer) {
   process.stdout.write(
-    `AEGIS IDEA3 machine dispatch listener on ${config.dispatch.host}:${config.dispatch.port} (application-internal; never host-published)\n`,
+    `AEGIS IDEA3 machine listener (dispatch=${config.dispatch.enabled}, status-ingest=${config.statusIngest.enabled}) on ${(config.machine ?? config.dispatch).host}:${(config.machine ?? config.dispatch).port} (application-internal; never host-published)\n`,
   )
 }
 

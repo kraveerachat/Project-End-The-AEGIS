@@ -20,7 +20,7 @@ STATUS_FILE_ENV = "AEGIS_CORE_STATUS_FILE"
 
 
 def configured_status_path():
-    """Optional absolute override of the Core status file; it is only ever read, and a readable file avoids the sudo fallback."""
+    """Optional absolute override of the Core status file; it is only ever read directly; there is no privileged fallback."""
     value = os.environ.get(STATUS_FILE_ENV)
     if not value:
         return None
