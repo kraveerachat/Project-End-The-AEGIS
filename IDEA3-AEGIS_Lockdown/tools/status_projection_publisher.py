@@ -157,6 +157,9 @@ def validate_destination(directory: Path, *, source: Path, allow_group_readable:
     if info.st_mode & 0o050 and not allow_group_readable:
         raise DestinationRefused("group-accessible destination requires explicit --allow-group-readable-dir")
     resolved = directory.resolve()
+    for forbidden in FORBIDDEN_DESTINATION_PREFIXES:
+        if resolved == forbidden or forbidden in resolved.parents:
+            raise DestinationRefused(f"destination resolves into a protected location: {forbidden}")
     source_dir = Path(source).parent.resolve()
     if resolved == source_dir or source_dir in resolved.parents:
         raise DestinationRefused("destination must not be the Core status directory")
@@ -199,13 +202,15 @@ def publish_once(
     allow_group_readable: bool = False,
 ) -> PublishResult:
     source = Path(source)
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
+        return PublishResult(DESTINATION_REFUSED, "the publisher requires a POSIX host")
     if not source.is_absolute():
         return PublishResult(SOURCE_REFUSED, "source must be an absolute path")
     try:
         directory = validate_destination(destination_dir, source=source, allow_group_readable=allow_group_readable)
     except DestinationRefused as error:
         return PublishResult(DESTINATION_REFUSED, str(error))
-    if directory / OUTPUT_NAME == source:
+    if directory / OUTPUT_NAME == source.resolve():
         return PublishResult(DESTINATION_REFUSED, "output would overwrite the source")
 
     current = time.time() if now is None else now

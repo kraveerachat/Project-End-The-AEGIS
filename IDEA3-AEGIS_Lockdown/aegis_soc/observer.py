@@ -90,7 +90,11 @@ def _read_status_text(path: Path) -> str:
     regular file, and is read with a hard size bound.
     """
 
-    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    if stat.S_ISLNK(os.lstat(path).st_mode):
+        raise _UnsafeStatusFile("Core status path is a symlink")
+    # O_NOFOLLOW / O_NONBLOCK do not exist on every platform (the Desktop also runs on Windows); the lstat check above
+    # and the regular-file check below hold everywhere.
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
     descriptor = os.open(path, flags)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):

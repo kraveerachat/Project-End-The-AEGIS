@@ -363,3 +363,23 @@ def test_push_envelope_requires_a_positive_integer_timestamp(bad):
     projection = {"web_projection": {}}
     with pytest.raises(ValueError):
         publisher.build_push_envelope(projection, sent_at_ms=bad)
+
+
+def test_destination_reached_through_a_symlinked_parent_is_checked_after_resolution(paths, tmp_path, monkeypatch):
+    source, _dest = paths
+    _write(source, _core_status())
+    protected = tmp_path / "protected"
+    (protected / "inner").mkdir(parents=True, mode=0o700)
+    monkeypatch.setattr(publisher, "FORBIDDEN_DESTINATION_PREFIXES", (protected,))
+    via = tmp_path / "via"
+    via.symlink_to(protected, target_is_directory=True)
+    result = publisher.publish_once(source, via / "inner", now=NOW)
+    assert result.outcome == publisher.DESTINATION_REFUSED and "protected" in result.reason
+    assert not (protected / "inner" / publisher.OUTPUT_NAME).exists()
+
+
+def test_publisher_refuses_non_posix_hosts(paths, monkeypatch):
+    source, dest = paths
+    _write(source, _core_status())
+    monkeypatch.setattr(os, "name", "nt")
+    assert publisher.publish_once(source, dest, now=NOW).outcome == publisher.DESTINATION_REFUSED

@@ -212,3 +212,16 @@ def test_operator_cable_observation_is_never_reported_as_python_verified(tmp_pat
     assert evidence.physical_source == "OPERATOR_OBSERVED_ONLY"
     assert evidence.physical_verification == "NOT_VERIFIED"
     assert "Pin 2 open" in evidence.physical_observation
+
+
+def test_symlink_is_refused_even_where_o_nofollow_is_unavailable(tmp_path, monkeypatch):
+    import os
+
+    real = tmp_path / "real.json"
+    real.write_text(json.dumps(_status()), encoding="utf-8")
+    link = tmp_path / "status.json"
+    link.symlink_to(real)
+    for name in ("O_NOFOLLOW", "O_NONBLOCK"):
+        monkeypatch.delattr(os, name, raising=False)
+    assert read_observer_status(link, now=1_700_000_030.0).freshness == "INVALID"
+    assert read_observer_status(real, now=1_700_000_030.0).valid is True
