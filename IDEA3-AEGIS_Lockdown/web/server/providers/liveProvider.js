@@ -11,6 +11,44 @@ const FRESH_ENVELOPE = 'FRESH'
 /** Upstream evidence outside the freshness window is observable but never eligible. */
 const STALE_FRESHNESS = new Set(['STALE', 'FUTURE', 'MALFORMED'])
 
+/**
+ * Choose the newest evidence while reserving up to half the snapshot
+ * capacity for each IDEA. Unused capacity is reassigned to the
+ * remaining newest evidence. This is presentation selection only:
+ * it cannot upgrade freshness or authorization.
+ */
+function selectBalancedRecentEvents(idea1Events, idea2Events, limit) {
+  const maximum = Number.isSafeInteger(limit) && limit > 0 ? limit : 0
+  if (maximum === 0) return []
+
+  const newestFirst = (left, right) =>
+    Date.parse(right.occurred_at) - Date.parse(left.occurred_at)
+    || `${left.source}:${left.event_id}`.localeCompare(
+      `${right.source}:${right.event_id}`
+    )
+
+  const sourceGroups = [idea1Events, idea2Events]
+    .map((events) => [...events].sort(newestFirst))
+
+  const quota = Math.floor(maximum / 2)
+  const reserved = sourceGroups.flatMap((events) =>
+    events.slice(0, quota)
+  )
+
+  const reservedSet = new Set(reserved)
+  const remaining = sourceGroups
+    .flatMap((events) => events.filter((event) =>
+      !reservedSet.has(event)
+    ))
+    .sort(newestFirst)
+
+  return [
+    ...reserved,
+    ...remaining.slice(0, maximum - reserved.length),
+  ].sort(newestFirst)
+}
+
+
 function feedOperationalError(feed, now, component) {
   if (feed.status === 'NOT_CONFIGURED') return null
   if (feed.code) {
@@ -152,11 +190,13 @@ export function createLiveProvider({ config, fetchImpl = fetch, clock = () => ne
         lifecycles[feed.source] = nextLifecycle(lifecycles[feed.source], effectiveSourceHealth(feed) === 'HEALTHY')
       }
 
-      const integrationEvents = [...idea1Feed.events, ...idea2Feed.events]
-        .sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at)
-          || `${left.source}:${left.event_id}`.localeCompare(`${right.source}:${right.event_id}`))
-        .map((event) => (STALE_FRESHNESS.has(event.freshness) ? { ...event, containment_eligible: false } : event))
-        .slice(0, limit)
+      const integrationEvents = selectBalancedRecentEvents(
+        idea1Feed.events, idea2Feed.events, limit,
+      ).map((event) => (
+        STALE_FRESHNESS.has(event.freshness)
+          ? { ...event, containment_eligible: false }
+          : event
+      ))
       const conflicts = [...idea1Feed.conflicts, ...idea2Feed.conflicts]
 
       const runtime = runtimeResult.ok

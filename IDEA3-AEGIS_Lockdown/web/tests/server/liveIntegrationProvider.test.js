@@ -253,7 +253,67 @@ describe('live integration provider failure and freshness semantics', () => {
     const [first, second] = await Promise.all([ordered.provider.getSnapshot(), shuffled.provider.getSnapshot()])
 
     expect(second.integration.events).toEqual(first.integration.events)
-    expect(first.integration.events.map((event) => event.event_id)).toEqual(['a', 'b'])
+    expect(first.integration.events.map((event) => event.event_id)).toEqual(['b', 'a'])
+  })
+
+
+  it('allocates a 100-event snapshot fairly across two 200-event producers', async () => {
+    const rows = (source) => Array.from({ length: 200 }, (_, i) =>
+      rawEvent(source, {
+        event_id: `${source.toLowerCase()}-${i}`,
+        occurred_at: new Date(NOW.getTime() - i * 60_000).toISOString(),
+      })
+    )
+
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed(rows('IDEA1'))),
+      idea2: () => jsonResponse(feed(rows('IDEA2'))),
+    })
+
+    const snapshot = await provider.getSnapshot({ limit: 100 })
+    const events = snapshot.integration.events
+
+    expect(events).toHaveLength(100)
+    expect(events.filter((e) => e.source === 'IDEA1')).toHaveLength(50)
+    expect(events.filter((e) => e.source === 'IDEA2')).toHaveLength(50)
+
+    expect(events.some((e) => e.event_id === 'idea1-0')).toBe(true)
+    expect(events.some((e) => e.event_id === 'idea2-0')).toBe(true)
+    expect(events.some((e) => e.event_id === 'idea1-199')).toBe(false)
+    expect(events.some((e) => e.event_id === 'idea2-199')).toBe(false)
+
+    const timestamps = events.map((e) => Date.parse(e.occurred_at))
+    expect(timestamps).toEqual([...timestamps].sort((a, b) => b - a))
+
+    expect(snapshot.integration.idea1.eventCount).toBe(200)
+    expect(snapshot.integration.idea2.eventCount).toBe(200)
+    expect(events.filter((e) => e.freshness === 'STALE')
+      .every((e) => e.containment_eligible === false)).toBe(true)
+  })
+
+  it('reallocates unused capacity when one producer has fewer events', async () => {
+    const one = rawEvent('IDEA1', {
+      occurred_at: NOW.toISOString(),
+    })
+    const many = Array.from({ length: 6 }, (_, i) =>
+      rawEvent('IDEA2', {
+        event_id: `idea2-capacity-${i}`,
+        occurred_at: new Date(NOW.getTime() - (i + 1) * 1000).toISOString(),
+      })
+    )
+
+    const { provider } = providerWith({
+      idea1: () => jsonResponse(feed([one])),
+      idea2: () => jsonResponse(feed(many)),
+    })
+
+    const events = (await provider.getSnapshot({ limit: 5 })).integration.events
+
+    expect(events).toHaveLength(5)
+    expect(events.filter((e) => e.source === 'IDEA1')).toHaveLength(1)
+    expect(events.filter((e) => e.source === 'IDEA2')).toHaveLength(4)
+    expect(events.some((e) => e.event_id === 'idea2-capacity-0')).toBe(true)
+    expect(events.some((e) => e.event_id === 'idea2-capacity-5')).toBe(false)
   })
 
   it('surfaces rejected and conflicting upstream evidence as counts without raw payloads', async () => {
