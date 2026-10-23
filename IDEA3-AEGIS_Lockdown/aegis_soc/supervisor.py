@@ -993,7 +993,7 @@ class AegisSupervisor:
         # The reviewed R1 ingress, or (graduated response enabled) its version-2 subclass; peer and rate checks are shared.
         ingress_class = rc.AlertIngress if self.graduated is None else gi.GraduatedAlertIngress
         server = rc.AlertServer(
-            config.ALERT_SOCKET_PATH,
+            config.alert_socket_path(self.settings.profile),
             ingress_class(self.on_production_alert),
             allowed_uid=source_uid,
             socket_gid=alert_gid,

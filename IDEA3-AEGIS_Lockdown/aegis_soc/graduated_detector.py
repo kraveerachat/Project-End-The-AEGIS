@@ -148,9 +148,29 @@ def run(records: Iterable[str], detector: GraduatedDetector) -> int:
     return pd.EXIT_JOURNAL_SOURCE_UNAVAILABLE
 
 
+SOCKET_FLAG = "--socket"
+
+
+def socket_from_argv(argv=None) -> str:
+    """``--socket <absolute path ending in /alert.sock>`` (lab deployment only) or the production constant."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if SOCKET_FLAG in args:
+        index = args.index(SOCKET_FLAG)
+        value = args[index + 1] if index + 1 < len(args) else ""
+        if value.startswith("/") and value.endswith("/alert.sock") and ".." not in value.split("/"):
+            return value
+        raise SystemExit("graduated detector: --socket needs an absolute path ending in /alert.sock")
+    return alert_sink.ALERT_SOCKET_PATH
+
+
 def main() -> int:
-    detector = GraduatedDetector()
-    pd._log("started", sink="AF_UNIX", socket=alert_sink.ALERT_SOCKET_PATH, mode="graduated-v2")
+    path = socket_from_argv()
+
+    def sender(ip, kind):
+        return alert_sink.send_alert(ip, kind, path=path)
+
+    detector = GraduatedDetector(sender)
+    pd._log("started", sink="AF_UNIX", socket=path, mode="graduated-v2")
     try:
         process = subprocess.Popen(list(TRUSTED_JOURNAL_ARGV), stdout=subprocess.PIPE, text=True, errors="replace")
     except OSError:

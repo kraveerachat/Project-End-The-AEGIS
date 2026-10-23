@@ -199,6 +199,20 @@ def lab_alert_ingress_enabled() -> bool:
     return LAB_ALERT_INGRESS == "YES" and graduated_response_enabled()
 
 
+# Lab only: the alert socket for a lab-profile Core that does not run as the production Core account. The production
+# constant below stays fixed. Honoured only with the lab ingress flags and an absolute path outside the production
+# directory; the directory checks (Core-owned, alert group, 2750, never created) are unchanged.
+LAB_ALERT_SOCKET = os.getenv("AEGIS_LAB_ALERT_SOCKET", "").strip()
+
+
+def alert_socket_path(profile: str) -> str:
+    if profile == "lab" and lab_alert_ingress_enabled() and LAB_ALERT_SOCKET.startswith("/"):
+        candidate = os.path.normpath(LAB_ALERT_SOCKET)
+        if os.path.dirname(candidate) != ALERT_RUNTIME_DIR and candidate.endswith("/alert.sock"):
+            return candidate
+    return ALERT_SOCKET_PATH
+
+
 ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"
 ALERT_SOCKET_PATH = ALERT_RUNTIME_DIR + "/alert.sock"
 ALERT_GROUP = "aegis-idea3-alert"

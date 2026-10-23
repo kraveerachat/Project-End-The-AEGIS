@@ -405,3 +405,28 @@ def test_the_core_writes_a_bounded_read_only_projection_for_the_desktop(env):
         tick(env, 1000)
         send(env, v2("port_scan", f"198.51.100.{_ + 1}"))
     assert len(json.loads(path.read_text())["decisions"]) <= 10
+
+
+def test_the_lab_alert_socket_is_honoured_only_on_a_lab_core_with_both_flags(monkeypatch):
+    monkeypatch.setattr(config, "LAB_ALERT_SOCKET", "/run/aegis-live-alert/alert.sock")
+    monkeypatch.setattr(config, "GRADUATED_RESPONSE", "YES")
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "YES")
+    assert config.alert_socket_path("lab") == "/run/aegis-live-alert/alert.sock"
+    assert config.alert_socket_path("production") == config.ALERT_SOCKET_PATH
+    assert config.alert_socket_path("development") == config.ALERT_SOCKET_PATH
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "")
+    assert config.alert_socket_path("lab") == config.ALERT_SOCKET_PATH
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "YES")
+    for bad in ("relative/alert.sock", "/run/aegis-live-alert/other.sock", config.ALERT_SOCKET_PATH):
+        monkeypatch.setattr(config, "LAB_ALERT_SOCKET", bad)
+        assert config.alert_socket_path("lab") == config.ALERT_SOCKET_PATH
+
+
+def test_the_graduated_detector_socket_flag_is_strict():
+    assert graduated_detector.socket_from_argv([]) == alert_sink.ALERT_SOCKET_PATH
+    assert graduated_detector.socket_from_argv(["--socket", "/run/aegis-live-alert/alert.sock"]) == (
+        "/run/aegis-live-alert/alert.sock")
+    for bad in (["--socket"], ["--socket", "rel/alert.sock"], ["--socket", "/run/x/other.sock"],
+                ["--socket", "/run/../etc/alert.sock"]):
+        with pytest.raises(SystemExit):
+            graduated_detector.socket_from_argv(bad)

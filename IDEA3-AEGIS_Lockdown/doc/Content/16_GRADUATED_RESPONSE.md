@@ -50,6 +50,8 @@ reports NORMAL, which only an operator RESTORE produces.
 | `AEGIS_GRADUATED_RESPONSE=YES` | Core | enable scoring and actions; off = original R1-only alert path |
 | `AEGIS_LAB_ALERT_INGRESS=YES` | Core (lab profile) | serve the F1 alert socket on a lab Core; needs the flag above |
 | `AEGIS_TG_LANG=th\|en\|zh` | Core | Telegram language (default th) |
+| `AEGIS_LAB_ALERT_SOCKET=/run/<dir>/alert.sock` | Core (lab profile) | lab-only alert socket outside the production `/run/aegis-idea3-alert`, so a lab Core running as the operator needs no change to production paths; same directory checks (Core-owned, alert group, 2750, never created) |
+| `--socket /run/<dir>/alert.sock` | graduated detector | the matching lab socket; default is the production constant |
 | `python -m aegis_soc.graduated_detector` | detector unit | run the v2 detector instead of `aegis_soc.production_detector` |
 | `AEGIS_ALERT_CORE_USER=<user>` | detector | Core account the socket must belong to (lab Core runs as the operator) |
 
