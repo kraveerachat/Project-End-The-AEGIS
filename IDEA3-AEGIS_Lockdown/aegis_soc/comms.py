@@ -91,6 +91,74 @@ def send_ops_alert(event_type, details):
                        f"`{details}`\n\n🕐 {ts_str}")
 
 
+# -- IDEA3 graduated response notifications (notification only; Telegram never carries CUT/RESTORE authority) -------------
+_SEVERITY_ICON = {"MEDIUM": "🟡", "HIGH": "🟠", "CRITICAL": "🔴"}
+_ACTION_KEY = {
+    "SOFTWARE_BLOCK": "tg.action.software_block",
+    "RECOMMEND_CUT": "tg.action.recommend_cut",
+    "AUTO_CUT": "tg.action.auto_cut",
+}
+_OUTCOME_KEY = {
+    "BLOCKED": "tg.outcome.blocked",
+    "BLOCK_FAILED": "tg.outcome.block_failed",
+    "CUT_SENT": "tg.outcome.cut_sent",
+    "CUT_REFUSED": "tg.outcome.cut_refused",
+    "CUT_QUEUED": "tg.outcome.cut_queued",
+    "CUT_DISARMED": "tg.outcome.cut_disarmed",
+    "DRY_RUN": "tg.outcome.dry_run",
+    "RECOMMENDED": "tg.outcome.recommended",
+}
+
+
+def _safe_token(value, limit=64):
+    """Telegram Markdown is fragile: only allow characters that cannot open or close an entity."""
+    text = str(value)[:limit]
+    return "".join(ch for ch in text if ch.isalnum() or ch in ".:+-_/ ,")
+
+
+def format_severity_alert(*, level, action, outcome, address, score, reasons, mitre, language):
+    """Build the localized message. Pure (no network), so tests can pin the exact text per language."""
+    from . import i18n
+
+    lang = language if language in i18n.LANGUAGES else i18n.DEFAULT_LANGUAGE
+
+    def t(key, **kwargs):
+        return i18n.translate_in(lang, key, **kwargs)
+
+    icon = _SEVERITY_ICON.get(level, "⚪")
+    lines = [
+        f"🛡️ *{t('tg.title')}*",
+        f"{icon} *{t('tg.level.' + level.lower())}* · `{_safe_token(level)}`",
+        "",
+        f"{t('tg.label.attacker')}: `{_safe_token(address)}`",
+        f"{t('tg.label.score')}: `{int(score)}`",
+        f"{t('tg.label.evidence')}: `{_safe_token(', '.join(reasons), 160)}`",
+    ]
+    if mitre:
+        lines.append(f"MITRE ATT&CK: `{_safe_token(', '.join(mitre))}`")
+    lines.append("")
+    action_key = _ACTION_KEY.get(action)
+    if action_key:
+        lines.append(f"{t('tg.label.response')}: {t(action_key)}")
+    outcome_key = _OUTCOME_KEY.get(outcome)
+    if outcome_key:
+        lines.append(f"{t('tg.label.result')}: {t(outcome_key)}")
+    lines.append("")
+    lines.append(f"ℹ️ {t('tg.footer.console_only')}")
+    lines.append(f"🕐 {time.strftime('%d %b %Y, %H:%M:%S')}")
+    return "\n".join(lines)
+
+
+def send_severity_alert(**fields):
+    """Fire-and-forget localized severity notification. Silent when Telegram is not configured."""
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        return
+    try:
+        _dispatch_telegram(format_severity_alert(language=config.TELEGRAM_LANGUAGE, **fields))
+    except Exception:
+        print("Telegram notification delivery failed")
+
+
 def ufw_exec(args, timeout=30):
     """เรียก ufw ผ่าน pkexec — คืน (success: bool, output: str)"""
     try:

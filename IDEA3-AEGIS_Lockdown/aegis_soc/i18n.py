@@ -630,6 +630,56 @@ STRINGS = {
     "diagnostics.section_connectivity": {"en": "Connectivity Configuration", "th": "การตั้งค่าการเชื่อมต่อ", "zh": "连接配置"},
     "diagnostics.section_security": {"en": "Security Configuration", "th": "การตั้งค่าความปลอดภัย", "zh": "安全配置"},
     "diagnostics.section_data": {"en": "Data Integrity", "th": "ความสมบูรณ์ของข้อมูล", "zh": "数据完整性"},
+    # IDEA3 graduated response Telegram alerts (notification only; see aegis_soc/comms.py)
+    "tg.title": {"en": "AEGIS IDEA3 — Security alert", "th": "AEGIS IDEA3 — แจ้งเตือนความปลอดภัย", "zh": "AEGIS IDEA3 — 安全告警"},
+    "tg.level.medium": {"en": "Medium severity", "th": "ความรุนแรงระดับกลาง", "zh": "中等严重性"},
+    "tg.level.high": {"en": "High severity", "th": "ความรุนแรงระดับสูง", "zh": "高严重性"},
+    "tg.level.critical": {"en": "Critical severity", "th": "ความรุนแรงระดับวิกฤต", "zh": "危急严重性"},
+    "tg.label.attacker": {"en": "Attacker", "th": "ผู้โจมตี", "zh": "攻击来源"},
+    "tg.label.score": {"en": "Risk score", "th": "คะแนนความเสี่ยง", "zh": "风险评分"},
+    "tg.label.evidence": {"en": "Evidence", "th": "หลักฐาน", "zh": "证据"},
+    "tg.label.response": {"en": "Response", "th": "การตอบสนอง", "zh": "响应"},
+    "tg.label.result": {"en": "Result", "th": "ผลลัพธ์", "zh": "结果"},
+    "tg.action.software_block": {
+        "en": "Firewall block of the attacker address",
+        "th": "บล็อก IP ผู้โจมตีด้วยไฟร์วอลล์",
+        "zh": "防火墙封锁攻击地址",
+    },
+    "tg.action.recommend_cut": {
+        "en": "Physical cut recommended — confirm on the Desktop console",
+        "th": "แนะนำให้ตัดสายเครือข่าย — ยืนยันที่หน้าจอควบคุม",
+        "zh": "建议物理断网——请在桌面控制台确认",
+    },
+    "tg.action.auto_cut": {
+        "en": "Automatic physical uplink cut",
+        "th": "ตัดสายเครือข่ายทางกายภาพอัตโนมัติ",
+        "zh": "自动物理断开上行链路",
+    },
+    "tg.outcome.blocked": {"en": "Block confirmed by the Core", "th": "Core ยืนยันการบล็อกแล้ว", "zh": "核心已确认封锁"},
+    "tg.outcome.block_failed": {"en": "Block failed — escalating", "th": "บล็อกไม่สำเร็จ — กำลังยกระดับ", "zh": "封锁失败——正在升级"},
+    "tg.outcome.cut_sent": {
+        "en": "CUT sent to the relay; waiting for the device ACK",
+        "th": "ส่งคำสั่ง CUT ไปที่ Relay แล้ว รอ ACK จากอุปกรณ์",
+        "zh": "已向继电器发送 CUT，等待设备确认",
+    },
+    "tg.outcome.cut_refused": {"en": "CUT was refused by the Core", "th": "Core ปฏิเสธคำสั่ง CUT", "zh": "核心拒绝了 CUT"},
+    "tg.outcome.cut_queued": {
+        "en": "CUT queued behind a RESTORE in progress",
+        "th": "คำสั่ง CUT เข้าคิวรอหลัง RESTORE ที่กำลังทำงาน",
+        "zh": "CUT 已排队，等待进行中的 RESTORE 完成",
+    },
+    "tg.outcome.cut_disarmed": {
+        "en": "Not cut: the system is DISARMED",
+        "th": "ไม่ได้ตัดสาย: ระบบอยู่ในโหมด DISARMED",
+        "zh": "未断开：系统处于解除布防状态",
+    },
+    "tg.outcome.dry_run": {"en": "Dry run — nothing was changed", "th": "โหมดทดลอง — ไม่มีการเปลี่ยนแปลง", "zh": "演练模式——未做任何更改"},
+    "tg.outcome.recommended": {"en": "Waiting for an operator decision", "th": "รอผู้ดูแลตัดสินใจ", "zh": "等待操作员决定"},
+    "tg.footer.console_only": {
+        "en": "Telegram is notification only. CUT and RESTORE are done on the Desktop console.",
+        "th": "Telegram ใช้แจ้งเตือนเท่านั้น สั่ง CUT และ RESTORE ได้ที่หน้าจอควบคุมเท่านั้น",
+        "zh": "Telegram 仅用于通知。CUT 与 RESTORE 只能在桌面控制台执行。",
+    },
 }
 
 
@@ -692,6 +742,20 @@ def translate(key, **kwargs):
     if entry is None:
         return key
     text = entry.get(_state["language"]) or entry.get(DEFAULT_LANGUAGE) or key
+    if kwargs:
+        try:
+            return text.format(**kwargs)
+        except Exception:
+            return text
+    return text
+
+
+def translate_in(language, key, **kwargs):
+    """Like ``translate`` but for an explicit language (used for outbound notifications), never the UI setting."""
+    entry = STRINGS.get(key)
+    if entry is None:
+        return key
+    text = entry.get(_validate_language(language)) or entry.get(DEFAULT_LANGUAGE) or key
     if kwargs:
         try:
             return text.format(**kwargs)

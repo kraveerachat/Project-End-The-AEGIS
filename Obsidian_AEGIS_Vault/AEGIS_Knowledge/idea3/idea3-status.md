@@ -11,6 +11,20 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 graduated response, Desktop RESTORE and severity panel — repository + offline tests — 2026-10-23
+
+> [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`. Opt-in only (`AEGIS_GRADUATED_RESPONSE=YES`); with it unset the alert path is unchanged. Design and lab procedure: `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md`.
+
+| ID | Scope | State | Evidence |
+|---|---|---|---|
+| GR-1 | Severity policy LOW/MEDIUM/HIGH/CRITICAL; CRITICAL needs corroboration; one auto-CUT per episode; RESTORE never automatic | LOCAL_VERIFIED | `tests/test_graduated_response.py` |
+| GR-2 | v2 alert ingress + graduated detector (trusted journald fields) as subclasses; pinned F1/R1 sources byte-unchanged | LOCAL_VERIFIED | `tests/test_graduated_response_core.py`, pin tests pass |
+| GR-3 | Telegram severity notifications th/en/zh, notification only | LOCAL_VERIFIED | same |
+| GR-4 | Desktop `tools/live_purple_control_desktop.py`: Core-authenticated RESTORE, severity panel, status path | LOCAL_VERIFIED (Xvfb) | `tests/test_live_purple_control_desktop.py`, `tests/test_restore_client.py` |
+| GR-5 | Lab hardware acceptance | NOT RUN | — |
+
+Durable lab fact (2026-10-23 live run on `main` cc096de): the VCC/JD-VCC active-low relay module is energized in NORMAL, so the working contact is COM–NO (deviation from PR5.1 COM–NC); owner multimeter A2–B2 readings confirmed LOCKDOWN/RESTORE/CUT/RESTORE.
+
 ## IDEA3 live status transport implementation — offline source — 2026-10-17
 
 > [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. Branch `feat/idea3-live-status-transport` is a **successor stacked on Draft PR #443** (head `b2c0a993`, not yet in `main` `5a673848`). It must not be merged into the #443 branch; its own Draft PR is opened against `main` only after #443 is integrated and the branch is refreshed. Everything below is repository source and synthetic offline tests.
