@@ -37,7 +37,8 @@ def main(argv: list[str]) -> int:
         print("usage: render_template.py SRC DST", file=sys.stderr)
         return 2
     src, dst = argv[1], argv[2]
-    text = open(src, encoding="utf-8").read()
+    with open(src, encoding="utf-8") as handle:
+        text = handle.read()
     for token, var in ANGLE.items():
         if token in text:
             value = os.environ.get(var)
@@ -46,7 +47,8 @@ def main(argv: list[str]) -> int:
                 return 1
             text = text.replace(token, value)
     if "<AEGIS_AP_PSK>" in text:
-        psk = open(os.environ["LL_AP_PSK_FILE"], encoding="utf-8").read().strip()
+        with open(os.environ["LL_AP_PSK_FILE"], encoding="utf-8") as handle:
+            psk = handle.read().strip()
         if not 8 <= len(psk) <= 63 or not psk.isprintable():
             print("render: the AP passphrase file must hold 8-63 printable characters", file=sys.stderr)
             return 1
