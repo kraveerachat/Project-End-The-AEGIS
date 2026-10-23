@@ -21,9 +21,11 @@ edit_policy: owner-writable
 | GR-2 | v2 alert ingress + graduated detector (trusted journald fields) as subclasses; pinned F1/R1 sources byte-unchanged | LOCAL_VERIFIED | `tests/test_graduated_response_core.py`, pin tests pass |
 | GR-3 | Telegram severity notifications th/en/zh, notification only | LOCAL_VERIFIED | same |
 | GR-4 | Desktop `tools/live_purple_control_desktop.py`: Core-authenticated RESTORE, severity panel, status path | LOCAL_VERIFIED (Xvfb) | `tests/test_live_purple_control_desktop.py`, `tests/test_restore_client.py` |
-| GR-5 | Lab hardware acceptance | NOT RUN | — |
+| GR-5 | Lab hardware acceptance of scenarios 1–5 (detector, containment helper, automatic CUT) | NOT RUN | — |
+| GR-6 | Control Desktop CUT/RESTORE and Telegram LOCKDOWN/RESTORED on real hardware (graduated response OFF) | LAB_VERIFIED 2026-10-23 | `IDEA3-AEGIS_Lockdown/doc/Content/18_LIVE_LAB_ACCEPTANCE_SUMMARY.md` |
 
 Durable lab fact (2026-10-23 live run on `main` cc096de): the VCC/JD-VCC active-low relay module is energized in NORMAL, so the working contact is COM–NO (deviation from PR5.1 COM–NC); owner multimeter A2–B2 readings confirmed LOCKDOWN/RESTORE/CUT/RESTORE.
+Live-lab procedure and scripts: `IDEA3-AEGIS_Lockdown/doc/Content/17_LIVE_LAB_RUNBOOK.md`, `IDEA3-AEGIS_Lockdown/deploy/live-lab/`. Telegram delivery: 10 s limit with one retry (a 3 s limit lost a RESTORED notice over a cellular tether).
 
 ## IDEA3 live status transport implementation — offline source — 2026-10-17
 

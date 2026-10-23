@@ -41,6 +41,11 @@ edit_policy: append-by-new-file
   `tests/test_restore_client.py`, `tests/test_live_purple_control_desktop.py` — new tests
 - `IDEA3-AEGIS_Lockdown/tests/test_comms.py` — delivery retry and secret-safety tests
 - `IDEA3-AEGIS_Lockdown/tests/test_core_alert_ingress.py` — static ingress-gate assertion updated for the explicit lab flag
+- `IDEA3-AEGIS_Lockdown/deploy/live-lab/` — new, parameterized live-lab scripts (no secret, key, certificate or NVS image):
+  `aegis-live-up.sh`, `aegis-live-down.sh`, `owner-provision.sh`, `owner-restore.sh`, `run-control-desktop.sh`,
+  `lib-live-lab.sh`, `render_template.py`, `live-lab.env.example`, `templates/core.env.template`
+- `IDEA3-AEGIS_Lockdown/doc/Content/17_LIVE_LAB_RUNBOOK.md` — topology, flashing, COM–NO relay, start/stop, CUT/RESTORE, Telegram, limits
+- `IDEA3-AEGIS_Lockdown/doc/Content/18_LIVE_LAB_ACCEPTANCE_SUMMARY.md` — sanitized G0–G6 and Phase B acceptance summary
 
 ## Verification evidence
 
@@ -49,6 +54,9 @@ edit_policy: append-by-new-file
   (environment-only: root uid, no systemd/sudo); no new failure; F1/R1 pin tests pass.
 - Desktop suites under Xvfb (Python 3.12 + Tk): baseline 72 passed / 1 skipped; branch 83 passed / 1 skipped.
 - `ruff check` on every new or changed file — pass.
+- Live lab on `main` `cc096de` + this branch (2026-10-23): CUT and RESTORE with owner multimeter readings, and from the control
+  Desktop; Telegram LOCKDOWN and RESTORED received (graduated response OFF). Details: `doc/Content/18_LIVE_LAB_ACCEPTANCE_SUMMARY.md`.
+- `deploy/live-lab/*.sh` — `bash -n` pass; configuration rendering exercised offline (`aegis-live-up.sh --render-only`) with dummy files.
 
 ## Canonical notes updated
 
@@ -64,7 +72,10 @@ edit_policy: append-by-new-file
 
 ## Known limitations
 
-- Lab hardware acceptance of scenarios 1–5 in `doc/Content/16_GRADUATED_RESPONSE.md` not yet run.
+- Lab hardware acceptance of scenarios 1–5 in `doc/Content/16_GRADUATED_RESPONSE.md` not yet run (the Desktop RESTORE/CUT and
+  Telegram paths ARE proven live; the detector, containment helper and automatic-CUT path are not).
+- `deploy/live-lab/aegis-live-up.sh` and `-down.sh` were not re-run end to end after being written from the commands used in
+  the live run; only their rendering step and syntax were checked.
 - The graduated behaviour changes a documented IDEA3 boundary (an alert may now lead to a CUT, only when explicitly
   enabled); owner and reviewer decision required before any production use.
 - New Desktop panel strings are English only.
