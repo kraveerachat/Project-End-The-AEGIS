@@ -12,6 +12,12 @@ import urllib.request
 
 from . import config
 
+# Delivery bounds. A cellular tether answered in ~1.7 s in the lab, so the old 3 s limit left almost no margin and one
+# RESTORED notification was lost. The send runs off the safety-critical path, so a longer bound costs nothing there.
+TELEGRAM_TIMEOUT_SEC = 10
+TELEGRAM_ATTEMPTS = 2
+TELEGRAM_RETRY_DELAY_SEC = 1.0
+
 
 def _post_telegram(text):
     url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -19,16 +25,43 @@ def _post_telegram(text):
                           "parse_mode": "Markdown"}).encode("utf-8")
     req = urllib.request.Request(url, data=payload,
                                  headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
-    urllib.request.urlopen(req, timeout=3)
+    urllib.request.urlopen(req, timeout=TELEGRAM_TIMEOUT_SEC)
+
+
+def _failure_reason(error):
+    """A secret-free reason token: the exception type, plus the HTTP status for an HTTP error. Never the message text,
+    which can carry the bot URL (and so the token) or the chat id."""
+    status = getattr(error, "code", None)
+    if isinstance(status, int):
+        return f"{type(error).__name__} status={status}"
+    reason = getattr(error, "reason", None)
+    if isinstance(reason, BaseException):
+        return f"{type(error).__name__}/{type(reason).__name__}"
+    return type(error).__name__
+
+
+def _deliver(text):
+    """At most TELEGRAM_ATTEMPTS sends. A rejected message (HTTP 4xx) is not retried: it would fail the same way."""
+    for attempt in range(1, TELEGRAM_ATTEMPTS + 1):
+        try:
+            _post_telegram(text)
+            return True
+        except Exception as error:  # delivery is best effort and must never raise into the caller
+            reason = _failure_reason(error)
+            status = getattr(error, "code", None)
+            final = attempt == TELEGRAM_ATTEMPTS or (isinstance(status, int) and 400 <= status < 500)
+            print(f"Telegram notification delivery failed (attempt {attempt}/{TELEGRAM_ATTEMPTS}, {reason})"
+                  + ("" if final else "; retrying"))
+            if final:
+                return False
+            time.sleep(TELEGRAM_RETRY_DELAY_SEC)
+    return False
 
 
 def _dispatch_telegram(text):
     """Send outside the caller's safety-critical path without leaking secrets."""
     def _send():
-        try:
-            _post_telegram(text)
-        except Exception:
-            print("Telegram notification delivery failed")
+        _deliver(text)
 
     try:
         threading.Thread(target=_send, daemon=True).start()

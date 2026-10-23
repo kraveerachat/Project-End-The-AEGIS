@@ -32,12 +32,14 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/aegis_soc/supervisor.py` — opt-in policy wiring, lab ingress gate, projection file
 - `IDEA3-AEGIS_Lockdown/aegis_soc/alert_sink.py` — additive v2 payload, OBSERVED reply, AEGIS_ALERT_CORE_USER
 - `IDEA3-AEGIS_Lockdown/aegis_soc/config.py` — inert-by-default flags
-- `IDEA3-AEGIS_Lockdown/aegis_soc/comms.py` — localized severity notification
+- `IDEA3-AEGIS_Lockdown/aegis_soc/comms.py` — localized severity notification; Telegram delivery timeout 3 s → 10 s,
+  one retry, secret-free failure reason (a lab RESTORED notification was lost at 3 s over a cellular tether)
 - `IDEA3-AEGIS_Lockdown/aegis_soc/i18n.py` — th/en/zh strings, translate_in
 - `IDEA3-AEGIS_Lockdown/tools/live_purple_control_desktop.py` — new Desktop entry point
 - `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md` — design, flags, lab procedure
 - `IDEA3-AEGIS_Lockdown/tests/test_graduated_response.py`, `tests/test_graduated_response_core.py`,
   `tests/test_restore_client.py`, `tests/test_live_purple_control_desktop.py` — new tests
+- `IDEA3-AEGIS_Lockdown/tests/test_comms.py` — delivery retry and secret-safety tests
 - `IDEA3-AEGIS_Lockdown/tests/test_core_alert_ingress.py` — static ingress-gate assertion updated for the explicit lab flag
 
 ## Verification evidence
