@@ -11,6 +11,10 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 RESTORE after an uncommanded lockdown — lab finding and fix (offline-verified) — 2026-10-24
+
+> [!important] `PRODUCTION_MUTATION = NO`. Branch `fix/idea3-restore-after-uncommanded-lockdown` (local, not pushed). Lab finding A1: after a physically confirmed RESTORE, a lockdown the Core did not command (dead-man's switch, power loss, a frozen Core) left a stale RESTORE record, so every new RESTORE was refused with `RESTORE_ALREADY_PENDING` until a CUT replaced the record or the Core restarted. `local_restore.py` now treats a RESTORE as pending only while it is ACKed and not yet physically confirmed. Workaround on an unfixed Core: CUT, then RESTORE. State: LOCAL_VERIFIED (offline tests); lab hardware re-test and owner review pending.
+
 ## IDEA3 live status transport implementation — offline source — 2026-10-17
 
 > [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. Branch `feat/idea3-live-status-transport` is a **successor stacked on Draft PR #443** (head `b2c0a993`, not yet in `main` `5a673848`). It must not be merged into the #443 branch; its own Draft PR is opened against `main` only after #443 is integrated and the branch is refreshed. Everything below is repository source and synthetic offline tests.

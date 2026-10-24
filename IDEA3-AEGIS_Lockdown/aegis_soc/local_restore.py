@@ -317,6 +317,19 @@ def _incident_key(incident: dict | None):
     return (incident.get("id"), incident.get("attacker_ip"), incident.get("state")) if incident else None
 
 
+def _restore_awaits_evidence(physical: dict | None) -> bool:
+    """True only while an ACKed RESTORE has not yet been physically confirmed by the device; then a second RESTORE is refused.
+
+    A confirmed RESTORE is finished. A later LOCKDOWN the Core did not command (dead-man's switch, power loss) is a new situation,
+    and the stale record of the earlier RESTORE must not block the operator from restoring it."""
+    return bool(
+        physical
+        and physical.get("action") == RESTORE_UPLINK
+        and physical.get("acknowledged_at") is not None
+        and physical.get("physical_confirmed_at") is None
+    )
+
+
 class LocalRestoreGate:
     def __init__(
         self,
@@ -490,7 +503,7 @@ class LocalRestoreGate:
             if self.supervisor.status.uplink != "LOCKDOWN":
                 return self._refuse("UPLINK_NOT_LOCKDOWN", "Core has not observed LOCKDOWN", peer)
             physical = self.supervisor.awaiting_physical_confirmation
-            if physical and physical.get("action") == RESTORE_UPLINK and physical.get("acknowledged_at") is not None:
+            if _restore_awaits_evidence(physical):
                 return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
 
             reason = body["reason"].strip()
@@ -595,7 +608,7 @@ class LocalRestoreGate:
             if self.supervisor.status.uplink != "LOCKDOWN":
                 return self._refuse("UPLINK_NOT_LOCKDOWN", "Core has not observed LOCKDOWN", peer)
             physical = self.supervisor.awaiting_physical_confirmation
-            if physical and physical.get("action") == RESTORE_UPLINK and physical.get("acknowledged_at") is not None:
+            if _restore_awaits_evidence(physical):
                 return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
             try:
                 if _incident_key(self.incident_lookup()) != _incident_key(snapshot) or self.episode_lookup() != episode_id:

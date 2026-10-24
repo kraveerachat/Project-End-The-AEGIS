@@ -524,6 +524,62 @@ def test_duplicate_invocations_are_deterministic_and_audited(core):
     ]
 
 
+def _confirmed_restore(core):
+    """A RESTORE that was published, ACKed and physically confirmed (device NORMAL carrying the command's own ids)."""
+    first = core.ask(request())
+    assert first["code"] == "PUBLISHED"
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="NORMAL", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    physical = core.supervisor.awaiting_physical_confirmation
+    assert physical["action"] == RESTORE_UPLINK and physical["acknowledged_at"] is not None
+    assert physical["physical_confirmed_at"] is not None, "the scenario needs a physically confirmed RESTORE"
+    assert core.supervisor.status.uplink == "NORMAL"
+    return first
+
+
+@pytest.mark.parametrize("reason", ["DEADMAN", "BOOT"])
+def test_a_confirmed_restore_does_not_block_a_new_restore_after_an_uncommanded_lockdown(core, reason):
+    """Lab finding A1: after a CONFIRMED RESTORE, a dead-man or power-loss LOCKDOWN (no Core command) left a stale RESTORE record
+    and every new operator RESTORE was refused with RESTORE_ALREADY_PENDING until the Core restarted."""
+    first = _confirmed_restore(core)
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason=reason, device_seq_hwm=first["seq"])
+    assert core.supervisor.status.uplink == "LOCKDOWN"
+    assert core.supervisor.pending_command is None
+
+    second = core.ask(request())
+    assert (second["ok"], second["code"]) == (True, "PUBLISHED"), second
+    assert second["seq"] == first["seq"] + 1
+    assert len(core.restores()) == 2
+    assert [event for event, *_ in core.audit.strict] == ["RESTORE_REQUESTED", "RESTORE_REQUESTED"]
+
+
+def test_an_acknowledged_but_unconfirmed_restore_stays_pending_after_the_device_reports_lockdown(core):
+    """The guard's real purpose is unchanged: while the device evidence for an ACKed RESTORE is missing, no second RESTORE."""
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    assert core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is None
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="DEADMAN", device_seq_hwm=first["seq"])
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    assert len(core.restores()) == 1
+
+
+def test_a_correlated_status_that_contradicts_the_restore_does_not_count_as_confirmation(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    physical = core.supervisor.awaiting_physical_confirmation
+    assert physical["observed_state"] == "LOCKDOWN" and physical["physical_confirmed_at"] is None
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    assert len(core.restores()) == 1
+
+
+def test_a_restore_still_awaiting_its_ack_is_refused_as_command_pending_not_confirmed(core):
+    assert core.ask(request())["code"] == "PUBLISHED"
+    assert core.ask(request())["code"] == "COMMAND_PENDING"
+
+
 def test_a_concurrent_cut_cannot_cross_the_local_restore_actuation_boundary(core):
     audit_entered = threading.Event()
     release_audit = threading.Event()
