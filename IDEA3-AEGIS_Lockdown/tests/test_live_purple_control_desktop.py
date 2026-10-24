@@ -109,7 +109,7 @@ def app_factory(tmp_path, monkeypatch):
                      if name == "aegis_soc" or name.startswith("aegis_soc.")}
     saved_path = list(sys.path)
 
-    def build(restore_flow, prompts, graduated=None, language="en", status_age=None):
+    def build(restore_flow, prompts, graduated=None, language="en", status_age=None, recovery=None, audit_db=None):
         monkeypatch.setenv("AEGIS_UI_LANGUAGE", language)  # read when the purple i18n module is imported; never persisted
         try:
             root = tk.Tk()
@@ -128,7 +128,7 @@ def app_factory(tmp_path, monkeypatch):
         app, _fakes = desktop.create_control_app(
             root, cut_flow=FakeCutFlow(), restore_flow=restore_flow, prompts=prompts,
             run_async=lambda function, *args: function(*args), status_path=status_path,
-            graduated_path=graduated_path,
+            graduated_path=graduated_path, recovery_path=recovery, audit_path=audit_db,
         )
         app.session.login("test-admin")
         app._on_authenticated()
@@ -531,3 +531,119 @@ def test_a_status_timestamp_from_the_future_is_not_fresh(tmp_path):
     path = _status_file(tmp_path, 1_700_000_100.0)
     evidence = live.reader.read_observer_status(path, now=1_700_000_000.0)
     assert not evidence.valid and evidence.freshness != "FRESH"
+
+
+# ---- Recovery page (P3): a read-only readiness checklist; no RESTORE control, no new authority ----
+
+def write_recovery_view(path, **changes):
+    document = {
+        "v": 1, "updated_at": time.time(), "uplink": "LOCKDOWN", "device": "ONLINE", "uplink_why": "UNCOMMANDED_AFTER_RESTORE",
+        "last_command": {"action": "RESTORE_UPLINK", "acked": True, "confirmed": True, "timed_out": False},
+        "restore_pending": False, "restore_pending_remaining_sec": None, "restore_command_pending": False,
+        "lockout_remaining_sec": 0.0, "restore_served": True,
+    }
+    document.update(changes)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def open_recovery(app_factory, tmp_path, language="en", with_view=True, **view_changes):
+    recovery = tmp_path / "recovery-status.json"
+    if with_view:
+        write_recovery_view(recovery, **view_changes)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language, status_age=5, recovery=recovery)
+    write_core_status(app._status_path, 5, uplink="LOCKDOWN")
+    _poll(app, root)
+    app._show_page("recovery")
+    root.update()
+    return app, root, recovery
+
+
+def test_the_recovery_page_is_a_live_readiness_checklist(app_factory, tmp_path):
+    _app, root, _ = open_recovery(app_factory, tmp_path)
+    texts = _texts(root)
+    joined = "\n".join(texts)
+    for stale_text in ("BLOCKED", "RESTORE NETWORK", "observer mode", "no live authorization", "NOT_CONSUMED"):
+        assert stale_text not in joined
+    assert any(text.startswith("READY") for text in texts)
+    assert any(text.startswith("UNCOMMANDED_AFTER_RESTORE — ") for text in texts)
+    assert "LOCKDOWN" in texts and "ONLINE" in texts and "SYNCED" in texts and "CONNECTED" in texts
+    assert "no" in texts and "none" in texts
+
+
+def test_the_recovery_page_has_no_restore_control_only_navigation(app_factory, tmp_path):
+    app, root, _ = open_recovery(app_factory, tmp_path)
+    buttons = [b.cget("text") for b in _widgets(root, "Button")]
+    assert desktop.RESTORE_BUTTON_TEXT not in buttons and desktop.RESTORE_DISABLED_TEXT not in buttons
+    assert not [b for b in buttons if "RESTORE" in b.upper() and b != "Go to the Lockdown page"]
+    go = next(b for b in _widgets(root, "Button") if b.cget("text") == "Go to the Lockdown page")
+    errors = []
+    root.report_callback_exception = lambda *exc: errors.append(exc[1])
+    assert str(go.cget("state")) == "normal"
+    go.invoke()
+    assert not errors, errors
+    root.update()
+    assert app.active_page == "lockdown" and _restore_button(root) is not None   # the one RESTORE control lives here
+    assert app._restore_button is not None
+
+
+def test_the_recovery_page_updates_while_open_and_stops_when_left(app_factory, tmp_path):
+    app, root, recovery = open_recovery(app_factory, tmp_path)
+    assert any(text.startswith("READY") for text in _texts(root))
+    write_recovery_view(recovery, restore_pending=True, restore_pending_remaining_sec=6.0, lockout_remaining_sec=20.0)
+    app._tick_live_page()
+    root.update()
+    texts = _texts(root)
+    assert any(text.startswith("NOT READY") and "RESTORE_PENDING" in text and "AUTH_LOCKED_OUT" in text for text in texts)
+    assert any(text.startswith("yes — awaiting device status evidence") and "6 s" in text for text in texts)
+    assert any("locked after repeated wrong secrets — 20 s remaining" in text for text in texts)
+    app._show_page("devices")
+    root.update()
+    assert app._page_tick is None and app._page_after is None
+
+
+@pytest.mark.parametrize("language,marker", [("th", "พร้อม"), ("zh", "可执行")])
+def test_the_recovery_page_follows_the_language_and_keeps_codes(app_factory, tmp_path, language, marker):
+    _app, root, _ = open_recovery(app_factory, tmp_path, language=language, restore_pending=True, restore_pending_remaining_sec=3.0)
+    joined = "\n".join(_texts(root))
+    assert marker in joined
+    for code in ("LOCKDOWN", "UNCOMMANDED_AFTER_RESTORE", "RESTORE_PENDING", "NOT READY"):
+        assert code in joined
+    assert "Ready for a RESTORE" not in joined and "RESTORE is performed" not in joined
+
+
+def test_the_recovery_page_without_a_view_says_not_available_and_why(app_factory, tmp_path):
+    _app, root, recovery = open_recovery(app_factory, tmp_path, with_view=False)
+    joined = "\n".join(_texts(root))
+    assert "NOT_AVAILABLE — NOT_FOUND" in joined and "VIEW_UNAVAILABLE" in joined
+    assert not any(text.startswith("READY") for text in _texts(root))
+    write_recovery_view(recovery, updated_at=time.time() - 200)
+    _app._tick_live_page()
+    root.update()
+    assert "NOT_AVAILABLE — STALE" in "\n".join(_texts(root))
+
+
+def test_recent_restore_attempts_come_from_the_core_audit_records(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, SECRET_REASON, make_audit
+
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery, audit_db=audit)
+    app._show_page("recovery")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "RESTORE_REFUSED" in joined and "RESTORE_ALREADY_PENDING" in joined and "RESTORE_AUTH_LOCKOUT" in joined
+    assert "ACK_RECEIVED" not in joined and SECRET_REASON not in joined
+
+
+def test_the_page_cannot_issue_a_restore_even_when_every_control_is_pressed(app_factory, tmp_path):
+    flow, prompts = FakeRestoreFlow(), FakePrompts()
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(flow, prompts, status_age=5, recovery=recovery)
+    app._show_page("recovery")
+    root.update()
+    for button in [b for b in _widgets(root, "Button") if b.cget("text") != "Go to the Lockdown page"]:
+        button.invoke()          # every other control is disabled by the preview base; a press does nothing
+    app.on_restore_clicked()     # the base callback is neutral
+    root.update()
+    assert flow.submitted == [] and prompts.asked == [] and flow.polls == 0

@@ -27,6 +27,7 @@ from pathlib import Path
 from tkinter import simpledialog
 
 from tools import graceful_exit
+from tools import live_purple_core_records as records
 from tools import live_purple_cut_desktop as cut_desktop
 from tools import live_purple_observer as live
 
@@ -34,6 +35,8 @@ RESTORE_ENABLE_ENV = "AEGIS_DESKTOP_RESTORE_ENABLED"
 RESTORE_SOCKET_ENV = "AEGIS_LOCAL_RESTORE_SOCKET"
 STATUS_PATH_ENV = "AEGIS_DESKTOP_STATUS_PATH"
 GRADUATED_PATH_ENV = "AEGIS_GRADUATED_STATUS_PATH"
+RECOVERY_PATH_ENV = "AEGIS_DESKTOP_RECOVERY_PATH"
+AUDIT_DB_ENV = "AEGIS_DESKTOP_AUDIT_DB"
 CONTROL_TITLE = "AEGIS IDEA3 — PURPLE DESKTOP — CUT / RESTORE (CORE-AUTHENTICATED)"
 RESTORE_BUTTON_TEXT = "RESTORE NETWORK (Core-authenticated)"
 RESTORE_DISABLED_TEXT = "RESTORE NETWORK — DISABLED"
@@ -210,7 +213,8 @@ def _status(gui, level):
     }.get(level, gui.pres.STATUS_UNKNOWN)
 
 
-def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path, *, incident_source=None):
+def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path, *, incident_source=None,
+                       recovery_path=None, audit_path=None):
     Base = cut_desktop._cut_gui_class(gui, cut_flow, prompts, run_async, incident_source=incident_source)
 
     class LivePurpleControlDesktopGUI(Base):
@@ -221,6 +225,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._restore_status = None
             self._severity_body = None
             self._severity_after = None
+            self._page_tick = None
+            self._page_after = None
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
 
@@ -229,10 +235,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self.root.title(CONTROL_TITLE)
 
         def _show_page(self, key):
+            self._stop_live_page()
             super()._show_page(key)  # the CUT base installs its CUT control on the lockdown page
             if key == "lockdown":
                 self._install_restore_control()
                 self._install_severity_panel()
+            elif key == "recovery":
+                self._enable_navigation_button()   # the preview base disables every Button after a page is built
 
         # -- RESTORE ----------------------------------------------------------------------------------------------------
         def _install_restore_control(self):
@@ -318,6 +327,89 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             elif view.terminal:
                 prompts.notify("RESTORE", f"{view.state}\n\n{view.text}")
 
+
+        # -- read-only Core pages (Recovery; Incidents and Audit follow) ------------------------------------------------
+        def _start_live_page(self, key, render):
+            """Render now and again every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page."""
+            self._stop_live_page()
+            self._page_tick = (key, render)
+            self._tick_live_page(first=True)
+
+        def _stop_live_page(self):
+            if self._page_after is not None:
+                try:
+                    self.root.after_cancel(self._page_after)
+                except (tk.TclError, ValueError):
+                    pass
+            self._page_after = None
+            self._page_tick = None
+
+        def _tick_live_page(self, first=False):
+            self._page_after = None
+            if self._page_tick is None:
+                return
+            key, render = self._page_tick
+            if getattr(self, "active_page", None) != key:
+                self._page_tick = None
+                return
+            try:
+                render()
+            except tk.TclError:   # the page was destroyed under us
+                self._page_tick = None
+                return
+            try:
+                self._page_after = self.root.after(SEVERITY_POLL_MS, self._tick_live_page)
+            except (tk.TclError, RuntimeError):
+                self._page_after = None
+
+        def _clear(self, body):
+            for child in body.winfo_children():
+                child.destroy()
+
+        def _lines(self, body, lines):
+            for line in lines:
+                tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+                         bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
+
+        def _enable_navigation_button(self):
+            button = getattr(self, "_go_button", None)
+            if button is not None and button.winfo_exists():
+                button.configure(state=tk.NORMAL, command=lambda: self._show_page("lockdown"))
+
+        def _evidence_freshness(self):
+            latest = getattr(self, "latest", None)
+            return None if latest is None else ("FRESH" if latest.valid else latest.freshness)
+
+        def _build_recovery_page(self, parent):
+            t = gui.i18n.t
+            page = self._new_page(parent, "recovery.page_title", "recovery.page_subtitle")
+            checklist = gui.Section(page, t("recovery.section"), accent=gui.COLOR_WARN_HL)
+            checklist.pack(fill="x", padx=16, pady=(0, 16))
+            attempts = gui.Section(page, t("recovery.attempts_section"))
+            attempts.pack(fill="x", padx=16, pady=(0, 16))
+            gui.make_hint(page, t("recovery.hint")).pack(anchor="w", padx=16, pady=(0, 8))
+            # Navigation only: the RESTORE control exists on the Lockdown page and nowhere else.
+            self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
+            self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
+            self._start_live_page("recovery", lambda: self._render_recovery(checklist.body, attempts.body))
+
+        def _render_recovery(self, body, attempts_body):
+            self._clear(body)
+            self._clear(attempts_body)
+            view, view_reason = records.read_recovery_view(recovery_path)
+            rows, rows_reason = records.read_audit(audit_path, records.ATTEMPT_KINDS, 5)
+            graduated = read_graduated(graduated_path)
+            evidence = live.evidence_values(self.latest)
+            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason,
+                                           self._evidence_freshness(), gui.i18n.t)
+            for label, value, level in facts:
+                self._add_fact(body, label, value, status=_status(gui, level))
+            if rows:
+                self._lines(attempts_body, [records.audit_line(row) for row in rows])
+            else:
+                self._lines(attempts_body, [gui.i18n.t("audit.view.none") if rows is not None else
+                                            gui.i18n.t("recovery.unavailable", reason=rows_reason)])
+
         # -- severity panel ---------------------------------------------------------------------------------------------
         def _new_page(self, parent, title_key, subtitle_key, **kwargs):
             page = super()._new_page(parent, title_key, subtitle_key, **kwargs)
@@ -373,7 +465,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=cut_desktop._thread_runner,
                        incident_source=None, status_path=live.reader.STATUS_PATH, graduated_path=None,
-                       max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS):
+                       max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS, recovery_path=None, audit_path=None):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("the control Desktop must start without an imported aegis_soc package")
     sys.path.insert(0, str(live.PYTHONUI_ROOT))
@@ -384,10 +476,11 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
     if not str(Path(gui.__file__).resolve()).startswith(str(live.PYTHONUI_ROOT)):
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
     register_severity_strings(gui.i18n)
+    records.register_record_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()
     app_class = _control_gui_class(gui, cut_flow, restore_flow, prompts or ControlPrompts(), run_async, graduated_path,
-                                   incident_source=incident_source)
+                                   incident_source=incident_source, recovery_path=recovery_path, audit_path=audit_path)
     app = app_class(root, mqtt, controller, status_path=Path(status_path), max_age_seconds=max_age_seconds)
     return app, (mqtt, controller)
 
@@ -404,11 +497,13 @@ def main():
               file=sys.stderr)
     status_path = absolute_env_path(STATUS_PATH_ENV) or live.reader.STATUS_PATH
     graduated_path = absolute_env_path(GRADUATED_PATH_ENV) or Path(status_path).with_name("graduated-status.json")
+    recovery_path = absolute_env_path(RECOVERY_PATH_ENV) or Path(status_path).with_name("recovery-status.json")
+    audit_path = absolute_env_path(AUDIT_DB_ENV)   # None -> the Audit and attempts rows say NOT_AVAILABLE: NOT_CONFIGURED
     root = tk.Tk()
     app, _isolation = create_control_app(
         root, cut_flow=cut_desktop.client.ManualCutFlow(cut_path),
         restore_flow=restore_client.ManualRestoreFlow(restore_path) if restore_path else None,
-        status_path=status_path, graduated_path=graduated_path,
+        status_path=status_path, graduated_path=graduated_path, recovery_path=recovery_path, audit_path=audit_path,
     )
     graceful_exit.install(root, app)
     root.mainloop()
