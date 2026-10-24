@@ -1,4 +1,5 @@
 import { evaluateFreshness } from './status.js'
+import { sanitizeGraduated } from './graduated.js'
 
 /**
  * Contract for the Core -> Web read-only status push (design: doc/Content/09_LIVE_STATUS_TRANSPORT_DESIGN.md).
@@ -16,6 +17,8 @@ export const MAX_FUTURE_SKEW_MS = 5_000
 
 const ENVELOPE_KEYS = ['schema', 'version', 'sentAtMs', 'projection']
 const PROJECTION_KEYS = ['schemaVersion', 'generatedAt', 'status', 'dispatch', 'components', 'modes', 'issues', 'evidenceSource']
+// Optional and additive: the Core's graduated-response display section (see domain/graduated.js). Absent stays absent.
+const OPTIONAL_PROJECTION_KEYS = ['graduated']
 const COMPONENT_KEYS = ['broker', 'device', 'uplink', 'detector', 'gui', 'preflight']
 const MODE_KEYS = ['profile', 'dryRun', 'autoContain', 'armed']
 const STATUS_VALUES = new Set(['HEALTHY', 'DEGRADED', 'FAILED', 'UNKNOWN'])
@@ -38,7 +41,7 @@ function hasOnlyKeys(value, allowed) {
 }
 
 function validProjection(projection) {
-  if (!isPlainObject(projection) || !hasOnlyKeys(projection, PROJECTION_KEYS)) return false
+  if (!isPlainObject(projection) || !hasOnlyKeys(projection, [...PROJECTION_KEYS, ...OPTIONAL_PROJECTION_KEYS])) return false
   if (!PROJECTION_KEYS.every((key) => key in projection)) return false
   if (projection.schemaVersion !== 1 || typeof projection.generatedAt !== 'string') return false
   if (projection.evidenceSource !== 'RUNTIME_STATUS_FILE') return false
@@ -73,6 +76,15 @@ export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = n
   if (!validProjection(body.projection)) return refuse('STATUS_PUSH_INVALID')
   if (allowedProfiles && !allowedProfiles.includes(body.projection.modes.profile)) return refuse('STATUS_PUSH_PROFILE')
 
+  // The optional graduated section is validated strictly; unknown fields inside it are dropped from the stored copy, and a
+  // section that does not validate refuses the whole push (nothing is repaired or invented).
+  let projection = body.projection
+  if (Object.hasOwn(projection, 'graduated')) {
+    const graduated = sanitizeGraduated(projection.graduated, { nowMs: now.getTime() })
+    if (!graduated) return refuse('STATUS_PUSH_INVALID')
+    projection = { ...projection, graduated }
+  }
+
   const sentAge = now.getTime() - body.sentAtMs
   if (sentAge < -MAX_FUTURE_SKEW_MS) return refuse('STATUS_PUSH_FUTURE')
   if (sentAge > maxAgeMs) return refuse('STATUS_PUSH_STALE')
@@ -90,7 +102,7 @@ export function validateStatusPush(body, { now, maxAgeMs = 120_000, previous = n
   return {
     ok: true,
     code: null,
-    record: Object.freeze({ sentAtMs: body.sentAtMs, receivedAt: now.toISOString(), projection: structuredClone(body.projection) }),
+    record: Object.freeze({ sentAtMs: body.sentAtMs, receivedAt: now.toISOString(), projection: structuredClone(projection) }),
   }
 }
 

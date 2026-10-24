@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { BellRing, CheckCheck, Flame, TriangleAlert } from 'lucide-react'
 import { DataTable } from '../components/DataTable.jsx'
+import { GraduatedDecisions } from '../components/GraduatedPanel.jsx'
+import { graduatedOf } from '../lib/graduated.js'
 import { MetricCard } from '../components/MetricCard.jsx'
 import { Panel } from '../components/Panel.jsx'
 import { evidenceCount, overallEvidence, zeroAwareStatus } from '../lib/evidence.js'
@@ -43,6 +45,7 @@ export function AlertsPage({ snapshot, onAcknowledge = () => {} }) {
       <Panel title="Alert triage" description="Severity, dedup และ escalation คำนวณจากฝั่งเซิร์ฟเวอร์" action={<label className="compact-filter">ระดับ<select aria-label="กรองระดับ Alert" value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="ALL">ทั้งหมด</option><option value="WARNING">WARNING</option><option value="HIGH">HIGH</option><option value="CRITICAL">CRITICAL</option></select></label>}>
         <DataTable columns={columns} rows={alerts} emptyLabel={emptyLabel} ariaLabel="ตาราง Alert" />
       </Panel>
+      <GraduatedDecisions graduated={graduatedOf(snapshot)} />
       <section className="audit-note"><CheckCheck size={17} aria-hidden="true" /><span>การรับทราบทุกครั้งต้องผ่าน Admin session + CSRF และสร้าง Audit record — ปุ่มไม่เปลี่ยนสถานะเองจนกว่าเซิร์ฟเวอร์ยืนยัน</span></section>
     </div>
   )

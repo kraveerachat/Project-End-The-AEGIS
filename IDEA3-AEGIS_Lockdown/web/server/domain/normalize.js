@@ -3,6 +3,7 @@ import { isIP } from 'node:net'
 import { z } from 'zod'
 import { CANONICAL_STATUSES, evaluateFreshness, isCanonicalStatus } from './status.js'
 import { OPERATIONAL_ERROR_CODES, createOperationalError } from './operationalErrors.js'
+import { normalizeGraduated } from './graduated.js'
 
 const timestampSchema = z.string().datetime({ offset: true })
 const boundedText = z.string().trim().min(1).max(80)
@@ -287,6 +288,8 @@ export function normalizeRuntimeStatus(rawInput, { now = new Date(), maxAgeMs = 
       ? raw.evidenceSource.slice(0, 80)
       : 'unknown',
     coreEvidence: normalizeCoreEvidence(raw.evidence, { forceUnknown }),
+    // The Core's graduated-response display section; null when absent, invalid, or the evidence is not fresh.
+    graduated: normalizeGraduated(raw.graduated, { now, forceUnknown }),
   }
 }
 
@@ -303,6 +306,7 @@ export function unknownRuntime(freshness = 'ABSENT', operationalErrors = []) {
     operationalErrors,
     evidenceSource: 'unavailable',
     coreEvidence: { incidents: [], audit: null, device: null, provenance: 'unavailable' },
+    graduated: null,
   }
 }
 

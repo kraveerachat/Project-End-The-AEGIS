@@ -5,6 +5,8 @@ import { StatusBadge } from '../components/StatusBadge.jsx'
 import { Timeline } from '../components/Timeline.jsx'
 import { ResponseChainList } from '../components/ResponseChain.jsx'
 import { LabMqttSection } from '../components/LabMqttObservation.jsx'
+import { GraduatedSummary } from '../components/GraduatedPanel.jsx'
+import { graduatedOf } from '../lib/graduated.js'
 import { formatEvidenceAge } from '../lib/format.js'
 
 const issueGuidance = {
@@ -60,6 +62,8 @@ export function LockdownPage({ snapshot }) {
       {stale && <div className="stale-callout" role="status"><ShieldAlert size={18} aria-hidden="true" /><div><strong>หลักฐานล่าสุดเก่าเกินกำหนด</strong><p>ทุก component ถูกลดสถานะเป็น UNKNOWN จนกว่าจะได้รับหลักฐานใหม่ที่ตรวจสอบได้</p></div></div>}
 
       <ResponseChain incident={snapshot.incidents?.[0]} />
+
+      <GraduatedSummary graduated={graduatedOf(snapshot)} />
 
       <LabMqttSection />
 

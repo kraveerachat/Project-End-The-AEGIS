@@ -31,13 +31,14 @@ describe('Dashboard mission control', () => {
     expect(within(idea3).getByText('สถานะรีเลย์จริง')).toBeVisible()
   })
 
-  it('prioritizes only active incidents and high or critical alerts in the KPI row', () => {
+  it('prioritizes only active incidents, high or critical alerts and the current threat level in the KPI row', () => {
     render(<DashboardPage snapshot={snapshot} />)
 
     const summary = screen.getByRole('region', { name: 'สรุปสถานะ' })
-    expect(summary.querySelectorAll('.metric-card')).toHaveLength(2)
+    expect(summary.querySelectorAll('.metric-card')).toHaveLength(3)
     expect(within(summary).getByText('Incident ที่กำลังดำเนินการ')).toBeVisible()
     expect(within(summary).getByText('การแจ้งเตือนระดับสูง')).toBeVisible()
+    expect(within(summary).getByText('ระดับภัยคุกคามปัจจุบัน')).toBeVisible()
     expect(within(summary).queryByText('สถานะระบบโดยรวม')).not.toBeInTheDocument()
     expect(within(summary).queryByText('หลักฐาน 24 ชั่วโมง')).not.toBeInTheDocument()
   })

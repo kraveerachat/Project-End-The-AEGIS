@@ -1,11 +1,13 @@
 import React from 'react'
 import {
-  Activity, ArrowUpRight, BellRing, Network, Radar, RefreshCw, ShieldCheck,
+  Activity, ArrowUpRight, BellRing, Network, Radar, RefreshCw, ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 import { DataTable } from '../components/DataTable.jsx'
 import { MetricCard } from '../components/MetricCard.jsx'
 import { Panel } from '../components/Panel.jsx'
 import { StatusBadge } from '../components/StatusBadge.jsx'
+import { LevelTag } from '../components/GraduatedPanel.jsx'
+import { graduatedOf } from '../lib/graduated.js'
 import {
   dashboardIssues, evidenceStatus, isAcknowledgedIncident, recommendedActions, runtimeComponent,
 } from '../lib/dashboard.js'
@@ -209,6 +211,7 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
   const countDetail = (value, fallback) => (Number.isFinite(value) && (value > 0 || overallTrusted) ? fallback : t('metric.countUnverified'))
   const domainCount = (view, value) => evidenceCount(value, view.trusted, activeLanguage)
   const incidentsStatus = metricStatus(overall.activeIncidents, 'DEGRADED')
+  const graduated = graduatedOf(snapshot)
   const alertsStatus = metricStatus(overall.highAlerts, 'FAILED')
 
   return (
@@ -231,9 +234,19 @@ export function DashboardPage({ snapshot, apiConnected = true, onNavigate, onRef
         </div>
       </section>
 
-      <section className="metric-grid metric-grid--two" aria-label={t('dashboard.summaryAria')}>
+      <section className="metric-grid metric-grid--three" aria-label={t('dashboard.summaryAria')}>
         <MetricCard icon={Activity} label={t('metric.activeIncidents')} value={metricCount(overall.activeIncidents)} suffix={Number.isFinite(overall.activeIncidents) && (overall.activeIncidents > 0 || overallTrusted) ? t('count.itemUnit') : undefined} status={incidentsStatus} {...metricCopy(incidentsStatus)} detail={incident ? t('metric.latestIncident', { id: incident.id }) : countDetail(overall.activeIncidents, t('metric.noIncident'))} />
         <MetricCard icon={BellRing} label={t('metric.highAlerts')} value={metricCount(overall.highAlerts)} suffix={Number.isFinite(overall.highAlerts) && (overall.highAlerts > 0 || overallTrusted) ? t('count.itemUnit') : undefined} status={alertsStatus} {...metricCopy(alertsStatus)} detail={countDetail(overall.highAlerts, t('metric.highAlertsDetail'))} />
+        <MetricCard
+          icon={ShieldAlert}
+          label={t('graduated.metricLabel')}
+          value={graduated ? <LevelTag level={graduated.highestLevel} muted={!graduated.current} /> : t('graduated.notAvailable')}
+          status={graduated ? (graduated.current ? undefined : 'STALE') : 'UNKNOWN'}
+          {...(graduated ? {} : metricCopy('UNKNOWN'))}
+          detail={graduated
+            ? (graduated.current ? t('graduated.current') : t('graduated.historical', { age: formatEvidenceAge(graduated.ageMs, activeLanguage) }))
+            : t('graduated.notAvailableDetail')}
+        />
       </section>
 
       <section className="idea-status-grid" data-layout="content-height" aria-label={t('idea.statusAria')}>

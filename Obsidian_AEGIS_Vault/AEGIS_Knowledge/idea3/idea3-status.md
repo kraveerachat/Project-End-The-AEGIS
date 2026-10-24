@@ -11,6 +11,10 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 web display of the graduated response — offline-verified — 2026-10-24
+
+> [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-web-graduated` (local, not pushed). The Core's graduated-response decisions reach the Security Center through the existing one-way status push as an optional allowlisted section; the web shows level, CUT recommendation, automatic-CUT latch and the latest decisions with MITRE ids, display only (no new route, no RESTORE value). State: LOCAL_VERIFIED (Python and web tests, build); not run against a live Core. Design: `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md` (Web display).
+
 ## IDEA3 graduated response, Desktop RESTORE and severity panel — repository + offline tests — 2026-10-23
 
 > [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`. Opt-in only (`AEGIS_GRADUATED_RESPONSE=YES`); with it unset the alert path is unchanged. Design and lab procedure: `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md`.

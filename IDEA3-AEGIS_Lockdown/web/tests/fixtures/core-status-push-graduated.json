@@ -1,0 +1,58 @@
+{
+  "projection": {
+    "components": {
+      "broker": "CONNECTED",
+      "detector": "RUNNING",
+      "device": "ONLINE",
+      "uplink": "NORMAL"
+    },
+    "dispatch": "DISABLED",
+    "evidenceSource": "RUNTIME_STATUS_FILE",
+    "generatedAt": "2023-11-14T22:14:55.000Z",
+    "graduated": {
+      "autoCutLatched": false,
+      "cutRecommendedFor": "203.0.113.7",
+      "decisions": [
+        {
+          "action": "SOFTWARE_BLOCK",
+          "at": "2023-11-14T22:14:00Z",
+          "attackerIp": "203.0.113.7",
+          "kind": "port_scan",
+          "level": "MEDIUM",
+          "mitre": [
+            "T1046"
+          ],
+          "outcome": "BLOCKED",
+          "score": 30
+        },
+        {
+          "action": "RECOMMEND_CUT",
+          "at": "2023-11-14T22:14:30Z",
+          "attackerIp": "203.0.113.7",
+          "kind": "ssh_brute_force",
+          "level": "HIGH",
+          "mitre": [
+            "T1110"
+          ],
+          "outcome": "RECOMMENDED",
+          "score": 70
+        }
+      ],
+      "highestLevel": "HIGH",
+      "schemaVersion": 1,
+      "updatedAt": "2023-11-14T22:14:50Z"
+    },
+    "issues": [],
+    "modes": {
+      "armed": "MONITOR_ONLY",
+      "autoContain": false,
+      "dryRun": false,
+      "profile": "production"
+    },
+    "schemaVersion": 1,
+    "status": "HEALTHY"
+  },
+  "schema": "aegis.idea3.status-push",
+  "sentAtMs": 1700000100000,
+  "version": 1
+}

@@ -69,6 +69,15 @@ export function createDemoProvider({ clock = () => new Date() } = {}) {
           modes: { monitorOnly: true, dryRun: true, armed: false, autoContain: false, recoveryAuthorized: false },
           issues: [{ code: 'COMPONENT_FAILED', component: 'relay-evidence', severity: 'WARNING', firstSeen: ago(now, 900), lastSeen: ago(now, 4), count: 3 }],
           evidenceSource: 'demo-runtime-status-v1',
+          // DEMO data only (documentation addresses 203.0.113.0/24): the shape of the Core's graduated-response view, never a reading.
+          graduated: {
+            schemaVersion: 1, provenance: 'DEMO', demo: true, updatedAt: ago(now, 150), ageMs: 150_000, current: true,
+            highestLevel: 'HIGH', cutRecommendedFor: '203.0.113.7', autoCutLatched: false,
+            decisions: [
+              { at: ago(now, 150), attackerIp: '203.0.113.7', kind: 'ssh_brute_force', level: 'HIGH', action: 'RECOMMEND_CUT', outcome: 'RECOMMENDED', score: 70, mitre: ['T1110'] },
+              { at: ago(now, 240), attackerIp: '203.0.113.7', kind: 'port_scan', level: 'MEDIUM', action: 'SOFTWARE_BLOCK', outcome: 'BLOCKED', score: 30, mitre: ['T1046'] },
+            ],
+          },
           timeline: [
             { id: 'rt-1', timestamp: ago(now, 4), title: 'Heartbeat verified', detail: 'ESP32-LOCK-01', status: 'HEALTHY' },
             { id: 'rt-2', timestamp: ago(now, 84), title: 'ACK received', detail: 'nonce verified', status: 'HEALTHY' },

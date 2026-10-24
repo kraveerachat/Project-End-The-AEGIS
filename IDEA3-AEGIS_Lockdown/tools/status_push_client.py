@@ -141,11 +141,12 @@ class StatusPusher:
     """Pushes one fresh envelope per call. Holds only the last sent timestamp (never evidence) and a failure streak."""
 
     def __init__(self, source: Path, base_url: str, transport: dispatch_client.Transport,
-                 *, max_age_seconds: float = observer.DEFAULT_MAX_AGE_SECONDS):
+                 *, max_age_seconds: float = observer.DEFAULT_MAX_AGE_SECONDS, graduated_source: Path | None = None):
         parts = urlsplit(base_url or "")
         if parts.scheme != "https" or not parts.netloc or parts.query or parts.fragment:
             raise ValueError("The status push base URL must be an https:// URL without a query")
         self._source = Path(source)
+        self._graduated_source = Path(graduated_source) if graduated_source is not None else publisher.default_graduated_source(self._source)
         self._url = base_url.rstrip("/") + STATUS_PATH
         self._transport = transport
         self._max_age = max_age_seconds
@@ -165,7 +166,7 @@ class StatusPusher:
         document, unknown = observer.load_status_document(self._source, now=current, max_age_seconds=self._max_age)
         if document is None:
             return PushResult(NOT_SENT, f"{unknown.freshness}: {unknown.reason}")
-        projection = publisher.build_projection(document, published_at=current)
+        projection = publisher.build_projection(document, published_at=current, graduated=publisher.load_graduated(self._graduated_source))
         # Strictly increasing per process; a restart restarts from the wall clock, which is newer.
         sent_at_ms = max(int(current * 1000), self._last_sent_ms + 1)
         envelope = publisher.build_push_envelope(projection, sent_at_ms=sent_at_ms)

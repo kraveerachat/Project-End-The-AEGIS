@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { ArrowRight, FileClock, GitMerge, MessageSquareText } from 'lucide-react'
 import { Panel } from '../components/Panel.jsx'
+import { GraduatedDecisions } from '../components/GraduatedPanel.jsx'
+import { graduatedOf } from '../lib/graduated.js'
 import { ResponseChainList } from '../components/ResponseChain.jsx'
 import { responseChain } from '../lib/chain.js'
 import { formatDateTime } from '../lib/format.js'
@@ -24,6 +26,7 @@ export function IncidentsPage({ snapshot, onAddNote = () => {} }) {
   const incident = incidents.find((item) => item.id === selectedId) ?? incidents[0]
   const physicalObserved = incident ? responseChain(incident).at(-1).observed : false
   return (
+    <>
     <div className="incident-layout">
       <Panel className="incident-index" title="Incident queue" description="Correlation ที่ยังต้องตรวจสอบโดยผู้ดูแล">
         {incidents.length ? (
@@ -50,5 +53,7 @@ export function IncidentsPage({ snapshot, onAddNote = () => {} }) {
         </section>
       </div> : null}
     </div>
+    <div className="page-stack graduated-below"><GraduatedDecisions graduated={graduatedOf(snapshot)} /></div>
+    </>
   )
 }

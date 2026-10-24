@@ -15,14 +15,18 @@ Nothing here installs or schedules itself. Running it against a real Production 
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import math
 import os
+import re
 import secrets
 import signal
 import stat
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from aegis_soc import observer
@@ -75,7 +79,120 @@ class DestinationRefused(ValueError):
     """The chosen destination is not an owner-controlled, plain directory."""
 
 
-def build_projection(document: dict, *, published_at: float) -> dict:
+# --- graduated response section (optional) ---------------------------------------------------------------------------------
+# The Core writes graduated-status.json next to status.json (display data only, event driven: it is rewritten when a decision
+# is made, so its own age is NOT a freshness signal). It is read through the same fail-closed rules as the Desktop gate: a regular
+# file (never a symlink), bounded, schema version 1. Only the fields below cross to the Web; reasons, corroboration flags and every
+# unknown key are dropped. A missing or invalid file means the section is absent: nothing is ever invented.
+GRADUATED_NAME = "graduated-status.json"
+GRADUATED_MAX_BYTES = 64 * 1024
+GRADUATED_MAX_DECISIONS = 5
+GRADUATED_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+GRADUATED_ACTIONS = ("NONE", "SOFTWARE_BLOCK", "RECOMMEND_CUT", "AUTO_CUT")
+GRADUATED_OUTCOMES = ("NONE", "BLOCKED", "BLOCK_FAILED", "DRY_RUN", "RECOMMENDED", "CUT_SENT", "CUT_QUEUED", "CUT_REFUSED", "CUT_DISARMED")
+GRADUATED_KINDS = ("port_scan", "ssh_brute_force", "syn_flood", "ssh_login_after_failures", "generic")
+GRADUATED_MAX_SCORE = 1000
+GRADUATED_MAX_MITRE = 6
+_MITRE_ID = re.compile(r"^T[0-9]{4}(\.[0-9]{3})?$")
+_EPOCH_MIN, _EPOCH_MAX = 946684800.0, 4102444800.0  # 2000-01-01 .. 2100-01-01
+
+
+def default_graduated_source(source: Path) -> Path:
+    """The Core writes the projection beside status.json; the same directory is the only place looked at by default."""
+    return Path(source).with_name(GRADUATED_NAME)
+
+
+def _iso_utc(value) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not _EPOCH_MIN <= value <= _EPOCH_MAX:
+        return None
+    return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ipv4(value) -> str | None:
+    if not isinstance(value, str) or len(value) > 15:
+        return None
+    try:
+        return str(ipaddress.IPv4Address(value))
+    except ValueError:
+        return None
+
+
+def read_graduated(path) -> dict | None:
+    """The raw Core document, or None. Regular file only (no symlink), bounded, JSON object with schema version 1; never raises."""
+    if path is None:
+        return None
+    try:
+        info = os.lstat(path)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > GRADUATED_MAX_BYTES:
+            return None
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as handle:
+            raw = handle.read(GRADUATED_MAX_BYTES + 1)
+        if len(raw) > GRADUATED_MAX_BYTES:
+            return None
+        document = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    if not isinstance(document, dict) or document.get("v") != 1 or not isinstance(document.get("decisions"), list):
+        return None
+    return document
+
+
+def project_graduated(document) -> dict | None:
+    """The allowlisted Web section built from a raw Core document, or None when the top level is not valid.
+
+    A decision that does not fit the vocabulary is dropped (never repaired); the newest GRADUATED_MAX_DECISIONS are kept."""
+    if not isinstance(document, dict):
+        return None
+    highest = document.get("highest_level")
+    updated = _iso_utc(document.get("updated_at"))
+    recommended = document.get("cut_recommended_for")
+    if highest not in GRADUATED_LEVELS or updated is None or not isinstance(document.get("auto_cut_latched"), bool):
+        return None
+    recommended_ip = None
+    if recommended is not None:
+        recommended_ip = _ipv4(recommended)
+        if recommended_ip is None:
+            return None
+    decisions = []
+    items = document.get("decisions")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        at, address = _iso_utc(item.get("at")), _ipv4(item.get("attacker_ip"))
+        outcome = item.get("outcome") or "NONE"
+        score = item.get("score")
+        mitre = item.get("mitre")
+        if (at is None or address is None or item.get("kind") not in GRADUATED_KINDS or item.get("level") not in GRADUATED_LEVELS
+                or item.get("action") not in GRADUATED_ACTIONS or outcome not in GRADUATED_OUTCOMES
+                or isinstance(score, bool) or not isinstance(score, int) or not 0 <= score <= GRADUATED_MAX_SCORE
+                or not isinstance(mitre, list)):
+            continue
+        ids = []
+        for entry in mitre:
+            if isinstance(entry, str) and _MITRE_ID.match(entry) and entry not in ids:
+                ids.append(entry)
+        decisions.append({
+            "at": at, "attackerIp": address, "kind": item["kind"], "level": item["level"], "action": item["action"],
+            "outcome": outcome, "score": score, "mitre": ids[:GRADUATED_MAX_MITRE],
+        })
+    return {
+        "schemaVersion": 1,
+        "updatedAt": updated,
+        "highestLevel": highest,
+        "cutRecommendedFor": recommended_ip,
+        "autoCutLatched": document["auto_cut_latched"],
+        "decisions": decisions[-GRADUATED_MAX_DECISIONS:],
+    }
+
+
+def load_graduated(path) -> dict | None:
+    """Gate plus projection: the Web section for ``path`` or None (absent, invalid, unreadable)."""
+    return project_graduated(read_graduated(path))
+
+
+def build_projection(document: dict, *, published_at: float, graduated: dict | None = None) -> dict:
     """Build the versioned document from an already validated, fresh Core status document.
 
     Only allowlisted keys are copied. ``detail``, ``pid``, paths and every unknown key are dropped, never sanitized.
@@ -101,6 +218,8 @@ def build_projection(document: dict, *, published_at: float) -> dict:
     projection["web_projection"] = project_status_document(
         {**{field: document[field] for field in _DESKTOP_FIELDS}, "updated_at": document["updated_at"], "components": components}
     )
+    if graduated is not None:
+        projection["web_projection"]["graduated"] = json.loads(json.dumps(graduated))  # a copy; absent stays absent
     return projection
 
 
@@ -200,6 +319,7 @@ def publish_once(
     now: float | None = None,
     max_age_seconds: float = observer.DEFAULT_MAX_AGE_SECONDS,
     allow_group_readable: bool = False,
+    graduated_source: Path | None = None,
 ) -> PublishResult:
     source = Path(source)
     if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_DIRECTORY"):
@@ -218,7 +338,8 @@ def publish_once(
     if document is None:
         return PublishResult(SOURCE_REFUSED, f"{unknown.freshness}: {unknown.reason}")
 
-    payload = (json.dumps(build_projection(document, published_at=current), sort_keys=True, indent=2) + "\n").encode("utf-8")
+    graduated = load_graduated(graduated_source if graduated_source is not None else default_graduated_source(source))
+    payload = (json.dumps(build_projection(document, published_at=current, graduated=graduated), sort_keys=True, indent=2) + "\n").encode("utf-8")
     if len(payload) > MAX_OUTPUT_BYTES:
         return PublishResult(SOURCE_REFUSED, "projection exceeds the output size bound")
     mode = 0o640 if allow_group_readable else 0o600
@@ -249,6 +370,8 @@ def main(argv=None) -> int:
     parser.add_argument("--dest-dir", required=True, type=Path, help="existing owner-controlled output directory")
     parser.add_argument("--allow-group-readable-dir", action="store_true",
                         help="accept a group-readable directory and write the file 0640 (owner decision required)")
+    parser.add_argument("--graduated-source", type=Path, default=None,
+                        help="absolute path of the Core graduated-status.json (default: beside --source); absent or invalid = no section")
     parser.add_argument("--max-age", type=float, default=observer.DEFAULT_MAX_AGE_SECONDS)
     parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_SECONDS)
     parser.add_argument("--once", action="store_true")
@@ -256,7 +379,11 @@ def main(argv=None) -> int:
     if not (0 < args.interval <= 60) or not (0 < args.max_age <= 3600):
         print("interval must be in (0, 60] and max-age in (0, 3600]", file=sys.stderr)
         return 2
-    options = {"max_age_seconds": args.max_age, "allow_group_readable": args.allow_group_readable_dir}
+    if args.graduated_source is not None and not args.graduated_source.is_absolute():
+        print("graduated-source must be an absolute path", file=sys.stderr)
+        return 2
+    options = {"max_age_seconds": args.max_age, "allow_group_readable": args.allow_group_readable_dir,
+               "graduated_source": args.graduated_source}
     if args.once:
         result = publish_once(args.source, args.dest_dir, **options)
         print(result.reason, file=sys.stderr if not result.published else sys.stdout)

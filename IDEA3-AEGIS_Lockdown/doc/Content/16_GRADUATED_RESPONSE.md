@@ -115,3 +115,27 @@ venv/bin/python -m tools.live_purple_control_desktop
 ```
 
 The severity panel is localized (th/en/zh) and follows the same language selector as the rest of the window. Level, action, outcome and kind codes, MITRE IDs, addresses and the words CUT, RESTORE, EXECUTED and NOT_AVAILABLE stay untranslated. Known limit: the RESTORE and CUT dialogs and the control captions added by this Desktop are still English only.
+
+## Web display (Security Center, display only)
+
+Status: repository implementation with offline tests; not deployed, not run against a live Core and Web together.
+
+The Core's severity decisions can be shown on the IDEA3 Security Center through the existing one-way, Core-initiated status push. The web gains
+no way to CUT or RESTORE and no new route: the machine route set is unchanged and the new vocabulary has no RESTORE value.
+
+- **Source and gate:** `graduated-status.json` (written by the Core when a decision is made; its own age is not a freshness signal). The publisher
+  (`tools/status_projection_publisher.py`) reads it with the same fail-closed rules as the Desktop: a regular file, never a symlink, at most 64 KiB, schema `v: 1`.
+  A missing or invalid file means the section is absent; nothing is invented. The push client reads the file beside `status.json` by default.
+- **Projection (`web_projection.graduated`, optional):** `schemaVersion`, `updatedAt`, `highestLevel`, `cutRecommendedFor`, `autoCutLatched` and the newest 5
+  decisions with only `at`, `attackerIp`, `kind`, `level`, `action`, `outcome`, `score`, `mitre`. Reasons, corroboration flags and unknown keys never leave the Core host.
+  `NONE` replaces an empty outcome. Times are UTC ISO strings. It is added in the publisher, so the mirrored `project_status_document` and the pinned Core runtime are untouched.
+- **Web ingest (`web/server/domain/graduated.js`):** closed enums for level, action, outcome and kind, IPv4 only, `T####[.###]` MITRE ids (at most 6, unique),
+  score 0-1000, at most 5 decisions, no times from the future. Unknown fields are dropped from the stored copy. A section that does not validate refuses the whole push
+  (`STATUS_PUSH_INVALID`) and the previous record stays as it was.
+- **UI:** Lockdown (level, CUT recommendation, automatic-CUT latch), Dashboard (KPI tile "current threat level"), Alerts and Incidents (latest decisions with MITRE ids).
+  One colour and one text per level; levels, kinds, actions, outcomes, MITRE ids and addresses are never translated; strings come from the existing th/en/zh table
+  (the language selector applies on the Dashboard, the other pages are Thai like the rest of the Security Center). The panels contain no button, link or form.
+- **Current or historical:** the section is shown only while the Core evidence is fresh. A level whose last Core update is older than 600 s (the Core scoring window) is
+  labelled historical with its age and drawn muted; it is never presented as a live reading, and an absent section is "no data", never LOW.
+- **Demo:** the demo provider returns clearly labelled demo data (documentation addresses 203.0.113.0/24) and nothing else.
+- **Not covered:** the pull-based `local_status_bridge` uses the pinned Core `safe_status_projection` and carries no graduated section.
