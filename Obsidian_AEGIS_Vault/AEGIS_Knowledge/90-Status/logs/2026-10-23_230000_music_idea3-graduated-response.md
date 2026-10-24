@@ -46,6 +46,7 @@ edit_policy: append-by-new-file
   `lib-live-lab.sh`, `render_template.py`, `live-lab.env.example`, `templates/core.env.template`
 - `IDEA3-AEGIS_Lockdown/doc/Content/17_LIVE_LAB_RUNBOOK.md` — topology, flashing, COM–NO relay, start/stop, CUT/RESTORE, Telegram, limits
 - `IDEA3-AEGIS_Lockdown/doc/Content/18_LIVE_LAB_ACCEPTANCE_SUMMARY.md` — sanitized G0–G6 and Phase B acceptance summary
+- `IDEA3-AEGIS_Lockdown/doc/Content/19_FAILURE_MODE_TESTS.md` — failure-mode test results: A1 Core freeze (dead-man cut, broker drop and self-reconnect, stale-status rejection, finding F-A1-1), A2 power loss pending
 
 ## Verification evidence
 

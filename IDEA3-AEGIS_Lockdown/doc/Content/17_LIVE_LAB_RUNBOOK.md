@@ -132,5 +132,8 @@ again. The same applies after any Core restart: the device is announced as LOCKD
   control Desktop fixes this with `AEGIS_DESKTOP_STATUS_PATH`.
 - Four governance tests (release-builder / drop-in) fail on this checkout of `main` and are unrelated to CUT, RESTORE or the
   protocol; no native firmware parity environment is defined.
+- After a confirmed RESTORE, a lockdown the Core did not command (dead-man's switch, power loss, a frozen Core) is refused by the next RESTORE with
+  `RESTORE_ALREADY_PENDING` until a CUT replaces the Core's record or the Core restarts (workaround: CUT, then RESTORE). Finding F-A1-1 and the
+  drafted fix are in `19_FAILURE_MODE_TESTS.md`.
 - Scenario 3 of `16_GRADUATED_RESPONSE.md` (detector to automatic CUT) and the detector path in general are NOT part of this
   runbook's acceptance; they need the extra root helpers listed in that document.
