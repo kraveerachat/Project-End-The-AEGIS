@@ -35,11 +35,12 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/aegis_soc/comms.py` — localized severity notification; Telegram delivery timeout 3 s → 10 s,
   one retry, secret-free failure reason (a lab RESTORED notification was lost at 3 s over a cellular tether)
 - `IDEA3-AEGIS_Lockdown/aegis_soc/i18n.py` — th/en/zh strings, translate_in
-- `IDEA3-AEGIS_Lockdown/tools/live_purple_control_desktop.py` — new Desktop entry point
+- `IDEA3-AEGIS_Lockdown/tools/live_purple_control_desktop.py` — new Desktop entry point; severity panel strings in th/en/zh through the purple i18n table
 - `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md` — design, flags, lab procedure
 - `IDEA3-AEGIS_Lockdown/tests/test_graduated_response.py`, `tests/test_graduated_response_core.py`,
   `tests/test_restore_client.py`, `tests/test_live_purple_control_desktop.py` — new tests
 - `IDEA3-AEGIS_Lockdown/tests/test_comms.py` — delivery retry and secret-safety tests
+- `IDEA3-AEGIS_Lockdown/tests/test_live_purple_control_desktop.py` — severity-panel i18n tests (pure and GUI); the GUI fixture pins the language through `AEGIS_UI_LANGUAGE`
 - `IDEA3-AEGIS_Lockdown/tests/test_core_alert_ingress.py` — static ingress-gate assertion updated for the explicit lab flag
 - `IDEA3-AEGIS_Lockdown/deploy/live-lab/` — new, parameterized live-lab scripts (no secret, key, certificate or NVS image):
   `aegis-live-up.sh`, `aegis-live-down.sh`, `owner-provision.sh`, `owner-restore.sh`, `run-control-desktop.sh`,
@@ -79,5 +80,5 @@ edit_policy: append-by-new-file
   the live run; only their rendering step and syntax were checked.
 - The graduated behaviour changes a documented IDEA3 boundary (an alert may now lead to a CUT, only when explicitly
   enabled); owner and reviewer decision required before any production use.
-- New Desktop panel strings are English only.
+- The Desktop severity panel is localized (th/en/zh); the RESTORE/CUT dialogs and the control captions added by the control Desktop are still English only.
 - Not deployed; production untouched.

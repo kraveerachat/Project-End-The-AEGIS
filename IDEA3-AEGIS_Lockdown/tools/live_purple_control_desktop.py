@@ -42,6 +42,56 @@ GRADUATED_MAX_BYTES = 64 * 1024
 SEVERITY_POLL_MS = 2000
 LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
+# Severity panel strings (th/en/zh), added to the purple Desktop's own i18n table when the app is created, so the panel follows
+# the language selector like the rest of the window. Codes are never translated: the level, action, outcome and kind codes, MITRE IDs
+# and addresses (they are data, and are not in this table at all) and the command words CUT, RESTORE, EXECUTED and NOT_AVAILABLE
+# (compared or printed verbatim elsewhere, like the CONFIRM word).
+SEVERITY_STRINGS = {
+    "severity.title": {
+        "en": SEVERITY_TITLE,
+        "th": "ระดับความรุนแรงของภัยคุกคาม — การตอบสนองแบบไล่ระดับ (อ่านอย่างเดียว)",
+        "zh": "威胁严重程度 — 分级响应（只读）",
+    },
+    "severity.graduated": {"en": "Graduated response", "th": "การตอบสนองแบบไล่ระดับ", "zh": "分级响应"},
+    "severity.unavailable": {
+        "en": "NOT_AVAILABLE — no Core projection",
+        "th": "NOT_AVAILABLE — ไม่มีข้อมูลสรุปจาก Core",
+        "zh": "NOT_AVAILABLE — Core 未提供数据",
+    },
+    "severity.highest": {"en": "Highest level", "th": "ระดับสูงสุด", "zh": "最高级别"},
+    "severity.cut_recommended": {"en": "CUT recommended", "th": "แนะนำให้ CUT", "zh": "建议执行 CUT"},
+    "severity.cut_recommended_value": {
+        "en": "{target} — decide with the CUT button",
+        "th": "{target} — ตัดสินใจด้วยปุ่ม CUT",
+        "zh": "{target} — 请使用 CUT 按钮决定",
+    },
+    "severity.auto_cut": {"en": "Automatic CUT", "th": "CUT อัตโนมัติ", "zh": "自动 CUT"},
+    "severity.auto_cut_value": {
+        "en": "EXECUTED this episode — RESTORE needs the RESTORE secret",
+        "th": "EXECUTED ในเหตุการณ์นี้ — RESTORE ต้องใช้รหัสลับ RESTORE",
+        "zh": "EXECUTED（本次事件）— RESTORE 需要 RESTORE 密钥",
+    },
+}
+
+
+def register_severity_strings(i18n_module) -> None:
+    """Add the panel strings to the purple i18n table; a key that already exists is never replaced."""
+    for key, entry in SEVERITY_STRINGS.items():
+        i18n_module.STRINGS.setdefault(key, dict(entry))
+
+
+def severity_facts(data, translate):
+    """The panel's rows as ``(label, value, level_for_colour)``. Labels and prose go through ``translate``; codes are copied as they are."""
+    if data is None:
+        return [(translate("severity.graduated"), translate("severity.unavailable"), None)]
+    rows = [(translate("severity.highest"), data["highest_level"], data["highest_level"])]
+    if data["cut_recommended_for"]:
+        rows.append((translate("severity.cut_recommended"),
+                     translate("severity.cut_recommended_value", target=data["cut_recommended_for"]), "HIGH"))
+    if data["auto_cut_latched"]:
+        rows.append((translate("severity.auto_cut"), translate("severity.auto_cut_value"), "CRITICAL"))
+    return rows
+
 
 def _load_restore_client():
     path = Path(__file__).resolve().parents[1] / "aegis_soc" / "restore_client.py"
@@ -267,7 +317,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = getattr(self, "_lockdown_page", None)
             if page is None or not page.winfo_exists():
                 return
-            section = gui.Section(page, SEVERITY_TITLE, accent=gui.COLOR_WARN_HL)
+            section = gui.Section(page, gui.i18n.t("severity.title"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 20))
             self._severity_body = section.body
             self._render_severity()
@@ -296,16 +346,10 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for child in body.winfo_children():
                 child.destroy()
             data = read_graduated(graduated_path)
+            for label, value, level in severity_facts(data, gui.i18n.t):
+                self._add_fact(body, label, value, status=_status(gui, level))
             if data is None:
-                self._add_fact(body, "Graduated response", "NOT_AVAILABLE — no Core projection", status=gui.pres.STATUS_UNKNOWN)
                 return
-            self._add_fact(body, "Highest level", data["highest_level"], status=_status(gui, data["highest_level"]))
-            if data["cut_recommended_for"]:
-                self._add_fact(body, "CUT recommended", f"{data['cut_recommended_for']} — decide with the CUT button",
-                               status=gui.pres.STATUS_WARNING)
-            if data["auto_cut_latched"]:
-                self._add_fact(body, "Automatic CUT", "EXECUTED this episode — RESTORE needs the RESTORE secret",
-                               status=_status(gui, "CRITICAL"))
             for item in reversed(data["decisions"][-6:]):
                 tk.Label(body, text=describe_decision(item), anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
@@ -325,6 +369,7 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
 
     if not str(Path(gui.__file__).resolve()).startswith(str(live.PYTHONUI_ROOT)):
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
+    register_severity_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()
     app_class = _control_gui_class(gui, cut_flow, restore_flow, prompts or ControlPrompts(), run_async, graduated_path,

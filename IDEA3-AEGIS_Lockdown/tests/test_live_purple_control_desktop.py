@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tkinter as tk
+from types import SimpleNamespace
 
 import pytest
 
@@ -89,13 +91,14 @@ def _clean_modules():
 
 
 @pytest.fixture
-def app_factory(tmp_path):
+def app_factory(tmp_path, monkeypatch):
     made = []
     saved_modules = {name: module for name, module in sys.modules.items()
                      if name == "aegis_soc" or name.startswith("aegis_soc.")}
     saved_path = list(sys.path)
 
-    def build(restore_flow, prompts, graduated=None):
+    def build(restore_flow, prompts, graduated=None, language="en"):
+        monkeypatch.setenv("AEGIS_UI_LANGUAGE", language)  # read when the purple i18n module is imported; never persisted
         try:
             root = tk.Tk()
         except tk.TclError as error:
@@ -210,6 +213,48 @@ def test_the_severity_panel_says_not_available_without_a_projection(app_factory)
     assert any("NOT_AVAILABLE — no Core projection" in t for t in _texts(root))
 
 
+GRADUATED_SAMPLE = {
+    "v": 1, "highest_level": "CRITICAL", "cut_recommended_for": "203.0.113.7", "auto_cut_latched": True,
+    "decisions": [
+        {"at": 2, "attacker_ip": "203.0.113.7", "kind": "ssh_login_after_failures", "level": "CRITICAL",
+         "action": "AUTO_CUT", "outcome": "CUT_SENT", "score": 140, "reasons": [], "mitre": ["T1078", "T1110"]},
+    ],
+}
+
+
+@pytest.mark.parametrize("language,title,label,prose", [
+    ("th", "ระดับความรุนแรงของภัยคุกคาม", "ระดับสูงสุด", "ตัดสินใจด้วยปุ่ม CUT"),
+    ("zh", "威胁严重程度", "最高级别", "请使用 CUT 按钮决定"),
+])
+def test_the_severity_panel_follows_the_selected_language_and_keeps_the_codes(app_factory, language, title, label, prose):
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), GRADUATED_SAMPLE, language=language)
+    texts = " | ".join(_texts(root))
+    assert title in texts and label in texts and prose in texts
+    assert "THREAT SEVERITY" not in texts and "Highest level" not in texts and "decide with the CUT button" not in texts
+    # codes stay as the Core sent them
+    assert "CRITICAL" in texts and "203.0.113.7" in texts and "AUTO_CUT → CUT_SENT" in texts and "T1078" in texts and "T1110" in texts
+    assert "EXECUTED" in texts
+
+
+@pytest.mark.parametrize("language,phrase", [("th", "ไม่มีข้อมูลสรุปจาก Core"), ("zh", "Core 未提供数据")])
+def test_the_not_available_panel_is_translated_but_keeps_its_code(app_factory, language, phrase):
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language)
+    assert any("NOT_AVAILABLE" in t and phrase in t for t in _texts(root))
+
+
+def test_a_language_change_rebuilds_the_severity_panel_in_the_new_language(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), GRADUATED_SAMPLE, language="en")
+    assert "Highest level" in " | ".join(_texts(root))
+    i18n = sys.modules["aegis_soc.i18n"]
+    for code, label in (("th", "ระดับสูงสุด"), ("zh", "最高级别"), ("en", "Highest level")):
+        i18n._state["language"] = code  # what the selector sets; the persisted preference file is not written by the test
+        app._rebuild_ui()
+        app._show_page("lockdown")
+        root.update()
+        texts = " | ".join(_texts(root))
+        assert label in texts and "CRITICAL" in texts, code
+
+
 # --------------------------------------------------------------------------- pure helpers (no display)
 
 
@@ -248,3 +293,81 @@ def test_the_desktop_module_imports_no_aegis_soc_package():
     modules = {node.module for node in top if isinstance(node, ast.ImportFrom)}
     modules |= {alias.name for node in top if isinstance(node, ast.Import) for alias in node.names}
     assert not any(str(name).startswith("aegis_soc") for name in modules)
+
+
+# --------------------------------------------------------------------------- severity panel strings (no display)
+
+THAI = re.compile(r"[\u0E00-\u0E7F]")
+HAN = re.compile(r"[\u4E00-\u9FFF]")
+PLACEHOLDER = re.compile(r"\{(\w+)\}")
+DATA = {"highest_level": "CRITICAL", "cut_recommended_for": "203.0.113.7", "auto_cut_latched": True, "decisions": []}
+
+
+def _translator(language):
+    def translate(key, **kwargs):
+        text = desktop.SEVERITY_STRINGS[key][language]
+        return text.format(**kwargs) if kwargs else text
+
+    return translate
+
+
+def test_every_severity_string_exists_in_th_en_and_zh_with_the_same_placeholders():
+    assert desktop.SEVERITY_STRINGS
+    for key, entry in desktop.SEVERITY_STRINGS.items():
+        assert set(entry) == {"en", "th", "zh"}, key
+        assert all(isinstance(text, str) and text.strip() for text in entry.values()), key
+        assert len({tuple(sorted(PLACEHOLDER.findall(text))) for text in entry.values()}) == 1, key
+
+
+def test_the_thai_and_chinese_strings_are_really_translated():
+    for key, entry in desktop.SEVERITY_STRINGS.items():
+        assert THAI.search(entry["th"]) and not THAI.search(entry["en"]) and not THAI.search(entry["zh"]), key
+        assert HAN.search(entry["zh"]) and not HAN.search(entry["en"]) and not HAN.search(entry["th"]), key
+
+
+def test_the_english_strings_keep_their_original_wording():
+    strings = desktop.SEVERITY_STRINGS
+    assert strings["severity.title"]["en"] == desktop.SEVERITY_TITLE
+    assert strings["severity.unavailable"]["en"] == "NOT_AVAILABLE — no Core projection"
+    assert strings["severity.auto_cut_value"]["en"].startswith("EXECUTED this episode")
+    assert strings["severity.highest"]["en"] == "Highest level" and strings["severity.cut_recommended"]["en"] == "CUT recommended"
+
+
+def test_registration_adds_the_keys_and_never_replaces_an_existing_one():
+    fake = SimpleNamespace(STRINGS={"severity.title": {"en": "kept", "th": "kept", "zh": "kept"}})
+    desktop.register_severity_strings(fake)
+    assert fake.STRINGS["severity.title"] == {"en": "kept", "th": "kept", "zh": "kept"}
+    assert set(desktop.SEVERITY_STRINGS) <= set(fake.STRINGS)
+    fake.STRINGS["severity.highest"]["en"] = "changed"
+    assert desktop.SEVERITY_STRINGS["severity.highest"]["en"] == "Highest level", "the registered entry is a copy"
+
+
+@pytest.mark.parametrize("language", ["en", "th", "zh"])
+def test_severity_facts_translate_the_prose_and_keep_every_code(language):
+    rows = desktop.severity_facts(DATA, _translator(language))
+    assert [row[2] for row in rows] == ["CRITICAL", "HIGH", "CRITICAL"], "colour levels do not depend on the language"
+    assert rows[0][1] == "CRITICAL", "the level code is copied, not translated"
+    assert "203.0.113.7" in rows[1][1] and "CUT" in rows[1][0] and "CUT" in rows[1][1]
+    assert "EXECUTED" in rows[2][1] and "RESTORE" in rows[2][1] and "CUT" in rows[2][0]
+    if language != "en":
+        english = desktop.severity_facts(DATA, _translator("en"))
+        assert all(row[0] != base[0] for row, base in zip(rows, english))
+
+
+@pytest.mark.parametrize("language", ["en", "th", "zh"])
+def test_severity_facts_without_a_projection_keep_the_not_available_code(language):
+    (label, value, level), = desktop.severity_facts(None, _translator(language))
+    assert "NOT_AVAILABLE" in value and level is None and label
+
+
+def test_optional_rows_only_appear_when_the_core_projection_has_them():
+    quiet = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    assert [row[2] for row in desktop.severity_facts(quiet, _translator("th"))] == ["LOW"]
+
+
+def test_decision_lines_are_codes_only_and_do_not_depend_on_the_language():
+    item = {"at": None, "attacker_ip": "203.0.113.7", "kind": "port_scan", "level": "MEDIUM", "action": "SOFTWARE_BLOCK",
+            "outcome": "BLOCKED", "score": 30, "reasons": [], "mitre": ["T1046"]}
+    line = desktop.describe_decision(item)
+    assert all(code in line for code in ("MEDIUM", "203.0.113.7", "port_scan", "SOFTWARE_BLOCK", "BLOCKED", "T1046"))
+    assert not THAI.search(line) and not HAN.search(line)

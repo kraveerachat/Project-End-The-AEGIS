@@ -114,4 +114,4 @@ AEGIS_DESKTOP_STATUS_PATH=<runtime_dir>/status.json AEGIS_RECOVERY_CORE_USER=<co
 venv/bin/python -m tools.live_purple_control_desktop
 ```
 
-Known limit: the new panel strings are English only; the accepted page chrome keeps its th/en/zh selector.
+The severity panel is localized (th/en/zh) and follows the same language selector as the rest of the window. Level, action, outcome and kind codes, MITRE IDs, addresses and the words CUT, RESTORE, EXECUTED and NOT_AVAILABLE stay untranslated. Known limit: the RESTORE and CUT dialogs and the control captions added by this Desktop are still English only.
