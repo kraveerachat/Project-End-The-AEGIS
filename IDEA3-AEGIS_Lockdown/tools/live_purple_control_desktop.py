@@ -371,6 +371,39 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
+        def _build_incidents_page(self, parent):
+            if incident_source is not None:   # the incident Desktop's own register is wired: keep it
+                return super()._build_incidents_page(parent)
+            page = self._new_page(parent, "incidents.title", "incidents.subtitle")
+            section = gui.Section(page, gui.i18n.t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
+            section.pack(fill="x", padx=16, pady=(0, 16))
+            self._start_live_page("incidents", lambda: self._render_incidents(section.body))
+
+        def _render_incidents(self, body):
+            t = gui.i18n.t
+            self._clear(body)
+            data = read_graduated(graduated_path)
+            reason = "" if data is not None else records.file_reason(graduated_path)
+            for label, value, level in records.incident_facts(data, reason, t):
+                self._add_fact(body, label, value, status=_status(gui, level))
+            if data is not None:
+                self._lines(body, [describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")])
+
+        def _build_audit_page(self, parent):
+            page = self._new_page(parent, "audit.title", "audit.subtitle")
+            section = gui.Section(page, gui.i18n.t("audit.view.section"))
+            section.pack(fill="x", padx=16, pady=(0, 16))
+            self._start_live_page("audit", lambda: self._render_audit(section.body))
+
+        def _render_audit(self, body):
+            t = gui.i18n.t
+            self._clear(body)
+            rows, reason = records.read_audit(audit_path, records.AUDIT_KINDS, records.AUDIT_LIMIT)
+            for label, value, level in records.audit_facts(rows, reason, t):
+                self._add_fact(body, label, value, status=_status(gui, level))
+            if rows is not None:
+                self._lines(body, [records.audit_line(row) for row in rows] or [t("audit.view.none")])
+
         def _enable_navigation_button(self):
             button = getattr(self, "_go_button", None)
             if button is not None and button.winfo_exists():

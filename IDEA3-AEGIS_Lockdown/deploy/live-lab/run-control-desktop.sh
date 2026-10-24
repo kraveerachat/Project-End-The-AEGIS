@@ -13,5 +13,6 @@ AEGIS_LOCAL_CUT_SOCKET="$RUNTIME_DIR/cut.sock" \
 AEGIS_DESKTOP_RESTORE_ENABLED=YES \
 AEGIS_LOCAL_RESTORE_SOCKET="$RUNTIME_DIR/local-restore.sock" \
 AEGIS_DESKTOP_STATUS_PATH="$RUNTIME_DIR/status.json" \
+AEGIS_DESKTOP_AUDIT_DB="$LL_DATA/data/core-audit.sqlite3" \
 AEGIS_RECOVERY_CORE_USER="$CORE_USER" \
 exec "$(ll_python)" -m tools.live_purple_control_desktop

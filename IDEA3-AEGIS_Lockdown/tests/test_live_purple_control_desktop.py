@@ -647,3 +647,119 @@ def test_the_page_cannot_issue_a_restore_even_when_every_control_is_pressed(app_
     app.on_restore_clicked()     # the base callback is neutral
     root.update()
     assert flow.submitted == [] and prompts.asked == [] and flow.polls == 0
+
+
+# ---- Incidents and Audit pages (P4): read-only data from existing Core sources, NOT_AVAILABLE with the reason otherwise ----
+
+DECISIONS = {
+    "v": 1, "updated_at": 1.0, "auto_cut_latched": False, "highest_level": "HIGH", "cut_recommended_for": "203.0.113.9",
+    "decisions": [
+        {"at": 1_800_000_000.0, "attacker_ip": "203.0.113.9", "kind": "PORT_SCAN", "level": "MEDIUM", "action": "BLOCK_IP",
+         "outcome": "BLOCKED", "score": 40, "reasons": ["scan"], "mitre": ["T1046"]},
+        {"at": 1_800_000_060.0, "attacker_ip": "203.0.113.9", "kind": "MULTI_VECTOR", "level": "HIGH", "action": "RECOMMEND_CUT",
+         "outcome": "", "score": 70, "reasons": [], "mitre": ["T1046", "T1110"]},
+    ],
+}
+
+
+def test_incidents_page_shows_the_cores_graduated_decisions(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "observer mode" not in joined and "Operational actions" not in joined
+    assert "HIGH" in joined and "PORT_SCAN" in joined and "MULTI_VECTOR" in joined and "T1046" in joined
+    assert "203.0.113.9 — decide with the CUT button" in joined
+
+
+def test_incidents_page_without_a_source_says_not_available_and_why(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "NOT_AVAILABLE — NOT_FOUND" in joined and "graduated-status.json" in joined
+
+
+@pytest.mark.parametrize("language,marker", [("th", "การตัดสินใจ"), ("zh", "决策")])
+def test_incidents_page_follows_the_language(app_factory, language, marker):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, language=language, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert marker in joined and "HIGH" in joined and "PORT_SCAN" in joined and "CORE GRADUATED-RESPONSE" not in joined
+
+
+def test_audit_page_lists_cut_and_restore_records_without_reasons(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, SECRET_REASON, make_audit
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, audit_db=audit)
+    app._show_page("audit")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "observer mode" not in joined and "Operational actions" not in joined
+    for expected in ("RESTORE_REQUESTED", "COMMAND_SENT", "RESTORE_UPLINK", "ACK_RECEIVED", "RESTORE_ALREADY_PENDING",
+                     "CUT_PRE_DISPATCH", "ab" * 16, "RESTORE_AUTH_LOCKOUT", "2026-10-24 19:01:06"):
+        assert expected in joined, expected
+    assert "STATUS_AUTHENTICATED" not in joined and SECRET_REASON not in joined
+
+
+def test_audit_page_updates_while_open(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, make_audit
+    import sqlite3
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS[:2])
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, audit_db=audit)
+    app._show_page("audit")
+    root.update()
+    assert "RESTORE_AUTH_LOCKOUT" not in "\n".join(_texts(root))
+    connection = sqlite3.connect(audit)
+    connection.execute("INSERT INTO audit_logs (timestamp, level, event_type, details) VALUES ('2026-10-24 19:30:00','WARN','RESTORE_AUTH_LOCKOUT','uid=1 pid=2')")
+    connection.commit()
+    connection.close()
+    app._tick_live_page()
+    root.update()
+    assert "RESTORE_AUTH_LOCKOUT" in "\n".join(_texts(root))
+
+
+@pytest.mark.parametrize("make,reason", [(None, "NOT_CONFIGURED"), ("absent", "NOT_FOUND"), ("denied", "PERMISSION_DENIED"), ("garbage", "UNREADABLE")])
+def test_audit_page_says_why_the_source_is_not_reachable(app_factory, tmp_path, make, reason):
+    from test_live_purple_core_records import ROWS, make_audit
+
+    path = None
+    if make == "absent":
+        path = tmp_path / "absent.sqlite3"
+    elif make == "denied":
+        path = make_audit(tmp_path / "denied.sqlite3", ROWS)
+        path.chmod(0)
+    elif make == "garbage":
+        path = tmp_path / "garbage.sqlite3"
+        path.write_bytes(b"not a database" * 50)
+    try:
+        app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, audit_db=path)
+        app._show_page("audit")
+        root.update()
+        joined = "\n".join(_texts(root))
+        assert f"NOT_AVAILABLE — {reason}" in joined and "RESTORE_REQUESTED" not in joined
+    finally:
+        if make == "denied":
+            path.chmod(0o600)
+
+
+@pytest.mark.parametrize("language,marker", [("th", "การตรวจสอบของ Core"), ("zh", "Core 审计")])
+def test_audit_page_follows_the_language(app_factory, tmp_path, language, marker):
+    from test_live_purple_core_records import ROWS, make_audit
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language, status_age=5, audit_db=audit)
+    app._show_page("audit")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert marker in joined and "RESTORE_REQUESTED" in joined and "CORE AUDIT" not in joined
+
+
+def test_with_an_incident_source_the_incident_register_is_kept(app_factory):
+    # the control app wires incident_source=None in main(); a supplied source keeps the incident Desktop's own page
+    import inspect
+
+    assert "incident_source is not None" in inspect.getsource(desktop._control_gui_class)

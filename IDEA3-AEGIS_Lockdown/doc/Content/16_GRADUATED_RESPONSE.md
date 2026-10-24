@@ -115,3 +115,23 @@ venv/bin/python -m tools.live_purple_control_desktop
 ```
 
 The severity panel is localized (th/en/zh) and follows the same language selector as the rest of the window. Level, action, outcome and kind codes, MITRE IDs, addresses and the words CUT, RESTORE, EXECUTED and NOT_AVAILABLE stay untranslated. Known limit: the RESTORE and CUT dialogs and the control captions added by this Desktop are still English only.
+
+## Desktop Recovery, Incidents and Audit pages (read-only)
+
+The control Desktop's Recovery, Incidents and Audit pages show Core data and have no authority: the only RESTORE control is on the Lockdown page, and the
+Recovery page has one button that only navigates there. Every page refreshes every 2 s while it is open, follows the language selector (th/en/zh) and keeps codes untranslated.
+
+| Page | Source | If the source cannot be read |
+|---|---|---|
+| Recovery | The Core's `recovery-status.json` (next to `status.json`; uplink and why it is in LOCKDOWN, pending RESTORE and the seconds it still blocks, authentication lockout remaining, RESTORE served), `graduated-status.json`, and the last five RESTORE attempts from the Core audit database | `NOT_AVAILABLE — <reason>`; a view older than 60 s is `STALE` and is not shown as fact |
+| Incidents | `graduated-status.json` (the Core's graduated-response decisions) | `NOT_AVAILABLE — <reason>` (the file exists only when graduated response is ON and a decision was made) |
+| Audit | The Core audit database, opened read-only, CUT and RESTORE events only (`COMMAND_SENT`, `ACK_RECEIVED`, `CUT_PRE_DISPATCH`, `RESTORE_REQUESTED`, `RESTORE_REFUSED`, `RESTORE_AUTH_LOCKOUT`) | `NOT_AVAILABLE — <reason>` |
+
+The Recovery row "Ready for a RESTORE" lists every blocker by code (`EVIDENCE_NOT_FRESH`, `VIEW_UNAVAILABLE`, `UPLINK_NOT_LOCKDOWN`, `DEVICE_NOT_ONLINE`,
+`BROKER_NOT_CONNECTED`, `TIME_NOT_TRUSTED`, `RESTORE_NOT_SERVED`, `COMMAND_AWAITING_ACK`, `RESTORE_PENDING`, `AUTH_LOCKED_OUT`). It is advice; the Core's gate decides.
+Reasons for a source being unavailable are `NOT_CONFIGURED`, `NOT_FOUND`, `PERMISSION_DENIED`, `NOT_A_REGULAR_FILE`, `TOO_LARGE`, `UNREADABLE`, `MALFORMED` and `STALE`.
+
+The audit reader returns only machine fields: the time, the event kind, a result code, and the sequence or message id. It never returns an operator's reason or
+secret, parses with anchored patterns so text inside a reason cannot fake a field, and is bounded to 50 rows. The database path comes from `AEGIS_DESKTOP_AUDIT_DB`
+(the lab launcher sets it); the Desktop user must be able to read that file. `AEGIS_DESKTOP_RECOVERY_PATH` overrides the recovery view path.
+
