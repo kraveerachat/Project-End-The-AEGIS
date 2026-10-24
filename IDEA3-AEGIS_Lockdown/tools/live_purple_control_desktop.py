@@ -373,7 +373,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=cut_desktop._thread_runner,
                        incident_source=None, status_path=live.reader.STATUS_PATH, graduated_path=None,
-                       max_age_seconds=live.reader.DEFAULT_MAX_AGE_SECONDS):
+                       max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("the control Desktop must start without an imported aegis_soc package")
     sys.path.insert(0, str(live.PYTHONUI_ROOT))

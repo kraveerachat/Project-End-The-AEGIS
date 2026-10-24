@@ -20,6 +20,10 @@ from tools.preview_purple_desktop import _install_import_isolation, _preview_gui
 PYTHONUI_ROOT = Path(ACCEPTED_PURPLE_SOURCE).resolve()
 LIVE_TITLE = "AEGIS IDEA3 — PURPLE LIVE READ-ONLY OBSERVER — CORE EVIDENCE"
 EVIDENCE_POLL_MS = 2000
+# The Desktop marks Core evidence STALE when the Core's status document is older than this: the ESP32 dead-man window (config.DEADMAN_TIMEOUT_SEC,
+# pinned equal by a test). It is deliberately separate from observer.DEFAULT_MAX_AGE_SECONDS (120 s), which the status sidecar and
+# push client use for a different purpose; a literal here keeps this module free of the Core's config import.
+DESKTOP_MAX_AGE_SECONDS = 60.0
 STATIC_EVIDENCE_PAGES = ("devices", "lockdown")  # pages whose facts are built once from the evidence; see _refresh_live_evidence
 
 
@@ -353,7 +357,7 @@ def _live_gui_class(gui):
     return LivePurpleObserverGUI
 
 
-def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=reader.DEFAULT_MAX_AGE_SECONDS):
+def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=DESKTOP_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("live observer must start without an imported aegis_soc package")
     sys.path.insert(0, str(PYTHONUI_ROOT))

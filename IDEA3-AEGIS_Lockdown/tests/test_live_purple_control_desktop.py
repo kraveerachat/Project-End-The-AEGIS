@@ -313,7 +313,7 @@ def test_the_desktop_module_imports_no_aegis_soc_package():
 
 # --------------------------------------------------------------------------- STALE evidence when the Core stops updating (needs a display)
 # Lab test A1 froze the Core (SIGSTOP): status.json stops being rewritten while the clock keeps running. The Desktop calls the evidence STALE
-# once it is more than observer.DEFAULT_MAX_AGE_SECONDS (120 s) old, and polls every live.EVIDENCE_POLL_MS (2000 ms).
+# once it is more than live.DESKTOP_MAX_AGE_SECONDS (60 s, the dead-man window) old, and polls every live.EVIDENCE_POLL_MS (2000 ms).
 
 GRADUATED_FOR_STALE = {
     "v": 1, "updated_at": 1, "highest_level": "HIGH", "cut_recommended_for": "203.0.113.7", "auto_cut_latched": False,
@@ -334,7 +334,7 @@ def test_the_overview_marks_evidence_freshness_stale_when_status_json_stops_upda
     assert app.latest.valid and app.latest.freshness == "FRESH"
     assert "FRESH" in _texts(root) and "STALE" not in _texts(root)
 
-    write_core_status(app._status_path, 125)  # the Core froze: the same file, now older than the threshold
+    write_core_status(app._status_path, 65)  # the Core froze: the same file, now older than the threshold
     _poll(app, root)
     assert not app.latest.valid and app.latest.freshness == "STALE"
     assert "STALE" in _texts(root) and "FRESH" not in _texts(root)
@@ -344,10 +344,16 @@ def test_the_overview_marks_evidence_freshness_stale_when_status_json_stops_upda
     assert app.latest.valid and "FRESH" in _texts(root) and "STALE" not in _texts(root)
 
 
-def test_the_stale_threshold_is_120_seconds_and_the_poll_is_2_seconds():
-    assert live.reader.DEFAULT_MAX_AGE_SECONDS == 120.0
+def test_the_stale_threshold_is_the_60_second_deadman_window_and_the_poll_is_2_seconds():
+    from aegis_soc import config
+    assert live.DESKTOP_MAX_AGE_SECONDS == 60.0 == float(config.DEADMAN_TIMEOUT_SEC)
     assert live.EVIDENCE_POLL_MS == 2000
-    assert desktop.create_control_app.__kwdefaults__["max_age_seconds"] == live.reader.DEFAULT_MAX_AGE_SECONDS
+    assert desktop.create_control_app.__kwdefaults__["max_age_seconds"] == live.DESKTOP_MAX_AGE_SECONDS
+    assert live.create_live_app.__kwdefaults__["max_age_seconds"] == live.DESKTOP_MAX_AGE_SECONDS
+
+
+def test_the_sidecar_freshness_default_is_not_changed_by_the_desktop_threshold():
+    assert live.reader.DEFAULT_MAX_AGE_SECONDS == 120.0   # status sidecar and push client keep their own rule
 
 
 @pytest.mark.parametrize("page,shown", [("lockdown", ["NORMAL"]), ("devices", ["NORMAL", "ONLINE", "CONNECTED"])])
@@ -504,17 +510,17 @@ def _status_file(tmp_path, updated_at):
     return path
 
 
-def test_status_json_that_stops_updating_turns_stale_after_120_seconds(tmp_path):
+def test_status_json_that_stops_updating_turns_stale_after_60_seconds(tmp_path):
     written_at = 1_700_000_000.0
     path = _status_file(tmp_path, written_at)  # the Core froze right after this write: the file never changes again
 
     def read(seconds):
-        return live.reader.read_observer_status(path, now=written_at + seconds)
+        return live.reader.read_observer_status(path, now=written_at + seconds, max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS)
 
     assert read(5).valid and read(5).freshness == "FRESH"
-    assert read(119.9).freshness == "FRESH"
-    assert read(120.0).freshness == "FRESH", "the limit is 'older than 120 s'"
-    stale = read(120.1)
+    assert read(59.9).freshness == "FRESH"
+    assert read(60.0).freshness == "FRESH", "the limit is 'older than 60 s'"
+    stale = read(60.1)
     assert not stale.valid and stale.freshness == "STALE"
     values = live.evidence_values(stale)
     assert values["freshness"] == "STALE"

@@ -58,9 +58,11 @@ help, and old statuses were refused instead of trusted.
 After A1 the question was what the Purple Desktop shows when `status.json` stops being rewritten, as during the freeze. Checked in code and by tests
 (`tests/test_live_purple_control_desktop.py`, stale section):
 
-- **Threshold:** the Desktop calls the Core evidence **STALE when `updated_at` is more than 120 s old** (`observer.DEFAULT_MAX_AGE_SECONDS = 120.0`, `age > 120.0`;
-  exactly 120.0 s is still fresh; a timestamp from the future is never fresh). It re-reads the file every **2 s** (`EVIDENCE_POLL_MS`), so STALE appears within
-  about 122 s of the Core's last write. The A1 freeze lasted about one to two minutes, so it may never have crossed 120 s: that alone can explain why no STALE indication was seen.
+- **Threshold:** the Desktop calls the Core evidence **STALE when `updated_at` is more than 60 s old** (`tools/live_purple_observer.py` `DESKTOP_MAX_AGE_SECONDS = 60.0`,
+  equal to the ESP32 dead-man window `config.DEADMAN_TIMEOUT_SEC`, pinned equal by a test; `age > 60.0`; exactly 60.0 s is still fresh; a timestamp from the future is never fresh).
+  It re-reads the file every **2 s** (`EVIDENCE_POLL_MS`), so STALE appears within about 62 s of the Core's last write; the Core rewrites it every 5 s. The threshold was 120 s when A1 was run
+  (`observer.DEFAULT_MAX_AGE_SECONDS`); the A1 freeze lasted about one to two minutes, so it may never have crossed 120 s: that alone can explain why no STALE indication was seen.
+  `observer.DEFAULT_MAX_AGE_SECONDS` itself is unchanged: the status sidecar and the push client use it for a different purpose (when to stop publishing a Core document).
 - **Already correct:** the Overview "Evidence freshness" fact goes FRESH -> STALE -> FRESH as the file ages and resumes, and the header badges and metrics go UNKNOWN.
 - **Gap 1 (fixed):** the Devices and Lockdown pages are built once from the evidence at the moment they are shown. A page that was open when the Core stopped updating kept
   showing the last uplink and device state as if it were current while only the header badges changed. The base class now rebuilds an open Devices or Lockdown page when the

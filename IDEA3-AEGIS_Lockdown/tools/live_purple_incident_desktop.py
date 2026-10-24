@@ -183,7 +183,7 @@ def _incident_gui_class(gui, source, run_async):
 
 
 def create_incident_app(root, *, source=None, run_async=_thread_runner, status_path=live.reader.STATUS_PATH,
-                        max_age_seconds=live.reader.DEFAULT_MAX_AGE_SECONDS):
+                        max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("the incident Desktop must start without an imported aegis_soc package")
     reader_source = source if source is not None else default_source()

@@ -121,7 +121,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | FZ-04 | The Core reconnects by itself | session re-established without help | Reconnected 09:01:01 (CONNACK accepted) | lab evidence/a1-restore-pending/ | PASS |
 | FZ-06 | The ESP32's own broker session survives the freeze | no disconnect | No disconnect of the device client in the broker lifecycle log | lab evidence/a1-restore-pending/broker-clients-timeline-0855-onward.txt | PASS |
 | FZ-07 | Desktop STALE indication during the freeze | evidence shown STALE | Not observed: the screenshots were taken after the Core resumed; the freeze lasted about one to two minutes against a 120 s threshold | doc 19 | PENDING |
-| RC-05 | Desktop marks Core evidence STALE when status.json stops updating | FRESH -> STALE -> FRESH; stale after more than 120 s, 2 s poll | Threshold 120 s (exactly 120.0 s is fresh); the Overview fact and header badges follow | tests/test_live_purple_control_desktop.py (stale section) | PASS |
+| RC-05 | Desktop marks Core evidence STALE when status.json stops updating | FRESH -> STALE -> FRESH; stale after more than 60 s (was 120 s until 2026-10-24), 2 s poll | Threshold 60 s, the dead-man window (exactly 60.0 s is fresh); the Overview fact and header badges follow | tests/test_live_purple_control_desktop.py (stale section) | PASS |
 | RC-06 | A Devices or Lockdown page that is open when the Core stops updating | stops showing the last state as current | It kept showing the last uplink and device state. Fixed (commit 25285a8 on feat/idea3-graduated-response); 7 tests fail without the fix. Not lab-verified | tests/test_live_purple_control_desktop.py | FINDING |
 | RC-07 | The severity panel when status.json stops updating | marked stale | It showed the last decisions with no marker. Fixed in the same commit (th/en/zh, code kept). Not lab-verified | tests/test_live_purple_control_desktop.py | FINDING |
 
@@ -136,7 +136,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 
 ### Open items
 
-1. **Lower the Desktop STALE threshold from 120 s toward 60 s.** The A1 freeze lasted about one to two minutes, so a 120 s threshold may never show STALE in that test (FZ-07). The threshold is `observer.DEFAULT_MAX_AGE_SECONDS`; a lower value needs a check against the Core's normal status interval first.
+1. **Done in code, not yet re-tested on the hardware: the Desktop STALE threshold is now 60 s** (`DESKTOP_MAX_AGE_SECONDS`, the dead-man window). The A1 freeze lasted about one to two minutes, so the earlier 120 s threshold may never have shown STALE in that test (FZ-07); repeat A1 to confirm.
 2. **Expiry of an ACKed-but-never-confirmed RESTORE record.** The fix for RC-01 keeps refusing the RC-04 case (RESTORE ACKed, status evidence never arrived) until a CUT or a Core restart. Decide whether such a record should expire after `PHYSICAL_CONFIRM_TIMEOUT_SEC`.
 3. **`npm audit` upgrade.** `npm audit --omit=dev` reports 2 high findings (body-parser, transitive; zod, direct) in the web application, identical on the base lockfile. Upgrade or accept.
 
