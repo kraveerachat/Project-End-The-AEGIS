@@ -1,6 +1,6 @@
 # 19 — IDEA3 Failure-Mode Tests (lab results)
 
-Status: A1 and A2 done 2026-10-24 (findings F-A1-1, with its fix verified on hardware by A2, and F-A2-1, fix proposed, not implemented). Same lab as `17_LIVE_LAB_RUNBOOK.md` and
+Status: A1 and A2 done 2026-10-24 (findings F-A1-1 and F-A2-1, both with fixes verified on the hardware). Same lab as `17_LIVE_LAB_RUNBOOK.md` and
 `18_LIVE_LAB_ACCEPTANCE_SUMMARY.md`: Core, TLS broker and the ESP32 on the Core-local AP, `main` `cc096de` plus the
 commits of `feat/idea3-graduated-response` (tip `755046b`), graduated response OFF. Times are UTC+7. The raw excerpts
 (Core log, audit and command rows, broker lifecycle) are kept in the lab work directory and are not in the repository. This file
@@ -112,10 +112,23 @@ Results:
 - **Impact:** after a power loss, cable pull or a crash of the device, the operator sees a healthy badge and a stale uplink for as long as the Core runs, and the
   projections built from `status.json` (Web, sidecar, `ESP32_UNAVAILABLE` issue in `runtime.py:416`) inherit it. Fail-secure behaviour is not affected: the
   relay itself opens by the dead-man's switch and the Core's overall `state` shows DEGRADED. It is a display and evidence-accuracy problem, not a bypass.
-- **Fix (commit `09005c6`, offline tests only, not yet run on the hardware):** the supervisor's health loop (`_refresh_device_presence`) sets `device=OFFLINE` and
+- **Fix (commit `09005c6`; offline tests, and verified on the hardware by the A2 repeat below):** the supervisor's health loop (`_refresh_device_presence`) sets `device=OFFLINE` and
   `uplink=UNKNOWN` as soon as `mqtt.device_online()` is false (no authenticated device message for `DEVICE_OFFLINE_SEC` = 45 s), and the next authenticated device status
   restores both (`_handle_status`). Before the first status after a Core start the device stays `UNKNOWN` until `device_wait_sec` has passed; dry-run is unchanged. The change only
   affects what `status.json` (and so the Desktop badge, the Recovery page and the projections) report: nothing is sent to the device, no command record is created. One
   consequence, by design: while the device is OFFLINE the Core does not hold an observed LOCKDOWN, so a RESTORE is refused with `UPLINK_NOT_LOCKDOWN` until the device reports again
   (its first status after boot is LOCKDOWN, as in A2). Tests: loss, recovery, logged once, no command, first-status grace, dry-run, and the run loop applies the rule every tick.
 - **Workaround:** read the overall `state` (DEGRADED) and the Core log (`STATUS_AUTHENTICATED` age), not the ESP32 badge.
+
+### A2 repeat and P1-P6 hardware verification (2026-10-24, operator-run, after restarting the Core and the Desktop on the new code)
+
+Recorded from the operator's report; the terminal output was not archived, so these rows are marked owner-reported in the matrix.
+
+- **Core restart and Desktop with the audit path:** both came up; `recovery-status.json` was present.
+- **Thai (P5):** the Lockdown captions, the CUT and RESTORE buttons, the dialogs and the severity panel were correct. Chinese was checked offline only.
+- **Recovery page (P3):** the live checklist, the READY / NOT READY row, the last attempts and the single navigate-only button were as designed.
+- **Incidents and Audit (P4):** Incidents showed `NOT_AVAILABLE — NOT_FOUND` (graduated response off); Audit listed the CUT and RESTORE rows.
+- **RESTORE with no CUT first, right after a Core restart:** accepted. Then CUT, then RESTORE: accepted.
+- **F-A2-1 on the hardware:** with the ESP32 USB unplugged, the Desktop showed `ESP32: OFFLINE` and uplink `UNKNOWN` after **38.40 s** (operator-measured, within the 45 s limit from the last device message), and the Recovery page showed NOT READY with its reasons. After replugging, the first status was LOCKDOWN (BOOT), a single RESTORE was accepted and tester pin 2 was on.
+- **Result:** F-A2-1 (fix `09005c6`) and F-A1-1 (fix `16b7565`) are verified on the hardware.
+- **Not repeated:** the 60 s Desktop STALE threshold with a frozen Core (A1 repeat), the 8 s expiry of an ACKed-but-unconfirmed RESTORE record (needs power loss between ACK and status), and the Chinese wording.

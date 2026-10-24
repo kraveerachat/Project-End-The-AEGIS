@@ -33,7 +33,7 @@ Live-lab procedure and scripts: `IDEA3-AEGIS_Lockdown/doc/Content/17_LIVE_LAB_RU
 
 ## IDEA3 program completion P1-P6 — offline-verified — 2026-10-24
 
-> [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`, local commits, not pushed. Offline tests only; not yet run on the lab hardware.
+> [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`. Offline tests, and verified on the lab hardware by the operator on 2026-10-24 (owner-reported; Chinese wording, the 60 s STALE threshold and the 8 s record expiry were not repeated on the hardware).
 
 Lost device reported OFFLINE/UNKNOWN (F-A2-1); Desktop STALE threshold 60 s; read-only Recovery, Incidents and Audit pages; CUT/RESTORE dialogs in th/en/zh; an ACKed-but-unconfirmed RESTORE record expires after 8 s. Receipt: `90-Status/logs/2026-10-24_210000_music_idea3-p1-p6-program-completion.md`; evidence rows in `IDEA3-AEGIS_Lockdown/doc/Content/21_TEST_EVIDENCE_MATRIX.md`.
 
