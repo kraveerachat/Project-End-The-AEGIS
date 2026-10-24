@@ -1365,3 +1365,58 @@ def test_the_local_channel_opens_no_network_listener():
     source = (ROOT / "aegis_soc/local_restore.py").read_text("utf-8")
     assert "AF_INET" not in source and "AF_INET6" not in source
     assert "socket.AF_UNIX" in source
+
+
+# ---- P6: an ACKed RESTORE whose status evidence never arrives stops blocking after PHYSICAL_CONFIRM_TIMEOUT_SEC ----
+
+def _acked_unconfirmed_restore(core):
+    first = core.ask(request())
+    assert first["code"] == "PUBLISHED"
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    assert core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is None
+    return first
+
+
+def test_the_refusal_within_the_timeout_names_the_remaining_seconds(core):
+    from aegis_soc import config
+
+    _acked_unconfirmed_restore(core)
+    core.now[0] += 3
+    response = core.ask(request())
+    assert (response["ok"], response["code"]) == (False, "RESTORE_ALREADY_PENDING")
+    remaining = config.PHYSICAL_CONFIRM_TIMEOUT_SEC - 3
+    assert f"in {remaining} s" in response["detail"], response
+    core.now[0] += 2   # the countdown follows the clock
+    assert f"in {remaining - 2} s" in core.ask(request())["detail"]
+    assert len(core.restores()) == 1
+
+
+def test_an_acked_restore_without_status_evidence_stops_blocking_after_the_timeout(core):
+    """Lab case G6: the device lost power after the ACK, its status never arrived, and every later RESTORE was refused."""
+    from aegis_soc import config
+
+    first = _acked_unconfirmed_restore(core)
+    core.now[0] += config.PHYSICAL_CONFIRM_TIMEOUT_SEC          # exactly at the limit: still pending
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    core.now[0] += 0.5                                          # past it
+    second = core.ask(request())
+    assert (second["ok"], second["code"]) == (True, "PUBLISHED"), second
+    assert second["seq"] == first["seq"] + 1
+    assert len(core.restores()) == 2
+
+
+def test_a_recorded_physical_timeout_also_ends_the_block(core):
+    _acked_unconfirmed_restore(core)
+    core.supervisor.awaiting_physical_confirmation["physical_timeout_at"] = core.now[0]   # set by the supervisor tick
+    assert core.ask(request())["code"] == "PUBLISHED"
+
+
+def test_a_confirmed_restore_and_a_pending_one_are_unchanged_by_the_expiry(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="NORMAL", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    assert core.ask(request())["code"] == "UPLINK_NOT_LOCKDOWN"
+    core.now[0] += 1000
+    assert core.ask(request())["code"] == "UPLINK_NOT_LOCKDOWN"   # confirmed and no longer LOCKDOWN: nothing to restore
+

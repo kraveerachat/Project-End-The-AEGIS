@@ -46,7 +46,7 @@ help, and old statuses were refused instead of trusted.
   A RESTORE is pending only while it is ACKed and not yet physically confirmed; regression tests for both call sites fail on `main` and pass on
   the branch, and the guard's original cases stay refused. It needs owner review because it changes Core code.
 - **Not the same as the case seen on 2026-10-23 (G6):** that `RESTORE_ALREADY_PENDING` followed a RESTORE that was ACKed but never confirmed (the
-  device lost power before its status arrived). The fix deliberately still refuses that case; whether such a record should expire is an open owner decision.
+  device lost power before its status arrived). The F-A1-1 fix deliberately still refused that case. Since 2026-10-24 (P6) such a record expires: an ACKed RESTORE with no status evidence stops blocking a new RESTORE `PHYSICAL_CONFIRM_TIMEOUT_SEC` (8 s) after its ACK (`local_restore.py` `_restore_wait_remaining`); within that time the refusal is still `RESTORE_ALREADY_PENDING` and names the seconds left. Offline tests only; not yet run on the hardware.
 
 ### Not observed
 

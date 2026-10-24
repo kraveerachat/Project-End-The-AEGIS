@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import socket
@@ -24,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import config
 from . import database as db
 from .controller import RESTORE_UPLINK
 
@@ -317,17 +319,29 @@ def _incident_key(incident: dict | None):
     return (incident.get("id"), incident.get("attacker_ip"), incident.get("state")) if incident else None
 
 
-def _restore_awaits_evidence(physical: dict | None) -> bool:
-    """True only while an ACKed RESTORE has not yet been physically confirmed by the device; then a second RESTORE is refused.
+def _restore_wait_remaining(physical: dict | None, now: float) -> float | None:
+    """Seconds until an ACKed, not yet physically confirmed RESTORE stops blocking a new one, or None when it does not block.
 
-    A confirmed RESTORE is finished. A later LOCKDOWN the Core did not command (dead-man's switch, power loss) is a new situation,
-    and the stale record of the earlier RESTORE must not block the operator from restoring it."""
-    return bool(
+    A second RESTORE is refused only while the device evidence for the first is still expected, i.e. at most
+    PHYSICAL_CONFIRM_TIMEOUT_SEC after the ACK. A confirmed RESTORE is finished. A RESTORE whose status evidence never arrived
+    (the device lost power before it reported, lab case G6) used to block every later RESTORE until the Core restarted; after the
+    timeout it no longer does. A later LOCKDOWN the Core did not command (dead-man's switch, power loss) is a new situation too.
+    """
+    if not (
         physical
         and physical.get("action") == RESTORE_UPLINK
         and physical.get("acknowledged_at") is not None
         and physical.get("physical_confirmed_at") is None
-    )
+    ):
+        return None
+    if physical.get("physical_timeout_at") is not None:
+        return None
+    remaining = physical["acknowledged_at"] + config.PHYSICAL_CONFIRM_TIMEOUT_SEC - now
+    return remaining if remaining >= 0 else None   # same edge as the supervisor's timeout (> timeout)
+
+
+def _restore_pending_detail(remaining: float) -> str:
+    return f"RESTORE is awaiting device status evidence; it stops blocking in {math.ceil(remaining)} s"
 
 
 class LocalRestoreGate:
@@ -503,8 +517,9 @@ class LocalRestoreGate:
             if self.supervisor.status.uplink != "LOCKDOWN":
                 return self._refuse("UPLINK_NOT_LOCKDOWN", "Core has not observed LOCKDOWN", peer)
             physical = self.supervisor.awaiting_physical_confirmation
-            if _restore_awaits_evidence(physical):
-                return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
+            remaining = _restore_wait_remaining(physical, self.supervisor.monotonic())
+            if remaining is not None:
+                return self._refuse("RESTORE_ALREADY_PENDING", _restore_pending_detail(remaining), peer)
 
             reason = body["reason"].strip()
             if self.incident_lookup is not None:
@@ -608,8 +623,9 @@ class LocalRestoreGate:
             if self.supervisor.status.uplink != "LOCKDOWN":
                 return self._refuse("UPLINK_NOT_LOCKDOWN", "Core has not observed LOCKDOWN", peer)
             physical = self.supervisor.awaiting_physical_confirmation
-            if _restore_awaits_evidence(physical):
-                return self._refuse("RESTORE_ALREADY_PENDING", "RESTORE is awaiting device status evidence", peer)
+            remaining = _restore_wait_remaining(physical, self.supervisor.monotonic())
+            if remaining is not None:
+                return self._refuse("RESTORE_ALREADY_PENDING", _restore_pending_detail(remaining), peer)
             try:
                 if _incident_key(self.incident_lookup()) != _incident_key(snapshot) or self.episode_lookup() != episode_id:
                     return self._refuse(

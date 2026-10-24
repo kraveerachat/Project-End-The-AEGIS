@@ -482,6 +482,22 @@ def test_an_acknowledged_but_unconfirmed_break_glass_restore_still_blocks_a_new_
     assert env.core.client.published == [] and len(claims()) == 1
 
 
+def test_an_unconfirmed_break_glass_restore_stops_blocking_after_the_physical_confirmation_timeout(env):
+    from aegis_soc import config
+
+    lockdown(env)
+    first = ask(env)
+    assert first["code"] == "PUBLISHED"
+    _ack(env, first)
+    normal(env)
+    lockdown(env)
+    env.core.now[0] += config.PHYSICAL_CONFIRM_TIMEOUT_SEC
+    assert ask(env)["code"] == "RESTORE_ALREADY_PENDING"
+    env.core.now[0] += 1
+    response = ask(env)
+    assert response["code"] != "RESTORE_ALREADY_PENDING", response
+
+
 def test_a_durable_claim_write_failure_publishes_nothing(env, monkeypatch):
     lockdown(env)
 

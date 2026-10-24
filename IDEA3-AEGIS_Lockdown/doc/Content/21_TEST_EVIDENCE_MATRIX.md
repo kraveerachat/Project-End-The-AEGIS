@@ -84,7 +84,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | RC-01 | RESTORE after the dead-man lockdown that followed a confirmed RESTORE | accepted | REFUSED RESTORE_ALREADY_PENDING at 09:15:25 and 09:16:31; no command was issued. Cause: a stale record of the earlier confirmed RESTORE (local_restore.py:492-494 and 597-599). Fix on branch fix/idea3-restore-after-uncommanded-lockdown, commit a247718, not pushed; cherry-picked onto feat/idea3-graduated-response as 16b7565 so the lab Core can run it | doc 19 (F-A1-1); lab evidence/a1-restore-pending/DIAGNOSIS.md | FINDING |
 | RC-02 | Workaround: CUT, then RESTORE | RESTORE accepted | Not recorded as run on the lab | — | PENDING |
 | RC-03 | The fix on the lab hardware | RESTORE accepted after an uncommanded lockdown | Accepted on 2026-10-24 19:10:23 after the power loss that followed a confirmed RESTORE (A2), with no CUT first: the F-A1-1 situation, on the Core running 16b7565. Regression tests also fail on `main` and pass with the fix | doc 19 (A2); tests/test_local_restore.py, tests/test_core_break_glass.py | PASS |
-| RC-04 | RESTORE after the device lost power before its status arrived (2026-10-23) | decided by design | Refused RESTORE_ALREADY_PENDING (20:25), cleared by restarting the Core, no RESTORE issued. The fix keeps refusing this case; whether such a record should expire is an open owner decision | lab evidence/acceptance.md; doc 19 | FINDING |
+| RC-04 | RESTORE after the device lost power before its status arrived (2026-10-23) | decided by design | Refused RESTORE_ALREADY_PENDING (20:25), cleared by restarting the Core, no RESTORE issued. The F-A1-1 fix kept refusing this case; the record now expires 8 s after the ACK (PHYSICAL_CONFIRM_TIMEOUT_SEC, commit P6), offline tests only, not run on the hardware | lab evidence/acceptance.md; doc 19 | FINDING |
 
 ## 4.5.7 Hardware / Runtime Acceptance
 
@@ -137,7 +137,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 ### Open items
 
 1. **Done in code, not yet re-tested on the hardware: the Desktop STALE threshold is now 60 s** (`DESKTOP_MAX_AGE_SECONDS`, the dead-man window). The A1 freeze lasted about one to two minutes, so the earlier 120 s threshold may never have shown STALE in that test (FZ-07); repeat A1 to confirm.
-2. **Expiry of an ACKed-but-never-confirmed RESTORE record.** The fix for RC-01 keeps refusing the RC-04 case (RESTORE ACKed, status evidence never arrived) until a CUT or a Core restart. Decide whether such a record should expire after `PHYSICAL_CONFIRM_TIMEOUT_SEC`.
+2. **Done in code, offline tests only: expiry of an ACKed-but-never-confirmed RESTORE record.** It stops blocking a new RESTORE 8 s after its ACK (`PHYSICAL_CONFIRM_TIMEOUT_SEC`); the refusal before that names the seconds left. Repeat the G6 case (power loss between ACK and status) on the hardware.
 3. **`npm audit` upgrade.** `npm audit --omit=dev` reports 2 high findings (body-parser, transitive; zod, direct) in the web application, identical on the base lockfile. Upgrade or accept.
 
 ## 4.5.10 IDEA 3 Result Summary
