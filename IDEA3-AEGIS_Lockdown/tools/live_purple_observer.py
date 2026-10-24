@@ -20,6 +20,7 @@ from tools.preview_purple_desktop import _install_import_isolation, _preview_gui
 PYTHONUI_ROOT = Path(ACCEPTED_PURPLE_SOURCE).resolve()
 LIVE_TITLE = "AEGIS IDEA3 — PURPLE LIVE READ-ONLY OBSERVER — CORE EVIDENCE"
 EVIDENCE_POLL_MS = 2000
+STATIC_EVIDENCE_PAGES = ("devices", "lockdown")  # pages whose facts are built once from the evidence; see _refresh_live_evidence
 
 
 def _load_reader():
@@ -174,7 +175,12 @@ def _live_gui_class(gui):
                 self._refresh_live_evidence()
             self._schedule_evidence_poll()
 
+        def _evidence_page_key(self):
+            """What the evidence-built pages show. The ever-changing timestamp is left out, so a page is rebuilt only on a real change."""
+            return tuple(sorted((key, value) for key, value in evidence_values(self.latest).items() if key != "timestamp"))
+
         def _refresh_live_evidence(self):
+            previous_page_key = self._evidence_page_key()
             self.latest = reader.read_observer_status(
                 self._status_path,
                 max_age_seconds=self._max_age_seconds,
@@ -193,6 +199,11 @@ def _live_gui_class(gui):
             self._refresh_header_evidence()
             if self._observer_page is not None and self._observer_page.winfo_exists():
                 self._render_evidence_section()
+            # The Devices and Lockdown pages are built once from the evidence at the time they are shown. Without this, a page that is
+            # open while the Core stops updating would keep showing the last uplink and device state as if it were current.
+            shown = getattr(self, "active_page", None)
+            if shown in STATIC_EVIDENCE_PAGES and self.session.authenticated and self._evidence_page_key() != previous_page_key:
+                self._show_page(shown)
 
         def _refresh_header_evidence(self):
             values = evidence_values(self.latest)

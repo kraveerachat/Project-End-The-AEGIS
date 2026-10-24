@@ -53,6 +53,24 @@ help, and old statuses were refused instead of trusted.
 - The Desktop's own STALE indication during the freeze: the screenshots were taken after the Core had resumed, so what the window shows while the
   Core is frozen is not recorded.
 
+### Desktop STALE behaviour (checked by test, 2026-10-24)
+
+After A1 the question was what the Purple Desktop shows when `status.json` stops being rewritten, as during the freeze. Checked in code and by tests
+(`tests/test_live_purple_control_desktop.py`, stale section):
+
+- **Threshold:** the Desktop calls the Core evidence **STALE when `updated_at` is more than 120 s old** (`observer.DEFAULT_MAX_AGE_SECONDS = 120.0`, `age > 120.0`;
+  exactly 120.0 s is still fresh; a timestamp from the future is never fresh). It re-reads the file every **2 s** (`EVIDENCE_POLL_MS`), so STALE appears within
+  about 122 s of the Core's last write. The A1 freeze lasted about one to two minutes, so it may never have crossed 120 s: that alone can explain why no STALE indication was seen.
+- **Already correct:** the Overview "Evidence freshness" fact goes FRESH -> STALE -> FRESH as the file ages and resumes, and the header badges and metrics go UNKNOWN.
+- **Gap 1 (fixed):** the Devices and Lockdown pages are built once from the evidence at the moment they are shown. A page that was open when the Core stopped updating kept
+  showing the last uplink and device state as if it were current while only the header badges changed. The base class now rebuilds an open Devices or Lockdown page when the
+  evidence it shows changes (the changing timestamp is not part of that comparison, so there is no flicker while the Core is healthy).
+- **Gap 2 (fixed):** the severity panel read `graduated-status.json` with no freshness check at all. That file is written only when a decision is made, so its own age says nothing
+  about whether the Core is alive. The panel now puts a "Core evidence: STALE (or MISSING, INVALID, ...) — the Core is not updating: the data below is the last known state and may be
+  out of date" row first whenever `status.json` is not FRESH; the last decisions stay visible, marked. The wording follows the language selector and the freshness code is not translated.
+- **Evidence:** 7 of the new tests fail on the code without the fix and pass with it; the threshold, poll interval and Overview behaviour tests pass either way.
+- **Not covered:** no screenshot of the real window during a freeze; the check is by test with a synthetic `status.json`.
+
 ## A2 — power loss of the ESP32
 
 PENDING. Not run. To record: relay state while unpowered, boot state and time to LOCKDOWN after power returns, reconnect time, and whether a

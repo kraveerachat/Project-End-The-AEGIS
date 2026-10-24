@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import tkinter as tk
 from types import SimpleNamespace
 
@@ -90,6 +91,17 @@ def _clean_modules():
     sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
 
 
+def write_core_status(path, age_seconds, **changes):
+    """A valid Core status document whose ``updated_at`` is ``age_seconds`` old (the real clock: the Desktop reads time.time())."""
+    document = {
+        "state": "RUNNING", "profile": "lab", "dry_run": False, "auto_contain": False, "broker": "CONNECTED", "device": "ONLINE",
+        "uplink": "NORMAL", "armed": "ARMED", "dispatch": "DISABLED", "time_trust": "SYNCED",
+        "updated_at": time.time() - age_seconds, "components": {"detector": "RUNNING"},
+    }
+    document.update(changes)
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+
 @pytest.fixture
 def app_factory(tmp_path, monkeypatch):
     made = []
@@ -97,7 +109,7 @@ def app_factory(tmp_path, monkeypatch):
                      if name == "aegis_soc" or name.startswith("aegis_soc.")}
     saved_path = list(sys.path)
 
-    def build(restore_flow, prompts, graduated=None, language="en"):
+    def build(restore_flow, prompts, graduated=None, language="en", status_age=None):
         monkeypatch.setenv("AEGIS_UI_LANGUAGE", language)  # read when the purple i18n module is imported; never persisted
         try:
             root = tk.Tk()
@@ -109,9 +121,13 @@ def app_factory(tmp_path, monkeypatch):
         graduated_path = tmp_path / "graduated-status.json"
         if graduated is not None:
             graduated_path.write_text(json.dumps(graduated), encoding="utf-8")
+        status_path = tmp_path / "missing-status.json"
+        if status_age is not None:
+            status_path = tmp_path / "status.json"
+            write_core_status(status_path, status_age)
         app, _fakes = desktop.create_control_app(
             root, cut_flow=FakeCutFlow(), restore_flow=restore_flow, prompts=prompts,
-            run_async=lambda function, *args: function(*args), status_path=tmp_path / "missing-status.json",
+            run_async=lambda function, *args: function(*args), status_path=status_path,
             graduated_path=graduated_path,
         )
         app.session.login("test-admin")
@@ -295,6 +311,107 @@ def test_the_desktop_module_imports_no_aegis_soc_package():
     assert not any(str(name).startswith("aegis_soc") for name in modules)
 
 
+# --------------------------------------------------------------------------- STALE evidence when the Core stops updating (needs a display)
+# Lab test A1 froze the Core (SIGSTOP): status.json stops being rewritten while the clock keeps running. The Desktop calls the evidence STALE
+# once it is more than observer.DEFAULT_MAX_AGE_SECONDS (120 s) old, and polls every live.EVIDENCE_POLL_MS (2000 ms).
+
+GRADUATED_FOR_STALE = {
+    "v": 1, "updated_at": 1, "highest_level": "HIGH", "cut_recommended_for": "203.0.113.7", "auto_cut_latched": False,
+    "decisions": [{"at": 1, "attacker_ip": "203.0.113.7", "kind": "ssh_brute_force", "level": "HIGH", "action": "RECOMMEND_CUT",
+                   "outcome": "RECOMMENDED", "score": 70, "reasons": [], "mitre": ["T1110"]}],
+}
+
+
+def _poll(app, root):
+    app._poll_evidence()
+    root.update()
+
+
+def test_the_overview_marks_evidence_freshness_stale_when_status_json_stops_updating(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app._show_page("overview")
+    root.update()
+    assert app.latest.valid and app.latest.freshness == "FRESH"
+    assert "FRESH" in _texts(root) and "STALE" not in _texts(root)
+
+    write_core_status(app._status_path, 125)  # the Core froze: the same file, now older than the threshold
+    _poll(app, root)
+    assert not app.latest.valid and app.latest.freshness == "STALE"
+    assert "STALE" in _texts(root) and "FRESH" not in _texts(root)
+
+    write_core_status(app._status_path, 1)  # the Core resumed
+    _poll(app, root)
+    assert app.latest.valid and "FRESH" in _texts(root) and "STALE" not in _texts(root)
+
+
+def test_the_stale_threshold_is_120_seconds_and_the_poll_is_2_seconds():
+    assert live.reader.DEFAULT_MAX_AGE_SECONDS == 120.0
+    assert live.EVIDENCE_POLL_MS == 2000
+    assert desktop.create_control_app.__kwdefaults__["max_age_seconds"] == live.reader.DEFAULT_MAX_AGE_SECONDS
+
+
+@pytest.mark.parametrize("page,shown", [("lockdown", ["NORMAL"]), ("devices", ["NORMAL", "ONLINE", "CONNECTED"])])
+def test_a_page_that_is_open_when_the_core_stops_updating_does_not_keep_showing_the_last_state(app_factory, page, shown):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app._show_page(page)
+    root.update()
+    assert all(value in _texts(root) for value in shown) and "STALE" not in _texts(root)
+
+    write_core_status(app._status_path, 125)
+    _poll(app, root)
+    texts = _texts(root)
+    assert not [value for value in shown if value in texts], "the last reported state must not stay on screen as if it were current"
+    assert "UNKNOWN" in texts
+
+
+def test_an_open_page_is_rebuilt_only_when_the_evidence_it_shows_changes(app_factory, monkeypatch):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app._show_page("lockdown")
+    root.update()
+    shown = []
+    original = app._show_page
+    monkeypatch.setattr(app, "_show_page", lambda key: (shown.append(key), original(key))[1])
+    for age in (4, 3, 2):  # a live Core rewrites status.json with a newer timestamp: nothing visible changes
+        write_core_status(app._status_path, age)
+        _poll(app, root)
+    assert shown == []
+    write_core_status(app._status_path, 3, uplink="LOCKDOWN")
+    _poll(app, root)
+    assert shown == ["lockdown"]
+
+
+def test_the_severity_panel_marks_graduated_status_stale_when_status_json_stops_updating(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), GRADUATED_FOR_STALE, status_age=5)
+    assert "STALE" not in " | ".join(_texts(root))
+    assert "HIGH" in " | ".join(_texts(root)) and "203.0.113.7" in " | ".join(_texts(root))
+
+    write_core_status(app._status_path, 125)
+    _poll(app, root)
+    app._render_severity()
+    root.update()
+    texts = " | ".join(_texts(root))
+    assert "Core evidence" in texts and "STALE — the Core is not updating" in texts
+    assert "HIGH" in texts and "203.0.113.7" in texts, "the last known decisions stay visible, clearly marked"
+
+    write_core_status(app._status_path, 1)
+    _poll(app, root)
+    app._render_severity()
+    root.update()
+    assert "STALE" not in " | ".join(_texts(root))
+
+
+@pytest.mark.parametrize("language,phrase", [("th", "Core ไม่ได้อัปเดต"), ("zh", "Core 未更新")])
+def test_the_stale_marker_follows_the_language_and_keeps_the_code(app_factory, language, phrase):
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), GRADUATED_FOR_STALE, language=language, status_age=125)
+    texts = " | ".join(_texts(root))
+    assert phrase in texts and "STALE" in texts
+
+
+def test_a_missing_status_file_is_also_flagged_on_the_severity_panel(app_factory):
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), GRADUATED_FOR_STALE)  # no status.json at all
+    assert "MISSING — the Core is not updating" in " | ".join(_texts(root))
+
+
 # --------------------------------------------------------------------------- severity panel strings (no display)
 
 THAI = re.compile(r"[\u0E00-\u0E7F]")
@@ -371,3 +488,40 @@ def test_decision_lines_are_codes_only_and_do_not_depend_on_the_language():
     line = desktop.describe_decision(item)
     assert all(code in line for code in ("MEDIUM", "203.0.113.7", "port_scan", "SOFTWARE_BLOCK", "BLOCKED", "T1046"))
     assert not THAI.search(line) and not HAN.search(line)
+
+
+# --------------------------------------------------------------------------- STALE thresholds (no display)
+
+
+def _status_file(tmp_path, updated_at):
+    path = tmp_path / "status.json"
+    document = {
+        "state": "RUNNING", "profile": "lab", "dry_run": False, "auto_contain": False, "broker": "CONNECTED", "device": "ONLINE",
+        "uplink": "NORMAL", "armed": "ARMED", "dispatch": "DISABLED", "time_trust": "SYNCED", "updated_at": updated_at,
+        "components": {"detector": "RUNNING"},
+    }
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_status_json_that_stops_updating_turns_stale_after_120_seconds(tmp_path):
+    written_at = 1_700_000_000.0
+    path = _status_file(tmp_path, written_at)  # the Core froze right after this write: the file never changes again
+
+    def read(seconds):
+        return live.reader.read_observer_status(path, now=written_at + seconds)
+
+    assert read(5).valid and read(5).freshness == "FRESH"
+    assert read(119.9).freshness == "FRESH"
+    assert read(120.0).freshness == "FRESH", "the limit is 'older than 120 s'"
+    stale = read(120.1)
+    assert not stale.valid and stale.freshness == "STALE"
+    values = live.evidence_values(stale)
+    assert values["freshness"] == "STALE"
+    assert all(values[key] == "UNKNOWN" for key in ("runtime", "broker", "device", "uplink", "armed", "dispatch", "trusted_time"))
+
+
+def test_a_status_timestamp_from_the_future_is_not_fresh(tmp_path):
+    path = _status_file(tmp_path, 1_700_000_100.0)
+    evidence = live.reader.read_observer_status(path, now=1_700_000_000.0)
+    assert not evidence.valid and evidence.freshness != "FRESH"

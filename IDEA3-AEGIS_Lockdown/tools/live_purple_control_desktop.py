@@ -53,6 +53,12 @@ SEVERITY_STRINGS = {
         "zh": "威胁严重程度 — 分级响应（只读）",
     },
     "severity.graduated": {"en": "Graduated response", "th": "การตอบสนองแบบไล่ระดับ", "zh": "分级响应"},
+    "severity.evidence": {"en": "Core evidence", "th": "หลักฐานจาก Core", "zh": "Core 证据"},
+    "severity.evidence_stale": {
+        "en": "the Core is not updating: the data below is the last known state and may be out of date",
+        "th": "Core ไม่ได้อัปเดต: ข้อมูลด้านล่างเป็นสถานะล่าสุดที่ทราบและอาจล้าสมัย",
+        "zh": "Core 未更新：以下数据为最后已知状态，可能已过时",
+    },
     "severity.unavailable": {
         "en": "NOT_AVAILABLE — no Core projection",
         "th": "NOT_AVAILABLE — ไม่มีข้อมูลสรุปจาก Core",
@@ -80,11 +86,17 @@ def register_severity_strings(i18n_module) -> None:
         i18n_module.STRINGS.setdefault(key, dict(entry))
 
 
-def severity_facts(data, translate):
-    """The panel's rows as ``(label, value, level_for_colour)``. Labels and prose go through ``translate``; codes are copied as they are."""
+def severity_facts(data, translate, evidence_freshness=None):
+    """The panel's rows as ``(label, value, level_for_colour)``. Labels and prose go through ``translate``; codes are copied as they are.
+
+    ``graduated-status.json`` is written only when a decision is made, so its own age says nothing about whether the Core is alive. The
+    freshness of the Core's ``status.json`` does: when that is anything but FRESH the panel says so first, with the freshness code."""
+    rows = []
+    if evidence_freshness not in (None, "FRESH"):
+        rows.append((translate("severity.evidence"), f"{evidence_freshness} — {translate('severity.evidence_stale')}", "HIGH"))
     if data is None:
-        return [(translate("severity.graduated"), translate("severity.unavailable"), None)]
-    rows = [(translate("severity.highest"), data["highest_level"], data["highest_level"])]
+        return rows + [(translate("severity.graduated"), translate("severity.unavailable"), None)]
+    rows += [(translate("severity.highest"), data["highest_level"], data["highest_level"])]
     if data["cut_recommended_for"]:
         rows.append((translate("severity.cut_recommended"),
                      translate("severity.cut_recommended_value", target=data["cut_recommended_for"]), "HIGH"))
@@ -346,7 +358,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for child in body.winfo_children():
                 child.destroy()
             data = read_graduated(graduated_path)
-            for label, value, level in severity_facts(data, gui.i18n.t):
+            latest = getattr(self, "latest", None)
+            freshness = None if latest is None else ("FRESH" if latest.valid else latest.freshness)
+            for label, value, level in severity_facts(data, gui.i18n.t, freshness):
                 self._add_fact(body, label, value, status=_status(gui, level))
             if data is None:
                 return

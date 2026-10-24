@@ -40,7 +40,8 @@ edit_policy: append-by-new-file
 - `IDEA3-AEGIS_Lockdown/tests/test_graduated_response.py`, `tests/test_graduated_response_core.py`,
   `tests/test_restore_client.py`, `tests/test_live_purple_control_desktop.py` — new tests
 - `IDEA3-AEGIS_Lockdown/tests/test_comms.py` — delivery retry and secret-safety tests
-- `IDEA3-AEGIS_Lockdown/tests/test_live_purple_control_desktop.py` — severity-panel i18n tests (pure and GUI); the GUI fixture pins the language through `AEGIS_UI_LANGUAGE`
+- `IDEA3-AEGIS_Lockdown/tests/test_live_purple_control_desktop.py` — severity-panel i18n tests (pure and GUI) and the STALE-evidence tests; the GUI fixture pins the language through `AEGIS_UI_LANGUAGE` and can write a real `status.json` of a chosen age
+- `IDEA3-AEGIS_Lockdown/tools/live_purple_observer.py` — an open Devices or Lockdown page is rebuilt when the evidence it shows changes (it was built once and kept showing the last state after the Core stopped updating)
 - `IDEA3-AEGIS_Lockdown/tests/test_core_alert_ingress.py` — static ingress-gate assertion updated for the explicit lab flag
 - `IDEA3-AEGIS_Lockdown/deploy/live-lab/` — new, parameterized live-lab scripts (no secret, key, certificate or NVS image):
   `aegis-live-up.sh`, `aegis-live-down.sh`, `owner-provision.sh`, `owner-restore.sh`, `run-control-desktop.sh`,
@@ -80,5 +81,6 @@ edit_policy: append-by-new-file
   the live run; only their rendering step and syntax were checked.
 - The graduated behaviour changes a documented IDEA3 boundary (an alert may now lead to a CUT, only when explicitly
   enabled); owner and reviewer decision required before any production use.
+- The Desktop marks Core evidence STALE after 120 s without a `status.json` update (2 s poll) and the severity panel now says so; a real-window freeze screenshot is not recorded.
 - The Desktop severity panel is localized (th/en/zh); the RESTORE/CUT dialogs and the control captions added by the control Desktop are still English only.
 - Not deployed; production untouched.
