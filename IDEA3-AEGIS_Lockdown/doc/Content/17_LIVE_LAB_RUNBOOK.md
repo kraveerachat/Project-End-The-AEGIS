@@ -57,6 +57,8 @@ checks both again after the AP is up; if the route changed it stops and tells yo
 units listed in `STOP_UNITS` (and `systemd-timesyncd`, which owns UDP 123) are stopped, never disabled, and listed in
 `evidence/stopped-units.txt`. `core.env` is rendered once and then left alone, so values you add by hand survive.
 
+`/run` is wiped at every reboot, so the Core runtime directory (`RUNTIME_DIR`, default `/run/aegis-live`) is gone after one; `aegis-live-up.sh` re-creates it (`install -d -o <core user> -m 750`) before it starts the Core, and a Core started by hand needs the same directory first.
+
 ## Flashing the controller
 
 1. Build from the same commit as the Core: `cd firmware && pio run -e esp32dev`. The broker CA is compiled in from the
