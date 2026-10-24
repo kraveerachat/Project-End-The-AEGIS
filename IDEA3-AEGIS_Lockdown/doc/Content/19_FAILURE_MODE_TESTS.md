@@ -1,6 +1,6 @@
 # 19 — IDEA3 Failure-Mode Tests (lab results)
 
-Status: A1 done 2026-10-24 (one finding, fix drafted); A2 pending. Same lab as `17_LIVE_LAB_RUNBOOK.md` and
+Status: A1 and A2 done 2026-10-24 (findings F-A1-1, with its fix verified on hardware by A2, and F-A2-1, fix proposed, not implemented). Same lab as `17_LIVE_LAB_RUNBOOK.md` and
 `18_LIVE_LAB_ACCEPTANCE_SUMMARY.md`: Core, TLS broker and the ESP32 on the Core-local AP, `main` `cc096de` plus the
 commits of `feat/idea3-graduated-response` (tip `755046b`), graduated response OFF. Times are UTC+7. The raw excerpts
 (Core log, audit and command rows, broker lifecycle) are kept in the lab work directory and are not in the repository. This file
@@ -73,5 +73,46 @@ After A1 the question was what the Purple Desktop shows when `status.json` stops
 
 ## A2 — power loss of the ESP32
 
-PENDING. Not run. To record: relay state while unpowered, boot state and time to LOCKDOWN after power returns, reconnect time, and whether a
-RESTORE is accepted afterwards (the fix above matters here).
+Run 2026-10-24 on the Core started at 18:49 from `feat/idea3-graduated-response` (it includes the F-A1-1 fix as `16b7565`), graduated response OFF. The device
+had been restored from the Desktop at 19:01:06 (seq 16, ACK OK, STATUS NORMAL carrying the command) and was then unplugged (USB) by the operator.
+Times are from the broker and Core logs unless marked operator-reported.
+
+| Time | Event | Source |
+|---|---|---|
+| 19:01:12 | Last authenticated device status: `state=NORMAL (PERIODIC)` | Core log |
+| 19:01:27 | Last PINGREQ from the device. The unplug is therefore at about 19:01:30 (the operator said "about 19:00") | broker log |
+| 19:01:50 | `aegis-relay-01 disconnected: exceeded timeout` (keepalive; not a socket error) | broker log |
+| about 19:01:57 | Core `state` becomes DEGRADED: no device message for more than `DEVICE_OFFLINE_SEC` = 45 s (`mqtt_client.py:311-314`, `supervisor.py:1082-1084`). Seen as DEGRADED at 19:04:32 | code, status.json |
+| 19:01:50 to 19:09:30 | No reconnect. `status.json` kept `device=ONLINE`, `uplink=NORMAL` throughout (finding F-A2-1) | status.json (19:04:32); operator-reported Desktop |
+| 19:09:30 | Device reconnects: TLS connection from the lab address; MQTT session as the device client at 19:09:32 | broker log |
+| 19:09:32 | First authenticated status after boot: `state=LOCKDOWN (BOOT)`, so the relay boots open | Core log |
+| 19:09:55 | Periodic status `LOCKDOWN` | Core log |
+| 19:10:23 | One RESTORE from the Desktop, no CUT first: `RESTORE_REQUESTED`, `COMMAND_SENT RESTORE_UPLINK seq=17`, `ACK_RECEIVED OK` at 19:10:23.233, `STATUS_AUTHENTICATED state=NORMAL (COMMAND)` at 19:10:23.239 (the status that carries the command's nonce) | Core log |
+| 19:10:25 | Periodic status `NORMAL`; `status.json` state=RUNNING, device=ONLINE, uplink=NORMAL | Core log, status.json |
+
+Results:
+- **Dead-man behaviour on power loss:** the broker dropped the device 23 s after its last ping (keepalive 15 s, 1.5 times the interval). Time from power loss to a
+  Core `DEGRADED` state: about 27 s after the last status, 45 s after the last device message.
+- **Boot state:** LOCKDOWN (BOOT) at 19:09:32, two seconds after the MQTT session, before any command.
+- **RESTORE after power loss, no CUT first:** accepted (ACK OK, STATUS NORMAL with the command's nonce). This is the F-A1-1 case (lockdown the Core did not command after a
+  confirmed RESTORE); on the Core running `16b7565` it no longer needs the CUT-then-RESTORE workaround. This is the first hardware confirmation of the fix (matrix row RC-03).
+- **Not recorded:** the relay state while unpowered (meter or tester), and the time from reconnect to the first RESTORE button press as seen by the operator.
+
+### Finding F-A2-1 — `device` and `uplink` never leave ONLINE and the last value after the device is lost
+
+- **Symptom:** from about 19:01:57 to 19:09:30 the Desktop showed `ESP32: ONLINE` (and uplink NORMAL) although the broker had dropped the device at 19:01:50, the
+  ARP entry was FAILED and the AP station was idle for minutes. The Core's overall `state` was correctly DEGRADED.
+- **Cause:** `aegis_soc/supervisor.py:544` (`_handle_status`) sets `self.status.device = "ONLINE"` on every authenticated status and is the only place in the
+  supervisor and runtime code that assigns `device`. Nothing sets `OFFLINE` (the value is allowed by `runtime.py:329` and `status_projection.py:31`). The
+  45 s rule (`mqtt_client.py:311-314`) is used only to choose the overall `state` (`supervisor.py:1082-1084`). `uplink` is set only from device statuses
+  (`supervisor.py:545-546`), so it keeps the last reported value. The Desktop ESP32 badge shows `status.json` `device` as it is
+  (`tools/live_purple_observer.py:188` and `:215`); the Task-B STALE rule covers only the age of the file, which the Core keeps rewriting.
+- **Impact:** after a power loss, cable pull or a crash of the device, the operator sees a healthy badge and a stale uplink for as long as the Core runs, and the
+  projections built from `status.json` (Web, sidecar, `ESP32_UNAVAILABLE` issue in `runtime.py:416`) inherit it. Fail-secure behaviour is not affected: the
+  relay itself opens by the dead-man's switch and the Core's overall `state` shows DEGRADED. It is a display and evidence-accuracy problem, not a bypass.
+- **Proposed fix (not implemented, needs review because it is Core code):** in the Core's health/status write path, derive `components.device` from
+  `mqtt.device_online()` (`OFFLINE` when no device message for more than `DEVICE_OFFLINE_SEC`, `ONLINE` again on the next authenticated status), and report
+  `uplink` as `UNKNOWN` while the device is OFFLINE, with the last known value kept in a separate field if needed. Tests: device silent for 46 s gives `OFFLINE` in
+  `status.json` and the Desktop badge; a new status restores `ONLINE`; boundary at exactly 45 s; `uplink` handling; the projection tests that allow
+  `OFFLINE` keep passing; no change to command or RESTORE paths.
+- **Workaround:** read the overall `state` (DEGRADED) and the Core log (`STATUS_AUTHENTICATED` age), not the ESP32 badge.

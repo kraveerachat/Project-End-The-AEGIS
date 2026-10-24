@@ -17,12 +17,12 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | 4.5.3 | Negative / Rejection Tests | 5 | 5 | 0 | 0 |
 | 4.5.4 | Security Mechanism Verification | 8 | 7 | 1 | 0 |
 | 4.5.5 | Detection / Containment Tests | 5 | 3 | 1 | 1 |
-| 4.5.6 | Recovery Tests | 7 | 3 | 2 | 2 |
-| 4.5.7 | Hardware / Runtime Acceptance | 19 | 12 | 4 | 3 |
+| 4.5.6 | Recovery Tests | 7 | 4 | 2 | 1 |
+| 4.5.7 | Hardware / Runtime Acceptance | 20 | 13 | 5 | 2 |
 | 4.5.8 | Failure-mode Tests | 9 | 6 | 2 | 1 |
-| 4.5.9 | Current Limitations | – | – | – | – |
-| 4.5.10 | IDEA 3 Result Summary | – | – | – | – |
-| | **Total** | **60** | **38** | **10** | **12** |
+| 4.5.9 | Current Limitations | 0 | 0 | 0 | 0 |
+| 4.5.10 | IDEA 3 Result Summary | 0 | 0 | 0 | 0 |
+| | **Total** | **61** | **40** | **11** | **10** |
 
 ## 4.5.1 Threat Scenario Tests
 
@@ -83,7 +83,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | OP-06 | A Core restart issues no RESTORE | device stays in LOCKDOWN until the operator restores | Core restart 23:48:34 and Core start 08:16:12: no RESTORE_UPLINK issued; the device stayed LOCKDOWN until the operator's RESTORE | lab logs/aegis_soc.log; lab data/ protocol command table | PASS |
 | RC-01 | RESTORE after the dead-man lockdown that followed a confirmed RESTORE | accepted | REFUSED RESTORE_ALREADY_PENDING at 09:15:25 and 09:16:31; no command was issued. Cause: a stale record of the earlier confirmed RESTORE (local_restore.py:492-494 and 597-599). Fix on branch fix/idea3-restore-after-uncommanded-lockdown, commit a247718, not pushed; cherry-picked onto feat/idea3-graduated-response as 16b7565 so the lab Core can run it | doc 19 (F-A1-1); lab evidence/a1-restore-pending/DIAGNOSIS.md | FINDING |
 | RC-02 | Workaround: CUT, then RESTORE | RESTORE accepted | Not recorded as run on the lab | — | PENDING |
-| RC-03 | The fix on the lab hardware | RESTORE accepted after an uncommanded lockdown | Offline only: 4 regression tests fail on `main` and pass with the fix. Not run on hardware (the lab Core must be started on the cherry-picked code, 16b7565, first) | tests/test_local_restore.py, tests/test_core_break_glass.py | PENDING |
+| RC-03 | The fix on the lab hardware | RESTORE accepted after an uncommanded lockdown | Accepted on 2026-10-24 19:10:23 after the power loss that followed a confirmed RESTORE (A2), with no CUT first: the F-A1-1 situation, on the Core running 16b7565. Regression tests also fail on `main` and pass with the fix | doc 19 (A2); tests/test_local_restore.py, tests/test_core_break_glass.py | PASS |
 | RC-04 | RESTORE after the device lost power before its status arrived (2026-10-23) | decided by design | Refused RESTORE_ALREADY_PENDING (20:25), cleared by restarting the Core, no RESTORE issued. The fix keeps refusing this case; whether such a record should expire is an open owner decision | lab evidence/acceptance.md; doc 19 | FINDING |
 
 ## 4.5.7 Hardware / Runtime Acceptance
@@ -104,11 +104,12 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | NT-03 | RESTORED message on RESTORE (first attempt) | message received | NOT received at 23:13:39. The send had a 3 s limit and the tether needed about 1.7 s; the cause is a delivery failure, not a rejected text (both texts were accepted by Telegram when sent by hand) | lab evidence/a1-restore-pending/DIAGNOSIS.md; doc 18 | FINDING |
 | NT-04 | RESTORED message after the delivery fix (10 s limit, one retry) | message received | Received at 23:51:40, the first RESTORED delivery after the fix (commit a639337) | doc 18; owner-reported | PASS |
 | NT-05 | State report after a Core restart | current state announced once | LOCKDOWN report received at 23:49:03 after the 23:48:34 restart | doc 18; owner-reported | PASS |
-| PL-01 | ESP32 power loss (A2) | relay state, boot state, time to LOCKDOWN, reconnect, RESTORE accepted afterwards | Not run | doc 19 (A2) | PENDING |
+| PL-01 | ESP32 power loss (A2) | broker drops the device, Core notices, boot state LOCKDOWN, reconnect, RESTORE accepted afterwards | Unplug about 19:01:30; broker keepalive drop 19:01:50; Core state DEGRADED after 45 s; reconnect 19:09:30; first status LOCKDOWN (BOOT) 19:09:32; RESTORE (seq 17, no CUT first) ACK OK and STATUS NORMAL with the command's nonce at 19:10:23. The relay state while unpowered was not recorded. See F-A2-1 | doc 19 (A2); lab logs/aegis_soc.log; broker log | PASS |
 | PL-02 | Laptop reboot: the ESP32 reconnects without help | lease and TLS session return | Lease and one TLS session returned after the lab was brought back up; LOCKDOWN from the dead-man's switch while the Core was off, as expected | doc 19; work log of 2026-10-24 (not archived) | PASS |
 | PL-03 | Laptop reboot: the Core starts | Core RUNNING | The first start failed: /run was wiped and the unprivileged Core could not create /run/aegis-live (PermissionError). aegis-live-up.sh now creates it; the runbook says so (commit 755046b, pushed) | doc 17; commit 755046b | FINDING |
 | PL-04 | Laptop reboot: other units that start at boot | no collision with the lab | The old production Core, broker and DHCP units are enabled and started at boot and had to be stopped (never disabled). Whether to stop them from starting is an open decision | doc 17 (STOP_UNITS) | FINDING |
 | PL-05 | Trusted time before the Core starts | kernel clock synced, max error below 1 s | max error settled from about 977 ms to 14.6 ms before the Core was started | work log of 2026-10-24 (not archived) | PASS |
+| PL-06 | After the device is lost, `device` and `uplink` in status.json and the Desktop ESP32 badge | OFFLINE (or UNKNOWN) once the device is silent for more than 45 s | `device=ONLINE`, `uplink=NORMAL` for about 7.5 minutes (19:01:57 to 19:09:30) while the broker had dropped the device and the Core `state` was DEGRADED (F-A2-1; supervisor.py:544 is the only writer). Fix proposed, not implemented | doc 19 (F-A2-1) | FINDING |
 
 ## 4.5.8 Failure-mode Tests
 
@@ -126,11 +127,11 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 
 ## 4.5.9 Current Limitations
 
-- FINDING rows (something differs from the expectation or a gap was found): DT-04, IS-04, NT-03, PH-07, PL-03, PL-04, RC-01, RC-04, RC-06, RC-07.
-- PENDING rows (not run, not recorded, or offline only where a lab or hardware result is needed): AU-02, FZ-07, GR-01, GR-02, GR-03, GR-08, OP-07, PH-02, PH-09, PL-01, RC-02, RC-03.
+- FINDING rows (something differs from the expectation or a gap was found): DT-04, IS-04, NT-03, PH-07, PL-03, PL-04, PL-06, RC-01, RC-04, RC-06, RC-07.
+- PENDING rows (not run, not recorded, or offline only where a lab or hardware result is needed): AU-02, FZ-07, GR-01, GR-02, GR-03, GR-08, OP-07, PH-02, PH-09, RC-02.
 - Several PASS rows rest on owner observations whose terminal output or notes were not archived (PH-06, DT-01, IS-01, NT-02, NT-04, NT-05, GR-06). Archive the outputs next to the lab evidence.
 - The boot reading after the COM–NO rewire (PH-02) and the meter reading after a control Desktop CUT (PH-09) were not recorded. No row measures the time to the physical change (OP-07) or covers the live graduated levels (GR-01 to GR-03).
-- RC-01, RC-06 and RC-07 have fixes that are committed locally on unpushed branches and verified only by offline tests.
+- RC-01 has a fix verified on the hardware (RC-03) but committed only on local, unpushed branches. RC-06 and RC-07 have fixes verified only by offline tests. PL-06 (F-A2-1) has a proposed fix and no code.
 - The Desktop STALE rule is verified offline only (RC-05 to RC-07, FZ-07).
 
 ### Open items
@@ -141,4 +142,4 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 
 ## 4.5.10 IDEA 3 Result Summary
 
-38 of 60 rows PASS, 10 are FINDINGS and 12 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and is waiting for a hardware re-test (RC-03). No automatic RESTORE was seen in any lab run (GR-04, OP-06).
+40 of 61 rows PASS, 11 are FINDINGS and 10 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and was confirmed on the hardware by the A2 power-loss test (RC-03, PL-01). A2 also found that the Core never reports the device as OFFLINE (PL-06, F-A2-1; fix proposed, not implemented). No automatic RESTORE was seen in any lab run (GR-04, OP-06).
