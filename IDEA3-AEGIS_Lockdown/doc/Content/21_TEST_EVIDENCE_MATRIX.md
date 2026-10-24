@@ -17,12 +17,12 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | 4.5.3 | Negative / Rejection Tests | 5 | 5 | 0 | 0 |
 | 4.5.4 | Security Mechanism Verification | 8 | 7 | 1 | 0 |
 | 4.5.5 | Detection / Containment Tests | 5 | 3 | 1 | 1 |
-| 4.5.6 | Recovery Tests | 7 | 4 | 2 | 1 |
+| 4.5.6 | Recovery Tests | 10 | 4 | 2 | 4 |
 | 4.5.7 | Hardware / Runtime Acceptance | 20 | 13 | 5 | 2 |
 | 4.5.8 | Failure-mode Tests | 9 | 6 | 2 | 1 |
 | 4.5.9 | Current Limitations | 0 | 0 | 0 | 0 |
 | 4.5.10 | IDEA 3 Result Summary | 0 | 0 | 0 | 0 |
-| | **Total** | **61** | **40** | **11** | **10** |
+| | **Total** | **64** | **40** | **11** | **13** |
 
 ## 4.5.1 Threat Scenario Tests
 
@@ -85,6 +85,9 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | RC-02 | Workaround: CUT, then RESTORE | RESTORE accepted | Not recorded as run on the lab | — | PENDING |
 | RC-03 | The fix on the lab hardware | RESTORE accepted after an uncommanded lockdown | Accepted on 2026-10-24 19:10:23 after the power loss that followed a confirmed RESTORE (A2), with no CUT first: the F-A1-1 situation, on the Core running 16b7565. Regression tests also fail on `main` and pass with the fix | doc 19 (A2); tests/test_local_restore.py, tests/test_core_break_glass.py | PASS |
 | RC-04 | RESTORE after the device lost power before its status arrived (2026-10-23) | decided by design | Refused RESTORE_ALREADY_PENDING (20:25), cleared by restarting the Core, no RESTORE issued. The F-A1-1 fix kept refusing this case; the record now expires 8 s after the ACK (PHYSICAL_CONFIRM_TIMEOUT_SEC, commit P6), offline tests only, not run on the hardware | lab evidence/acceptance.md; doc 19 | FINDING |
+| RC-08 | Desktop Recovery page: live read-only readiness checklist | uplink and why, device, time, broker, pending RESTORE, lockout, graduated level, last attempts; no RESTORE control | Offline GUI and reader tests pass (th/en/zh). The Core's recovery-status.json and the audit read are not yet exercised on the hardware | tests/test_live_purple_control_desktop.py, tests/test_live_purple_core_records.py, tests/test_local_restore.py | PENDING |
+| RC-09 | Desktop Incidents and Audit pages: read-only Core data | graduated decisions; CUT and RESTORE audit records without reasons; NOT_AVAILABLE with the reason otherwise | Offline GUI and reader tests pass (th/en/zh). Not yet run against the live Core | tests/test_live_purple_control_desktop.py, tests/test_live_purple_core_records.py | PENDING |
+| RC-10 | CUT and RESTORE dialogs, captions and buttons in th/en/zh | wording follows the language selector; codes and identifiers unchanged | Offline tests pass (a test fails if a fixed client sentence has no translation). The Thai and Chinese wording needs a native review; not yet seen on the real window | tests/test_live_purple_control_strings.py, tests/test_live_purple_control_desktop.py | PENDING |
 
 ## 4.5.7 Hardware / Runtime Acceptance
 
@@ -109,7 +112,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | PL-03 | Laptop reboot: the Core starts | Core RUNNING | The first start failed: /run was wiped and the unprivileged Core could not create /run/aegis-live (PermissionError). aegis-live-up.sh now creates it; the runbook says so (commit 755046b, pushed) | doc 17; commit 755046b | FINDING |
 | PL-04 | Laptop reboot: other units that start at boot | no collision with the lab | The old production Core, broker and DHCP units are enabled and started at boot and had to be stopped (never disabled). Whether to stop them from starting is an open decision | doc 17 (STOP_UNITS) | FINDING |
 | PL-05 | Trusted time before the Core starts | kernel clock synced, max error below 1 s | max error settled from about 977 ms to 14.6 ms before the Core was started | work log of 2026-10-24 (not archived) | PASS |
-| PL-06 | After the device is lost, `device` and `uplink` in status.json and the Desktop ESP32 badge | OFFLINE (or UNKNOWN) once the device is silent for more than 45 s | `device=ONLINE`, `uplink=NORMAL` for about 7.5 minutes (19:01:57 to 19:09:30) while the broker had dropped the device and the Core `state` was DEGRADED (F-A2-1; supervisor.py:544 is the only writer). Fix proposed, not implemented | doc 19 (F-A2-1) | FINDING |
+| PL-06 | After the device is lost, `device` and `uplink` in status.json and the Desktop ESP32 badge | OFFLINE (or UNKNOWN) once the device is silent for more than 45 s | `device=ONLINE`, `uplink=NORMAL` for about 7.5 minutes (19:01:57 to 19:09:30) while the broker had dropped the device and the Core `state` was DEGRADED (F-A2-1; supervisor.py:544 is the only writer). Fix implemented in commit 09005c6 (offline tests only; repeat A2 on the hardware to close this row) | doc 19 (F-A2-1) | FINDING |
 
 ## 4.5.8 Failure-mode Tests
 
@@ -128,10 +131,10 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 ## 4.5.9 Current Limitations
 
 - FINDING rows (something differs from the expectation or a gap was found): DT-04, IS-04, NT-03, PH-07, PL-03, PL-04, PL-06, RC-01, RC-04, RC-06, RC-07.
-- PENDING rows (not run, not recorded, or offline only where a lab or hardware result is needed): AU-02, FZ-07, GR-01, GR-02, GR-03, GR-08, OP-07, PH-02, PH-09, RC-02.
+- PENDING rows (not run, not recorded, or offline only where a lab or hardware result is needed): AU-02, FZ-07, GR-01, GR-02, GR-03, GR-08, OP-07, PH-02, PH-09, RC-02, RC-08, RC-09, RC-10.
 - Several PASS rows rest on owner observations whose terminal output or notes were not archived (PH-06, DT-01, IS-01, NT-02, NT-04, NT-05, GR-06). Archive the outputs next to the lab evidence.
 - The boot reading after the COM–NO rewire (PH-02) and the meter reading after a control Desktop CUT (PH-09) were not recorded. No row measures the time to the physical change (OP-07) or covers the live graduated levels (GR-01 to GR-03).
-- RC-01 has a fix verified on the hardware (RC-03) but committed only on local, unpushed branches. RC-06 and RC-07 have fixes verified only by offline tests. PL-06 (F-A2-1) has a proposed fix and no code.
+- RC-01 has a fix verified on the hardware (RC-03) but committed only on local, unpushed branches. RC-06 and RC-07 have fixes verified only by offline tests. PL-06 (F-A2-1), the Recovery, Incidents and Audit pages (RC-08, RC-09), the dialog translations (RC-10), the 8 s RESTORE-record expiry (RC-04) and the 60 s STALE threshold (RC-05) are verified by offline tests only.
 - The Desktop STALE rule is verified offline only (RC-05 to RC-07, FZ-07).
 
 ### Open items
@@ -142,4 +145,4 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 
 ## 4.5.10 IDEA 3 Result Summary
 
-40 of 61 rows PASS, 11 are FINDINGS and 10 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and was confirmed on the hardware by the A2 power-loss test (RC-03, PL-01). A2 also found that the Core never reports the device as OFFLINE (PL-06, F-A2-1; fix proposed, not implemented). No automatic RESTORE was seen in any lab run (GR-04, OP-06).
+40 of 64 rows PASS, 11 are FINDINGS and 13 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and was confirmed on the hardware by the A2 power-loss test (RC-03, PL-01). A2 also found that the Core never reported the device as OFFLINE (PL-06, F-A2-1; fixed in code, offline tests only). No automatic RESTORE was seen in any lab run (GR-04, OP-06).

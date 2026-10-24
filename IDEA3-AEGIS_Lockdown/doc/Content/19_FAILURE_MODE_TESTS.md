@@ -112,9 +112,10 @@ Results:
 - **Impact:** after a power loss, cable pull or a crash of the device, the operator sees a healthy badge and a stale uplink for as long as the Core runs, and the
   projections built from `status.json` (Web, sidecar, `ESP32_UNAVAILABLE` issue in `runtime.py:416`) inherit it. Fail-secure behaviour is not affected: the
   relay itself opens by the dead-man's switch and the Core's overall `state` shows DEGRADED. It is a display and evidence-accuracy problem, not a bypass.
-- **Proposed fix (not implemented, needs review because it is Core code):** in the Core's health/status write path, derive `components.device` from
-  `mqtt.device_online()` (`OFFLINE` when no device message for more than `DEVICE_OFFLINE_SEC`, `ONLINE` again on the next authenticated status), and report
-  `uplink` as `UNKNOWN` while the device is OFFLINE, with the last known value kept in a separate field if needed. Tests: device silent for 46 s gives `OFFLINE` in
-  `status.json` and the Desktop badge; a new status restores `ONLINE`; boundary at exactly 45 s; `uplink` handling; the projection tests that allow
-  `OFFLINE` keep passing; no change to command or RESTORE paths.
+- **Fix (commit `09005c6`, offline tests only, not yet run on the hardware):** the supervisor's health loop (`_refresh_device_presence`) sets `device=OFFLINE` and
+  `uplink=UNKNOWN` as soon as `mqtt.device_online()` is false (no authenticated device message for `DEVICE_OFFLINE_SEC` = 45 s), and the next authenticated device status
+  restores both (`_handle_status`). Before the first status after a Core start the device stays `UNKNOWN` until `device_wait_sec` has passed; dry-run is unchanged. The change only
+  affects what `status.json` (and so the Desktop badge, the Recovery page and the projections) report: nothing is sent to the device, no command record is created. One
+  consequence, by design: while the device is OFFLINE the Core does not hold an observed LOCKDOWN, so a RESTORE is refused with `UPLINK_NOT_LOCKDOWN` until the device reports again
+  (its first status after boot is LOCKDOWN, as in A2). Tests: loss, recovery, logged once, no command, first-status grace, dry-run, and the run loop applies the rule every tick.
 - **Workaround:** read the overall `state` (DEGRADED) and the Core log (`STATUS_AUTHENTICATED` age), not the ESP32 badge.

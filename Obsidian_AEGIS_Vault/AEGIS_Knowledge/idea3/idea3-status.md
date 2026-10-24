@@ -31,6 +31,12 @@ Live-lab procedure and scripts: `IDEA3-AEGIS_Lockdown/doc/Content/17_LIVE_LAB_RU
 
 > [!important] `PRODUCTION_MUTATION = NO`. Branch `fix/idea3-restore-after-uncommanded-lockdown` (local, not pushed). Lab finding A1: after a physically confirmed RESTORE, a lockdown the Core did not command (dead-man's switch, power loss, a frozen Core) left a stale RESTORE record, so every new RESTORE was refused with `RESTORE_ALREADY_PENDING` until a CUT replaced the record or the Core restarted. `local_restore.py` now treats a RESTORE as pending only while it is ACKed and not yet physically confirmed. Workaround on an unfixed Core: CUT, then RESTORE. State: LOCAL_VERIFIED (offline tests); lab hardware re-test and owner review pending.
 
+## IDEA3 program completion P1-P6 — offline-verified — 2026-10-24
+
+> [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`, local commits, not pushed. Offline tests only; not yet run on the lab hardware.
+
+Lost device reported OFFLINE/UNKNOWN (F-A2-1); Desktop STALE threshold 60 s; read-only Recovery, Incidents and Audit pages; CUT/RESTORE dialogs in th/en/zh; an ACKed-but-unconfirmed RESTORE record expires after 8 s. Receipt: `90-Status/logs/2026-10-24_210000_music_idea3-p1-p6-program-completion.md`; evidence rows in `IDEA3-AEGIS_Lockdown/doc/Content/21_TEST_EVIDENCE_MATRIX.md`.
+
 ## IDEA3 live status transport implementation — offline source — 2026-10-17
 
 > [!important] `PRODUCTION_MUTATION = NO`, `PRODUCTION_LIVE = NOT_ACHIEVED`. Branch `feat/idea3-live-status-transport` is a **successor stacked on Draft PR #443** (head `b2c0a993`, not yet in `main` `5a673848`). It must not be merged into the #443 branch; its own Draft PR is opened against `main` only after #443 is integrated and the branch is refreshed. Everything below is repository source and synthetic offline tests.
