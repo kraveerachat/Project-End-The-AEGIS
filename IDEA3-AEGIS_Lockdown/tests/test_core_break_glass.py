@@ -447,6 +447,41 @@ def test_a_new_authenticated_lockdown_episode_is_eligible_again(env):
     assert [row[0] for row in claims()] == sorted({row[0] for row in claims()}) and len(claims()) == 2
 
 
+def _ack(env, response):
+    env.core.deliver(p1.ACK, ack_for_msg_id=response["msg_id"], ack_for_seq=response["seq"], result="ACCEPTED")
+
+
+@pytest.mark.parametrize("reason", ["DEADMAN", "BOOT"])
+def test_a_confirmed_break_glass_restore_does_not_block_the_next_episode_after_an_uncommanded_lockdown(env, reason):
+    """Lab finding A1, second call site: a physically confirmed RESTORE must not make a later, uncommanded lockdown unrecoverable."""
+    lockdown(env)
+    first = ask(env)
+    assert first["code"] == "PUBLISHED"
+    _ack(env, first)
+    env.core.deliver(p1.STATUS, output_state="NORMAL", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                     device_seq_hwm=first["seq"])
+    assert env.core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is not None
+    env.core.deliver(p1.STATUS, output_state="LOCKDOWN", reason=reason, device_seq_hwm=first["seq"])  # no Core command, no manual reset
+
+    second = ask(env)
+    assert (second["ok"], second["code"]) == (True, "PUBLISHED"), second
+    assert second["seq"] == first["seq"] + 1 and len(claims()) == 2
+
+
+def test_an_acknowledged_but_unconfirmed_break_glass_restore_still_blocks_a_new_episode(env):
+    lockdown(env)
+    first = ask(env)
+    assert first["code"] == "PUBLISHED"
+    _ack(env, first)
+    normal(env)    # authenticated NORMAL without the command's ids: no physical confirmation
+    lockdown(env)  # a new authenticated episode
+    assert env.core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is None
+    env.core.client.published.clear()
+    response = ask(env)
+    assert (response["ok"], response["code"]) == (False, "RESTORE_ALREADY_PENDING"), response
+    assert env.core.client.published == [] and len(claims()) == 1
+
+
 def test_a_durable_claim_write_failure_publishes_nothing(env, monkeypatch):
     lockdown(env)
 
