@@ -391,6 +391,11 @@ class LocalRestoreGate:
         with self._operation_lock:
             self._enabled = False
 
+    def lockout_remaining(self) -> float:
+        """Seconds until the longest authentication lockout ends (0.0 when none); read-only, for the Recovery view."""
+        now = self.monotonic()
+        return max([locked_until - now for _failures, locked_until in list(self._auth_failures.values())] + [0.0])
+
     def _refuse(self, code: str, detail: str, peer: Peer):
         safe = f"code={code} uid={peer.uid} pid={peer.pid} detail={detail}"
         self.audit("RESTORE_REFUSED", safe, db.WARN)

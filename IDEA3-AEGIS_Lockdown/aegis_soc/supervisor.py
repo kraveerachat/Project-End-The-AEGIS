@@ -27,6 +27,7 @@ from . import historical_disposition as hd
 from . import local_restore as lr
 from . import recovery_core as rc
 from . import recovery_protocol as rp
+from . import recovery_view
 from .controller import AegisCommandController, CommandResult
 from .dispatch_worker import (
     ACTIVE,
@@ -253,6 +254,7 @@ class AegisSupervisor:
         self._graduated_history: deque = deque(maxlen=GRADUATED_HISTORY)
         self._graduated_write_lock = threading.Lock()
         self.started_at = monotonic()
+        self._recovery_view_failed = False
         self._device_seen = False   # becomes True with the first authenticated device status
         self.last_heartbeat_at = 0.0
         self.stop_requested = False
@@ -940,6 +942,32 @@ class AegisSupervisor:
             return "CUT_SENT"
         return "CUT_QUEUED" if getattr(result, "reason_code", None) == "CUT_QUEUED" else "CUT_REFUSED"
 
+    def recovery_view_path(self) -> Path:
+        return self.settings.runtime_dir / recovery_view.VIEW_NAME
+
+    def write_recovery_view(self) -> None:
+        """Write the bounded RESTORE-readiness projection for the Desktop. Best effort: it never affects the Core."""
+        try:
+            with self._command_lock:
+                gate = self.local_restore.gate if self.local_restore is not None else None
+                payload = recovery_view.build(self, gate)
+            path = self.recovery_view_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary = tempfile.mkstemp(prefix="recovery-", suffix=".tmp", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+                    handle.write("\n")
+                os.chmod(temporary, 0o640)
+                os.replace(temporary, path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+        except OSError as error:
+            if not self._recovery_view_failed:
+                self._recovery_view_failed = True
+                self.log_event("WARNING", "recovery_view_write_failed", error=type(error).__name__)
+
     def graduated_status_path(self) -> Path:
         configured = config.GRADUATED_STATUS_PATH
         return Path(configured) if configured else self.settings.runtime_dir / "graduated-status.json"
@@ -1156,6 +1184,7 @@ class AegisSupervisor:
                 self.status.components = self.children.poll(now)
                 self._tick_dispatch()
                 state = self.evaluate_state(now)
+                self.write_recovery_view()
                 detail = (
                     "safe dry-run active"
                     if state == RuntimeState.RUNNING and self.settings.dry_run

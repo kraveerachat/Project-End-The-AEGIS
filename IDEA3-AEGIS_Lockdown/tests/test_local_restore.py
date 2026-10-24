@@ -1420,3 +1420,86 @@ def test_a_confirmed_restore_and_a_pending_one_are_unchanged_by_the_expiry(core)
     core.now[0] += 1000
     assert core.ask(request())["code"] == "UPLINK_NOT_LOCKDOWN"   # confirmed and no longer LOCKDOWN: nothing to restore
 
+
+
+# ---- recovery-status.json: the bounded, read-only RESTORE-readiness projection read by the Desktop's Recovery page ----
+
+def _view(core):
+    from aegis_soc import recovery_view
+
+    return recovery_view.build(core.supervisor, core.gate)
+
+
+def test_recovery_view_without_any_command_record(core):
+    view = _view(core)
+    assert view["v"] == 1 and view["uplink"] == "LOCKDOWN"
+    assert view["uplink_why"] == "NO_COMMAND_RECORD" and view["last_command"] is None
+    assert view["restore_pending"] is False and view["restore_pending_remaining_sec"] is None
+    assert view["lockout_remaining_sec"] == 0.0 and view["restore_served"] is True
+
+
+def test_recovery_view_follows_an_acked_unconfirmed_restore_and_its_expiry(core):
+    from aegis_soc import config
+
+    first = core.ask(request())
+    assert _view(core)["restore_command_pending"] is True
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.now[0] += 3
+    view = _view(core)
+    assert view["restore_pending"] is True and view["restore_command_pending"] is False
+    assert view["restore_pending_remaining_sec"] == config.PHYSICAL_CONFIRM_TIMEOUT_SEC - 3
+    assert view["last_command"] == {"action": "RESTORE_UPLINK", "acked": True, "confirmed": False, "timed_out": False}
+    core.now[0] += config.PHYSICAL_CONFIRM_TIMEOUT_SEC
+    assert _view(core)["restore_pending"] is False
+
+
+def test_recovery_view_tells_a_commanded_cut_from_an_uncommanded_lockdown(core):
+    first = _confirmed_restore(core)
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="DEADMAN", device_seq_hwm=first["seq"])
+    assert _view(core)["uplink_why"] == "UNCOMMANDED_AFTER_RESTORE"
+    physical = core.supervisor.awaiting_physical_confirmation
+    core.supervisor.awaiting_physical_confirmation = {**physical, "action": "CUT_UPLINK", "acknowledged_at": 1.0,
+                                                      "physical_confirmed_at": None}
+    assert _view(core)["uplink_why"] == "COMMANDED_CUT"
+    core.supervisor.awaiting_physical_confirmation = {**physical, "action": "CUT_UPLINK", "acknowledged_at": None}
+    assert _view(core)["uplink_why"] == "CUT_NOT_ACKED"
+    core.supervisor.status.uplink = "NORMAL"
+    assert _view(core)["uplink_why"] == "NOT_LOCKDOWN"
+
+
+def test_recovery_view_reports_the_authentication_lockout_remaining(core):
+    for _ in range(3):
+        assert core.ask(request(secret="guess guess guess"))["code"] == "AUTH_FAILED"
+    assert 0 < _view(core)["lockout_remaining_sec"] <= lr.AUTH_LOCKOUT_SEC
+    core.now[0] += 10
+    assert 0 < _view(core)["lockout_remaining_sec"] <= lr.AUTH_LOCKOUT_SEC - 10 + 0.1
+    core.now[0] += lr.AUTH_LOCKOUT_SEC
+    assert _view(core)["lockout_remaining_sec"] == 0.0
+
+
+def test_recovery_view_holds_no_secret_reason_or_identifier(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    text = json.dumps(_view(core))
+    for forbidden in (SECRET, REASON, first["msg_id"], "reason", "secret", "nonce", "msg_id"):
+        assert forbidden not in text
+    assert set(_view(core)) == {
+        "v", "updated_at", "uplink", "device", "uplink_why", "last_command", "restore_pending",
+        "restore_pending_remaining_sec", "restore_command_pending", "lockout_remaining_sec", "restore_served",
+    }
+
+
+def test_the_supervisor_writes_the_view_atomically_and_never_raises(core, tmp_path):
+    core.supervisor.write_recovery_view()
+    path = core.supervisor.recovery_view_path()
+    assert json.loads(path.read_text(encoding="utf-8"))["uplink"] == "LOCKDOWN"
+    assert (path.stat().st_mode & 0o777) == 0o640
+    assert not list(path.parent.glob("recovery-*.tmp"))
+    core.supervisor.settings = replace(core.supervisor.settings, runtime_dir=tmp_path / "missing" / "x")
+    core.supervisor.settings.runtime_dir.parent.mkdir()
+    core.supervisor.settings.runtime_dir.parent.chmod(0o500)
+    try:
+        core.supervisor.write_recovery_view()   # unwritable: logged once, no exception
+        core.supervisor.write_recovery_view()
+    finally:
+        core.supervisor.settings.runtime_dir.parent.chmod(0o700)
