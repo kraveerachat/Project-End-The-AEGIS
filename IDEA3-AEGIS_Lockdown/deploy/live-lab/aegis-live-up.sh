@@ -143,7 +143,7 @@ CORE_ARGS=(-m aegis_soc.cli doctor --profile lab --live --headless --no-detector
 if ! systemctl is-active --quiet "$(ll_unit core)"; then
   # /run is a tmpfs wiped at every reboot and the Core runs unprivileged, so the runtime directory must exist before it starts.
   sudo install -d -o "$CORE_USER" -g "$(id -gn "$CORE_USER")" -m 750 "$RUNTIME_DIR"
-  sudo systemd-run --unit="$(ll_unit core-doctor)" --collect --wait "${CORE_PROPS[@]}" "$(ll_python)" -I "${CORE_ARGS[@]}" >/dev/null 2>&1 \
+  sudo systemd-run --unit="$(ll_unit core-doctor)" --collect --wait "${CORE_PROPS[@]}" "$(ll_python)" "${CORE_ARGS[@]}" >/dev/null 2>&1 \
     && ok "doctor passed" || { journalctl -u "$(ll_unit core-doctor)" -n 15 --no-pager -o cat 2>/dev/null | tail -15; ll_die "Core doctor failed"; }
   sudo systemd-run --unit="$(ll_unit core)" --collect "${CORE_PROPS[@]}" "$(ll_python)" -m aegis_soc.supervisor \
     --profile lab --live --headless --no-detector --no-voice >/dev/null
