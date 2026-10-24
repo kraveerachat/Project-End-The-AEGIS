@@ -135,3 +135,11 @@ The audit reader returns only machine fields: the time, the event kind, a result
 secret, parses with anchored patterns so text inside a reason cannot fake a field, and is bounded to 50 rows. The database path comes from `AEGIS_DESKTOP_AUDIT_DB`
 (the lab launcher sets it); the Desktop user must be able to read that file. `AEGIS_DESKTOP_RECOVERY_PATH` overrides the recovery view path.
 
+### CUT and RESTORE dialogs in Thai, English and Chinese
+
+The control Desktop's CUT and RESTORE dialogs (reason, typed confirmation, secret), the notices, the captions on the Lockdown page, the two button texts and the status
+line under each button follow the language selector (`tools/live_purple_control_strings.py`). Only the displayed wording is translated: the accepted purple source and the
+CUT Desktop still find their widgets by the English texts, the clients still return English sentences, the tests and the audit trail see English, and the confirmation
+words (`RESTORE UPLINK`, the CUT word), state codes (`PUBLISHED`, `REFUSED_AUTH`, ...), command words and reason codes are never translated. A sentence without a translation
+is shown in English; a test fails if any fixed sentence of the two clients lacks one. The Thai and Chinese wording needs a native review.
+

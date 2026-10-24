@@ -24,9 +24,10 @@ import stat
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import simpledialog
+from tkinter import messagebox, simpledialog
 
 from tools import graceful_exit
+from tools import live_purple_control_strings as strings
 from tools import live_purple_core_records as records
 from tools import live_purple_cut_desktop as cut_desktop
 from tools import live_purple_observer as live
@@ -192,16 +193,37 @@ def describe_decision(item) -> str:
 
 
 class ControlPrompts(cut_desktop.Prompts):
-    """CUT prompts plus the three RESTORE inputs. Replaceable in tests."""
+    """The CUT and RESTORE inputs and notices, worded in the Desktop's language (th/en/zh). Replaceable in tests.
+
+    Only the wording is translated, at display time: the confirmation words the Core expects, the state codes and the commands stay
+    as they are. ``language`` is replaced by the Desktop's language selector when the app is created."""
+
+    language = staticmethod(lambda: "en")
+
+    def _t(self, key, **kwargs):
+        return strings.text(key, self.language(), **kwargs)
+
+    def ask_reason(self):
+        return simpledialog.askstring(self._t("dialog.cut_title"), self._t("dialog.cut_reason"))
+
+    def ask_confirmation(self):
+        return simpledialog.askstring(self._t("dialog.cut_title"), self._t("dialog.confirm", word=cut_desktop.client.CONFIRMATION))
+
+    def ask_secret(self):
+        return simpledialog.askstring(self._t("dialog.cut_title"), self._t("dialog.cut_secret"), show="*")
+
+    def notify(self, title, text):
+        shown_title, shown_text = strings.notice(title, text, self.language())
+        messagebox.showwarning(shown_title, shown_text)
 
     def ask_restore_reason(self):
-        return simpledialog.askstring("RESTORE", "Reason for this RESTORE (12-240 characters):")
+        return simpledialog.askstring(self._t("dialog.restore_title"), self._t("dialog.restore_reason"))
 
     def ask_restore_confirmation(self):
-        return simpledialog.askstring("RESTORE", f"Type {restore_client.CONFIRMATION} to confirm your intent:")
+        return simpledialog.askstring(self._t("dialog.restore_title"), self._t("dialog.confirm", word=restore_client.CONFIRMATION))
 
     def ask_restore_secret(self):
-        return simpledialog.askstring("RESTORE", "RESTORE secret (verified by the Core; never stored):", show="*")
+        return simpledialog.askstring(self._t("dialog.restore_title"), self._t("dialog.restore_secret"), show="*")
 
 
 def _status(gui, level):
@@ -240,6 +262,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             if key == "lockdown":
                 self._install_restore_control()
                 self._install_severity_panel()
+                self._translate_controls()
             elif key == "recovery":
                 self._enable_navigation_button()   # the preview base disables every Button after a page is built
 
@@ -255,10 +278,11 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                     break
             for label in [w for w in self._walk(self.workspace) if isinstance(w, tk.Label)]:
                 text = str(label.cget("text"))
+                language = gui.i18n.get_language()
                 if text == "READ-ONLY CONTROL AVAILABILITY":
-                    label.configure(text="OPERATOR CONTROLS — CORE-AUTHENTICATED")
+                    label.configure(text=strings.text("control.caption", language))
                 elif text == "NOT_AVAILABLE — observer mode":
-                    label.configure(text="CUT and RESTORE — each verified by the Core")
+                    label.configure(text=strings.text("control.caption_note", language))
             button.configure(text=RESTORE_BUTTON_TEXT, state=tk.NORMAL, command=self._on_restore_pressed)
             self._restore_button = button
             self._restore_status = tk.Label(
@@ -270,7 +294,26 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
         def _restore_text(self):
             view = restore_flow.view
-            return f"{view.state}: {view.text}"
+            return f"{view.state}: {strings.flow_text(view.text, gui.i18n.get_language())}"
+
+        def _status_text(self):   # the CUT status line of the base class, worded in the Desktop's language
+            view = cut_flow.view
+            return f"{view.state}: {strings.flow_text(view.text, gui.i18n.get_language())}"
+
+        def _translate_controls(self):
+            """Button texts in the Desktop's language. The base classes find their buttons by the English texts while they build the
+            page; this runs after that, so only what is displayed changes."""
+            language = gui.i18n.get_language()
+            if language == "en":
+                return
+            shown = {
+                cut_desktop.CUT_BUTTON_TEXT: strings.text("control.cut_button", language),
+                RESTORE_BUTTON_TEXT: strings.text("control.restore_button", language),
+                RESTORE_DISABLED_TEXT: strings.text("control.restore_disabled", language),
+            }
+            for widget in self._walk(self.workspace):
+                if isinstance(widget, tk.Button) and widget.cget("text") in shown:
+                    widget.configure(text=shown[widget.cget("text")])
 
         def _refresh_restore_button(self):
             if self._restore_button is not None and self._restore_button.winfo_exists():
@@ -512,7 +555,10 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
     records.register_record_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()
-    app_class = _control_gui_class(gui, cut_flow, restore_flow, prompts or ControlPrompts(), run_async, graduated_path,
+    prompts = prompts or ControlPrompts()
+    if isinstance(prompts, ControlPrompts):
+        prompts.language = gui.i18n.get_language   # the dialogs follow the language selector
+    app_class = _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path,
                                    incident_source=incident_source, recovery_path=recovery_path, audit_path=audit_path)
     app = app_class(root, mqtt, controller, status_path=Path(status_path), max_age_seconds=max_age_seconds)
     return app, (mqtt, controller)

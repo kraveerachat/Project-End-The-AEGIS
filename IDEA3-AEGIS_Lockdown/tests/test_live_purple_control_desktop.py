@@ -763,3 +763,72 @@ def test_with_an_incident_source_the_incident_register_is_kept(app_factory):
     import inspect
 
     assert "incident_source is not None" in inspect.getsource(desktop._control_gui_class)
+
+
+# ---- P5: dialogs, captions and button texts in th/en/zh, translated at display only ----
+
+@pytest.mark.parametrize("language,script", [("th", "[฀-๿]"), ("zh", "[一-鿿]")])
+def test_control_buttons_and_captions_follow_the_language(app_factory, language, script):
+    import re
+
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language)
+    buttons = [b.cget("text") for b in _widgets(root, "Button")]
+    assert desktop.RESTORE_BUTTON_TEXT not in buttons and desktop.cut_desktop.CUT_BUTTON_TEXT not in buttons
+    assert any(re.search(script, text) and "RESTORE" in text for text in buttons)
+    assert any(re.search(script, text) and "CUT" in text for text in buttons)
+    texts = _texts(root)
+    assert "OPERATOR CONTROLS — CORE-AUTHENTICATED" not in texts and "CUT and RESTORE — each verified by the Core" not in texts
+    assert any(re.search(script, text) and "CUT" in text and "RESTORE" in text for text in texts)
+
+
+def test_english_control_texts_are_unchanged(app_factory):
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="en")
+    assert desktop.RESTORE_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
+    assert desktop.cut_desktop.CUT_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
+    assert "OPERATOR CONTROLS — CORE-AUTHENTICATED" in _texts(root)
+
+
+@pytest.mark.parametrize("language", ["th", "zh"])
+def test_a_translated_restore_button_still_runs_the_same_flow(app_factory, language):
+    flow, prompts = FakeRestoreFlow(), FakePrompts()
+    app, root = app_factory(flow, prompts, language=language)
+    button = next(b for b in _widgets(root, "Button") if "RESTORE" in b.cget("text") and str(b.cget("state")) == "normal")
+    button.invoke()
+    root.update()
+    assert flow.submitted == [("lab acceptance restore after CUT", "restore-secret", rc.CONFIRMATION)]   # internal identifiers untouched
+    assert app._restore_status is not None
+
+
+def test_the_status_line_is_translated_but_keeps_the_state_code(app_factory):
+    flow = FakeRestoreFlow()
+    flow.view = rc.View("REFUSED_PENDING", "A previous RESTORE awaits device evidence. Nothing new was sent.", rc.WARN, True)
+    app, root = app_factory(flow, FakePrompts(), language="th")
+    line = next(text for text in _texts(root) if text.startswith("REFUSED_PENDING"))
+    assert "A previous RESTORE" not in line and "REFUSED_PENDING: " in line and "RESTORE" in line
+    flow.view = rc.View("IDLE", "No RESTORE in progress.", rc.INFO, True)
+    app._refresh_restore_button()
+    root.update()
+    assert any(text.startswith("IDLE: ") and "No RESTORE" not in text for text in _texts(root))
+
+
+def test_the_cut_status_line_is_translated_too(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="zh")
+    assert any(text.startswith("IDLE: ") and "手动 CUT" in text for text in _texts(root))
+    assert not any("No manual CUT in progress." in text for text in _texts(root))
+
+
+def test_switching_the_language_relabels_the_controls_and_back(app_factory, tmp_path, monkeypatch):
+    import re
+
+    monkeypatch.setenv("AEGIS_DB_PATH", str(tmp_path / "audit.db"))   # set_language persists next to the DB path: keep it in tmp
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="en")
+    app._set_language("th")
+    root.update()
+    app._show_page("lockdown")
+    root.update()
+    assert any(re.search("[฀-๿]", b.cget("text")) for b in _widgets(root, "Button") if "RESTORE" in b.cget("text"))
+    app._set_language("en")
+    root.update()
+    app._show_page("lockdown")
+    root.update()
+    assert desktop.RESTORE_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
