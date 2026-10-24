@@ -76,7 +76,7 @@ record of what was actually watched.
 1. Confirm `$ATTACKER_VETH` should be allowed at all on a script whose header says "lab-only, narrow design" —
    i.e., that adding an attacker-controlled interface to the Core's own log rule, even log-only and even gated
    behind an explicit flag, is an acceptable testing accommodation.
-2. Decide whether the flag should also assert the interface carries only the `10.90.90.0/30` addressing from
+2. Decide whether the flag should also assert the interface carries only the `10.90.90.0/29` addressing from
    `attacker-ns-up.sh` (an extra guard against pointing it at something else by mistake).
 3. Re-run revision-3.1's preflight checks and the isolation `sandbox_report` after applying, since the diff touches
    the `setup-graduated.sh` the sandbox/priority checks run against.

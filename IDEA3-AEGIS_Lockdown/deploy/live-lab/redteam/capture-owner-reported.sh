@@ -23,7 +23,6 @@ STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # script re-checks each one at run time and only acts on what is actually still there.
 declare -A SOURCES=(
   [fz-01-a1-deadman]="$EVID/a1-restore-pending"
-  [rc-01-stale-restore-record]="$EVID/g6-restore-pending-diagnosis.txt"
   [rc-04-g6-restore-pending]="$EVID/acceptance.md $EVID/g6-restore-pending-diagnosis.txt"
   [op-02-restore-with-evidence]="$EVID/restore-output.log $EVID/acceptance.md"
   [dt-01-forged-log]=""

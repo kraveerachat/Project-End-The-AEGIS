@@ -6,11 +6,15 @@
 #   sudo ~/aegis-live-run/review/redteam/attacker-ns-up.sh   (or this copy under deploy/live-lab/redteam/)
 # Undo everything: sudo .../attacker-ns-down.sh   (idempotent, safe after a failed run)
 #
-# WHAT THIS SCRIPT DOES: creates the namespace, gives it exactly one address (10.90.90.2/30) and exactly one
-# route (10.77.30.1/32, the Core, via the host side of the veth) -- NO default route, so nothing else is
-# reachable from inside the namespace by the simple fact that there is no route to it. It then proves this by
-# pinging the Core (must succeed), the ESP32 at 10.77.30.10 (must fail) and 8.8.8.8 (must fail), and refuses to
-# finish -- rolling everything back -- if either negative check does not hold.
+# WHAT THIS SCRIPT DOES: creates the namespace, gives it three addresses on the same /29 (10.90.90.2, .3, .4 --
+# three distinct source IPs for the G2c distributed-sources scenario), and adds exactly ONE route beyond what the
+# kernel adds on its own (10.77.30.1/32, the Core, via the host side of the veth). The kernel's own
+# connected-subnet route for 10.90.90.0/29 stays too (it only reaches the host side of this SAME veth, nothing
+# else) -- NO default route is ever added, so nothing outside the Core and the veth's own tiny subnet is
+# reachable from inside the namespace by the simple fact that there is no route to it, for any of the three
+# addresses. It then proves this by pinging the Core from EACH of the three addresses (must succeed), then the
+# ESP32 at 10.77.30.10 and 8.8.8.8 (must fail -- a routing-table property, so checked once, not per address), and
+# refuses to finish -- rolling everything back -- if any check does not hold.
 #
 # WHY NO FORWARDING, NAT OR FIREWALL CHANGE IS NEEDED: 10.77.30.1 is an address of THIS SAME HOST (the Core's own
 # machine), just reached over a different interface (wlp0s20f3) than the veth. A packet the namespace sends to
@@ -19,8 +23,10 @@
 # interface it arrived on. It is never forwarded anywhere, so net.ipv4.ip_forward is left exactly as it is (not
 # read, not set) and no nftables rule, NAT rule or sysctl is added by this script in either direction.
 #
-# ADDRESSING: a dedicated /30, 10.90.90.0/30, chosen because it overlaps neither the AP subnet 10.77.30.0/28 nor
+# ADDRESSING: a dedicated /29, 10.90.90.0/29, chosen because it overlaps neither the AP subnet 10.77.30.0/28 nor
 # the home LAN 192.168.1.0/24, and (checked by this script) is not already assigned to any interface on the host.
+# A /29 gives usable addresses .1-.6: one for the host side, three for the namespace side (G2c needs 3 distinct
+# attacker source IPs; everything else in this harness uses only the first of the three).
 #
 # ATTACKER MODEL / LAB LIMITATION (read before testing): the "attacker" is a namespace on the SAME laptop as the
 # Core, reached over a veth, not over the AP radio. Its traffic still arrives at the Core as ordinary IPv4 packets
@@ -43,8 +49,9 @@ NS="aegis-att"
 VH="aegis-att-h"
 VN="aegis-att-n"
 HOST_ADDR="10.90.90.1"
-NS_ADDR="10.90.90.2"
-PREFIX=30
+NS_ADDR="10.90.90.2"           # primary namespace address; used by every scenario except G2c
+NS_ALIASES=("10.90.90.3" "10.90.90.4")   # two more, for G2c's three distinct sources
+PREFIX=29
 CORE_ADDR="10.77.30.1"
 ESP_ADDR="10.77.30.10"
 STATE="/run/aegis-att.state"
@@ -80,7 +87,7 @@ for tool in ip nft ping; do command -v "$tool" >/dev/null || die "missing tool: 
 ip netns list 2>/dev/null | grep -qx "$NS" && die "netns $NS already exists (not ours to touch); refusing"
 ip link show "$VH" >/dev/null 2>&1 && die "interface $VH already exists; refusing"
 ip link show "$VN" >/dev/null 2>&1 && die "interface $VN already exists in the host namespace; refusing"
-! ip -4 -o addr show 2>/dev/null | awk '{print $4}' | grep -qE '^10\.90\.90\.[0-3]/' || die "something already uses 10.90.90.0/30 on this host; pick a different /30 and edit both scripts"
+! ip -4 -o addr show 2>/dev/null | awk '{print $4}' | grep -qE '^10\.90\.90\.[0-7]/' || die "something already uses 10.90.90.0/29 on this host; pick a different /29 and edit both scripts"
 nft list table inet aegis_live >/dev/null 2>&1 || die "table inet aegis_live is missing (lab network not up; run aegis-live-up.sh first)"
 systemctl is-active --quiet aegis-live-core || die "aegis-live-core is not active (bring the lab up first)"
 AP_ADDRS="$(ip -4 -o addr show dev wlp0s20f3)" || die "could not read the AP interface addresses"
@@ -102,20 +109,33 @@ setstate ST_VETH
 ip link add "$VH" type veth peer name "$VN"
 ip link set "$VN" netns "$NS"
 
-echo "== 2/3 addressing: host $HOST_ADDR/$PREFIX, namespace $NS_ADDR/$PREFIX; ONE route in the namespace, no default route"
+echo "== 2/3 addressing: host $HOST_ADDR/$PREFIX, namespace $NS_ADDR + ${NS_ALIASES[*]} (all /$PREFIX); one explicit route added, no default route"
 ip addr add "$HOST_ADDR/$PREFIX" dev "$VH"
 ip link set "$VH" up
 ip netns exec "$NS" ip addr add "$NS_ADDR/$PREFIX" dev "$VN"
+for alias in "${NS_ALIASES[@]}"; do
+  ip netns exec "$NS" ip addr add "$alias/$PREFIX" dev "$VN"
+done
 ip netns exec "$NS" ip link set "$VN" up
 ip netns exec "$NS" ip link set lo up
 ip netns exec "$NS" ip route add "$CORE_ADDR/32" via "$HOST_ADDR" dev "$VN"
+# Two routes are expected in the namespace now, not one: the kernel adds a connected-subnet route for
+# 10.90.90.0/$PREFIX automatically when an address is assigned (needed only to reach the host side of this SAME
+# veth, e.g. a future lab-only test target added there -- see review/redteam/design-G3-critical.md), plus the one
+# explicit route to the Core added above. Anything beyond those two, or a default route, is a real problem.
 ROUTES_IN_NS="$(ip netns exec "$NS" ip -4 route show)"
-[[ $(wc -l <<< "$ROUTES_IN_NS") -eq 1 ]] || die "the namespace has more than one route after setup: $ROUTES_IN_NS"
+DEFAULT_IN_NS="$(ip netns exec "$NS" ip -4 route show default)"
+[[ -z $DEFAULT_IN_NS ]] || die "the namespace has a default route after setup (it must have none): $DEFAULT_IN_NS"
+[[ $(wc -l <<< "$ROUTES_IN_NS") -eq 2 ]] || die "the namespace has an unexpected route table after setup: $ROUTES_IN_NS"
+grep -q "^10\.90\.90\.0/$PREFIX " <<< "$ROUTES_IN_NS" || die "the connected veth-subnet route is missing: $ROUTES_IN_NS"
+grep -q "^$CORE_ADDR via $HOST_ADDR" <<< "$ROUTES_IN_NS" || die "the explicit Core route is missing or wrong: $ROUTES_IN_NS"
 
 echo "== 3/3 reachability guard (the script refuses to finish, and rolls back, unless every line below holds)"
-ip netns exec "$NS" ping -c1 -W2 "$CORE_ADDR" >/dev/null 2>&1 \
-  || die "the namespace cannot reach the Core ($CORE_ADDR); aborting and rolling back"
-echo "   OK: $CORE_ADDR (Core) is reachable from the namespace"
+for addr in "$NS_ADDR" "${NS_ALIASES[@]}"; do
+  ip netns exec "$NS" ping -I "$addr" -c1 -W2 "$CORE_ADDR" >/dev/null 2>&1 \
+    || die "the namespace cannot reach the Core ($CORE_ADDR) from $addr; aborting and rolling back"
+  echo "   OK: $CORE_ADDR (Core) is reachable from $addr"
+done
 if ip netns exec "$NS" ping -c1 -W1 "$ESP_ADDR" >/dev/null 2>&1; then
   die "the namespace CAN reach the ESP32 ($ESP_ADDR); this must never happen. Aborting and rolling back."
 fi
@@ -134,11 +154,14 @@ echo "   host default route: unchanged"
 getent hosts example.com >/dev/null || die "DNS stopped resolving on the host after setup; aborting"
 echo "   host DNS: unchanged"
 
-ATT_IP="$(ip netns exec "$NS" ip -4 -o addr show dev "$VN" | awk '{print $4}' | cut -d/ -f1)"
+ATT_IPS="$(ip netns exec "$NS" ip -4 -o addr show dev "$VN" | awk '{print $4}' | cut -d/ -f1 | sort -V)"
 echo
-echo "   attacker source IP, as the Core will see it in its logs and decisions: $ATT_IP"
+echo "   attacker source IPs, as the Core will see them in its logs and decisions:"
+echo "$ATT_IPS" | sed 's/^/     /'
+echo "   primary address (every scenario except G2c): $NS_ADDR.  G2c's three distinct sources: $NS_ADDR ${NS_ALIASES[*]}"
 echo "   enter the namespace to run a tool by hand:   sudo ip netns exec $NS -- <command>"
-echo "   (nmap/hydra/hping3 need no extra flag for this; see review/redteam/README.md for the exact commands and bounds)"
+echo "   pick a source address with nmap's --source-ip / hping3's/hydra's own source-binding flag; see"
+echo "   review/redteam/README.md for the exact commands and bounds"
 echo
 echo "OK. Namespace is up and isolated to $CORE_ADDR only. Teardown: sudo $DOWN"
 SUCCESS=1
