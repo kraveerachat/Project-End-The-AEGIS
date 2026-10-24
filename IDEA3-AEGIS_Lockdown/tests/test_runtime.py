@@ -1547,3 +1547,107 @@ def test_generic_attacker_callback_never_calls_issue_command(tmp_path, response)
 
     assert issued == []
     assert mqtt.published == []
+
+
+# ---- F-A2-1: a lost device is reported OFFLINE with an UNKNOWN uplink, never with the last reported values ----
+
+def _written_status(supervisor):
+    supervisor.status.write(supervisor.settings.status_path)
+    return json.loads(supervisor.settings.status_path.read_text(encoding="utf-8"))
+
+
+def _presence_supervisor(tmp_path, *, device_wait_sec=3):
+    mqtt = FakeMQTT()
+    mqtt.is_connected = True
+    mqtt.online = True
+    settings = replace(_settings(tmp_path), dry_run=False, device_wait_sec=device_wait_sec)
+    supervisor = AegisSupervisor(settings, mqtt_manager=mqtt, monotonic=lambda: 0)
+    return supervisor, mqtt
+
+
+@pytest.mark.parametrize("reported", ["NORMAL", "LOCKDOWN"])
+def test_lost_device_is_reported_offline_with_unknown_uplink(tmp_path, reported):
+    supervisor, mqtt = _presence_supervisor(tmp_path)
+    supervisor._handle_status(reported, -50, 1000)
+    supervisor._refresh_device_presence(now=100)
+    assert (supervisor.status.device, supervisor.status.uplink) == ("ONLINE", reported)   # still online: nothing changes
+
+    mqtt.online = False   # no authenticated device message for DEVICE_OFFLINE_SEC
+    supervisor._refresh_device_presence(now=101)
+    document = _written_status(supervisor)
+    assert (document["device"], document["uplink"]) == ("OFFLINE", "UNKNOWN")
+
+
+def test_device_recovers_with_the_next_authenticated_status(tmp_path):
+    supervisor, mqtt = _presence_supervisor(tmp_path)
+    supervisor._handle_status("NORMAL", -50, 1000)
+    mqtt.online = False
+    supervisor._refresh_device_presence(now=100)
+    assert (supervisor.status.device, supervisor.status.uplink) == ("OFFLINE", "UNKNOWN")
+
+    mqtt.online = True
+    supervisor._handle_status("LOCKDOWN", -50, 1000)   # the ESP32 boots into LOCKDOWN
+    document = _written_status(supervisor)
+    assert (document["device"], document["uplink"]) == ("ONLINE", "LOCKDOWN")
+    supervisor._refresh_device_presence(now=101)
+    assert (supervisor.status.device, supervisor.status.uplink) == ("ONLINE", "LOCKDOWN")
+    names = _event_names(tmp_path)
+    assert names.count("device_offline") == 1 and names.count("device_online") == 1
+
+
+def test_offline_is_logged_once_not_on_every_tick(tmp_path):
+    supervisor, mqtt = _presence_supervisor(tmp_path)
+    supervisor._handle_status("NORMAL", -50, 1000)
+    mqtt.online = False
+    for now in (100, 101, 102):
+        supervisor._refresh_device_presence(now=now)
+    assert _event_names(tmp_path).count("device_offline") == 1
+
+
+def test_presence_change_sends_no_command_and_creates_no_record(tmp_path):
+    supervisor, mqtt = _presence_supervisor(tmp_path)
+    armed_before = supervisor.status.armed
+    supervisor._handle_status("NORMAL", -50, 1000)
+    mqtt.online = False
+    supervisor._refresh_device_presence(now=100)
+    mqtt.online = True
+    supervisor._handle_status("LOCKDOWN", -50, 1000)
+    assert mqtt.published == []
+    assert supervisor.pending_command is None
+    assert supervisor.awaiting_physical_confirmation is None
+    assert supervisor.status.armed == armed_before
+    assert not any(name.startswith(("command", "restore", "cut")) for name in _event_names(tmp_path))
+
+
+def test_first_status_is_awaited_before_the_device_counts_as_offline(tmp_path):
+    supervisor, mqtt = _presence_supervisor(tmp_path, device_wait_sec=3)
+    mqtt.online = False
+    supervisor._refresh_device_presence(now=2)   # inside device_wait_sec: still waiting
+    assert (supervisor.status.device, supervisor.status.uplink) == ("UNKNOWN", "UNKNOWN")
+    supervisor._refresh_device_presence(now=4)
+    assert (supervisor.status.device, supervisor.status.uplink) == ("OFFLINE", "UNKNOWN")
+
+
+def test_dry_run_does_not_report_a_device_state(tmp_path):
+    mqtt = FakeMQTT()
+    supervisor = AegisSupervisor(_settings(tmp_path), mqtt_manager=mqtt, monotonic=lambda: 0)
+    supervisor._refresh_device_presence(now=1000)
+    assert supervisor.status.device == "UNKNOWN"
+
+
+def test_run_loop_applies_the_presence_rule_every_tick(tmp_path):
+    supervisor, mqtt = _presence_supervisor(tmp_path)
+    supervisor._handle_status("NORMAL", -50, 1000)
+    mqtt.online = False
+    seen = []
+    original = supervisor.evaluate_state
+
+    def evaluate(now=None):
+        seen.append((supervisor.status.device, supervisor.status.uplink))
+        supervisor.stop_requested = True   # one pass is enough
+        return original(now)
+
+    supervisor.evaluate_state = evaluate
+    supervisor.mqtt.start = lambda: None
+    supervisor.run()
+    assert seen and seen[0] == ("OFFLINE", "UNKNOWN")

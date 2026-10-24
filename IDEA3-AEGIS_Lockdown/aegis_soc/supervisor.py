@@ -253,6 +253,7 @@ class AegisSupervisor:
         self._graduated_history: deque = deque(maxlen=GRADUATED_HISTORY)
         self._graduated_write_lock = threading.Lock()
         self.started_at = monotonic()
+        self._device_seen = False   # becomes True with the first authenticated device status
         self.last_heartbeat_at = 0.0
         self.stop_requested = False
         self._stop_event = threading.Event()
@@ -540,7 +541,29 @@ class AegisSupervisor:
         with self._command_lock:
             self._handle_status(state, rssi, heap, command_nonce)
 
+    def _refresh_device_presence(self, now: float) -> None:
+        """Report a lost device as OFFLINE with an UNKNOWN uplink instead of keeping the last reported values.
+
+        ``device_online()`` (no authenticated device message for DEVICE_OFFLINE_SEC) is the only input. The next authenticated
+        status restores both fields in ``_handle_status``. This only changes what is reported; it sends nothing to the device.
+        """
+        if self.settings.dry_run:
+            return
+        with self._command_lock:
+            if self.mqtt.device_online():
+                return
+            if not self._device_seen and now - self.started_at <= self.settings.device_wait_sec:
+                return   # still waiting for the first status after the Core started: UNKNOWN, not OFFLINE
+            if self.status.device != "OFFLINE" or self.status.uplink != "UNKNOWN":
+                self.log_event("WARNING", "device_offline", previous_device=self.status.device,
+                               previous_uplink=self.status.uplink, timeout_sec=config.DEVICE_OFFLINE_SEC)
+            self.status.device = "OFFLINE"
+            self.status.uplink = "UNKNOWN"
+
     def _handle_status(self, state, rssi, heap, command_nonce="") -> None:
+        if self.status.device == "OFFLINE":
+            self.log_event("INFO", "device_online", reported_state=state)
+        self._device_seen = True
         self.status.device = "ONLINE"
         if state in {"NORMAL", "LOCKDOWN"}:
             self.status.uplink = state
@@ -1126,6 +1149,7 @@ class AegisSupervisor:
             while not self.stop_requested:
                 now = self.monotonic()
                 self._refresh_protocol_state()
+                self._refresh_device_presence(now)
                 if (now - self.last_heartbeat_at >= config.HEARTBEAT_INTERVAL_SEC
                         and self.controller.send_heartbeat()):
                     self.last_heartbeat_at = now
