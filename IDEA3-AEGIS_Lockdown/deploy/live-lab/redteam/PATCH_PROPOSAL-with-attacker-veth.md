@@ -1,4 +1,11 @@
-# Patch proposal: `setup-graduated.sh --with-attacker-veth` (NOT APPLIED)
+# Patch proposal: `setup-graduated.sh --with-attacker-veth` — **APPLIED 2026-10-25**
+
+**Applied to `~/aegis-live-run/review/setup-graduated.sh` exactly as the diff below, after `bash -n` passed.** That
+file is not in any git repository, so there is nothing to commit for the edit itself; this document (committed in
+the IDEA3 repo) is the record. A plain run with no flag produces byte-identical output to before: the inserted
+`ATTACKER_VETH=""` default and the `$([[ -n $ATTACKER_VETH ]] && echo ...)` substitution both evaluate to nothing
+when the flag is absent, so the generated `nft` rule text, and everything else, is unchanged. Not yet run with or
+without the flag.
 
 ## Finding
 
