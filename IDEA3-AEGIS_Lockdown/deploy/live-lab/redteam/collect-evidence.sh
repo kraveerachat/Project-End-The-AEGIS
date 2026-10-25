@@ -2,8 +2,10 @@
 # Snapshot the DEFENDER side of one red-team scenario, READ-ONLY, into
 #   ~/aegis-live-run/evidence/redteam/<scenario>-<UTC-start>/
 # and (if given) fold the ATTACKER-side output files you saved by hand into the same folder, so the two sides sit
-# together as one incident case study. No sudo. Writes nothing outside that one new folder. No secrets are read or
-# printed: it never opens secrets/, core.env, any *.key/*.pem, or a credential file.
+# together as one incident case study. Writes nothing outside that one new folder. No secrets are read or printed:
+# it never opens secrets/, core.env, any *.key/*.pem, or a credential file. Run as the operator directly, or
+# through sudo if a step needs it; either way it resolves the OPERATOR's home (never root's -- see WORK below), so
+# evidence always lands under the operator's own ~/aegis-live-run/evidence/, not /root/.
 #
 #   collect-evidence.sh SCENARIO START_UTC END_UTC [ATTACKER_OUTPUT_DIR] [ATTACKER_IP]
 #
@@ -34,7 +36,15 @@ if [[ -n $ATTACKER_IP ]]; then
   [[ $ATTACKER_IP =~ ^10\.90\.90\.[0-9]+$ ]] || die "ATTACKER_IP does not look like an attacker-namespace address (expected 10.90.90.x): $ATTACKER_IP"
 fi
 
-WORK="$HOME/aegis-live-run"
+# Resolve the OPERATOR's home, not root's: under sudo, $HOME is root's unless the invoking user is looked up via
+# SUDO_USER. Falls back to $HOME when not run through sudo (SUDO_USER unset).
+if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then
+  OPERATOR_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)" || die "could not resolve the home directory of $SUDO_USER"
+  [[ -n $OPERATOR_HOME && -d $OPERATOR_HOME ]] || die "SUDO_USER=$SUDO_USER has no usable home directory"
+else
+  OPERATOR_HOME="$HOME"
+fi
+WORK="$OPERATOR_HOME/aegis-live-run"
 RUNTIME_DIR="/run/aegis-live"
 LOGS_DIR="$WORK/logs"
 OUT_ROOT="$WORK/evidence/redteam"
