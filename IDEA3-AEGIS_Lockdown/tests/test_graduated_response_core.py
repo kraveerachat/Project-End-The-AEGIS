@@ -313,6 +313,10 @@ def _sshd(message):
     return _record(message, _TRANSPORT="syslog", _COMM="sshd", _UID="0")
 
 
+def _sshd_session(message, *, uid="0", transport="syslog"):
+    return _record(message, _TRANSPORT=transport, _COMM="sshd-session", _UID=uid)
+
+
 def _kernel(message):
     return _record(message, _TRANSPORT="kernel")
 
@@ -340,6 +344,52 @@ def test_the_graduated_detector_labels_each_rule_and_reports_login_after_brute_f
         detector.process_trusted(_kernel(f"AEGIS_NEWCONN SRC={IP} DPT={port}"))
     assert sent[:2] == [(IP, "ssh_brute_force"), (IP, "ssh_login_after_failures")]
     assert (IP, "port_scan") in sent  # a second vector from the same address is still reported
+
+
+@pytest.mark.parametrize("record", [_sshd("message"), _sshd_session("message")])
+def test_root_owned_sshd_and_sshd_session_records_are_trusted(record):
+    assert graduated_detector.trusted_record(record) == (graduated_detector.SOURCE_SSHD, "message")
+
+
+def test_non_root_sshd_session_records_are_rejected():
+    assert graduated_detector.trusted_record(_sshd_session("message", uid="1000")) is None
+
+
+def test_forged_logger_records_are_rejected():
+    forged = f"Failed password for root from {IP} port 22 ssh2"
+    assert graduated_detector.trusted_record(
+        _record(forged, _TRANSPORT="syslog", _COMM="logger", _UID="1000")
+    ) is None
+
+
+@pytest.mark.parametrize("transport", ["audit", "driver"])
+def test_sshd_session_records_from_untrusted_transports_are_rejected(transport):
+    assert graduated_detector.trusted_record(_sshd_session("message", transport=transport)) is None
+
+
+def test_kernel_records_remain_trusted():
+    message = f"AEGIS_NEWCONN SRC={IP} DPT=443"
+    assert graduated_detector.trusted_record(_kernel(message)) == (graduated_detector.SOURCE_KERNEL, message)
+
+
+def test_five_root_sshd_session_failures_inside_thirty_seconds_are_required_for_an_alert():
+    detector, sent = recording_detector()
+    failure = _sshd_session(f"Failed password for root from {IP} port 22 ssh2")
+    for _ in range(4):
+        detector.process_trusted(failure)
+    assert sent == []
+    detector.process_trusted(failure)
+    assert sent == [(IP, "ssh_brute_force")]
+
+
+def test_ssh_failure_windows_are_isolated_by_source_address():
+    detector, sent = recording_detector()
+    for _ in range(4):
+        detector.process_trusted(_sshd_session(f"Failed password for root from {IP} port 22 ssh2"))
+        detector.process_trusted(_sshd_session(f"Failed password for root from {OTHER_IP} port 22 ssh2"))
+    assert sent == []
+    detector.process_trusted(_sshd_session(f"Failed password for root from {OTHER_IP} port 22 ssh2"))
+    assert sent == [(OTHER_IP, "ssh_brute_force")]
 
 
 def test_a_login_without_prior_failures_or_with_a_forged_user_name_is_not_reported():
@@ -372,7 +422,8 @@ def test_the_graduated_follower_argv_is_a_constant_kernel_or_sshd_match():
     from aegis_soc import production_detector as pd
 
     assert graduated_detector.TRUSTED_JOURNAL_ARGV == (
-        "journalctl", "-f", "-n", "0", "-o", "json", "_TRANSPORT=kernel", "+", "_COMM=sshd",
+        "journalctl", "-f", "-n", "0", "-o", "json", "_TRANSPORT=kernel", "+",
+        "_COMM=sshd", "_COMM=sshd-session", "_UID=0",
     )
     assert pd.JOURNAL_ARGV == ("journalctl", "-f", "-n", "0", "-o", "cat")  # the reviewed follower is unchanged
 

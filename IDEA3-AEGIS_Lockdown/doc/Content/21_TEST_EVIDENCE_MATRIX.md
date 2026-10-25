@@ -16,13 +16,13 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | 4.5.2 | Authentication / Authorization Tests | 3 | 2 | 0 | 1 |
 | 4.5.3 | Negative / Rejection Tests | 5 | 5 | 0 | 0 |
 | 4.5.4 | Security Mechanism Verification | 8 | 7 | 1 | 0 |
-| 4.5.5 | Detection / Containment Tests | 5 | 3 | 1 | 1 |
+| 4.5.5 | Detection / Containment Tests | 6 | 3 | 2 | 1 |
 | 4.5.6 | Recovery Tests | 10 | 7 | 2 | 1 |
 | 4.5.7 | Hardware / Runtime Acceptance | 20 | 14 | 4 | 2 |
 | 4.5.8 | Failure-mode Tests | 9 | 6 | 2 | 1 |
 | 4.5.9 | Current Limitations | 0 | 0 | 0 | 0 |
 | 4.5.10 | IDEA 3 Result Summary | 0 | 0 | 0 | 0 |
-| | **Total** | **64** | **44** | **10** | **10** |
+| | **Total** | **65** | **44** | **11** | **10** |
 
 ## 4.5.1 Threat Scenario Tests
 
@@ -73,6 +73,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 | OP-07 | CUT and RESTORE timing | command-to-relay time measured | Protocol round trip is in the Core log (CUT sent to ACK 49 to 147 ms over four CUTs; RESTORE 23 to 205 ms over four RESTOREs); the time to the physical change was not measured | lab logs/aegis_soc.log | PENDING |
 | GR-07 | Severity panel on the control Desktop in th/en/zh | follows the language, codes untranslated | 15 pure and 13 GUI tests pass | tests/test_live_purple_control_desktop.py | PASS |
 | DT-04 | Detector to Core alert path on `main` as it is | alert reaches the Core over TLS | Not supported without code changes: the detector uses plaintext MQTT on 1883, the v1 Core does not subscribe to it, the F1 ingress is production-only (G7) | lab evidence/g7-not-supported.md; doc 18 | FINDING |
+| F-SSH-1 | OpenSSH 10.5p1 failures recorded as root-owned `sshd-session` records reach the per-IP SSH threshold | four failures: no alert; five within 30 s: `ssh_brute_force` | Live 2026-10-25 evidence contained seven genuine failures from `10.90.90.3` within one second with `_COMM=sshd-session`, `_UID=0`, `_TRANSPORT=syslog`; the old detector trusted only `sshd`. Minimal compatibility fix is locally verified (53/53 focused; 85/85 graduated/detector; 9/9 detector-focused F1; 5/5 non-socket ingress). Human-reported Arch Linux host broad regression: 237 passed / 0 failed in 15.42 s, exit code 0. The fix is not deployed or runtime-retested | doc 19 (F-SSH-1); tests/test_graduated_response_core.py | FINDING |
 
 ## 4.5.6 Recovery Tests
 
@@ -130,7 +131,7 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 
 ## 4.5.9 Current Limitations
 
-- FINDING rows (something differs from the expectation or a gap was found): DT-04, IS-04, NT-03, PH-07, PL-03, PL-04, RC-01, RC-04, RC-06, RC-07.
+- FINDING rows (something differs from the expectation or a gap was found): DT-04, F-SSH-1, IS-04, NT-03, PH-07, PL-03, PL-04, RC-01, RC-04, RC-06, RC-07.
 - PENDING rows (not run, not recorded, or offline only where a lab or hardware result is needed): AU-02, FZ-07, GR-01, GR-02, GR-03, GR-08, OP-07, PH-02, PH-09, RC-02.
 - Several PASS rows rest on owner observations whose terminal output or notes were not archived (PH-06, DT-01, IS-01, NT-02, NT-04, NT-05, GR-06). Archive the outputs next to the lab evidence.
 - The boot reading after the COM–NO rewire (PH-02) and the meter reading after a control Desktop CUT (PH-09) were not recorded. No row measures the time to the physical change (OP-07) or covers the live graduated levels (GR-01 to GR-03).
@@ -142,7 +143,12 @@ Status: filled from docs 16–19, the lab evidence files and the results of 2026
 1. **Done in code, not yet re-tested on the hardware: the Desktop STALE threshold is now 60 s** (`DESKTOP_MAX_AGE_SECONDS`, the dead-man window). The A1 freeze lasted about one to two minutes, so the earlier 120 s threshold may never have shown STALE in that test (FZ-07); repeat A1 to confirm.
 2. **Done in code, offline tests only: expiry of an ACKed-but-never-confirmed RESTORE record.** It stops blocking a new RESTORE 8 s after its ACK (`PHYSICAL_CONFIRM_TIMEOUT_SEC`); the refusal before that names the seconds left. Repeat the G6 case (power loss between ACK and status) on the hardware.
 3. **`npm audit` upgrade.** `npm audit --omit=dev` reports 2 high findings (body-parser, transitive; zod, direct) in the web application, identical on the base lockfile. Upgrade or accept.
+4. **F-SSH-1 is fixed and regression-tested locally and on the host, but runtime acceptance is pending.** The human-run
+   Arch Linux broad regression passed 237/237 in 15.42 s (exit code 0). Deploy the reviewed
+   `graduated_detector.py`, restart only under a separately authorized runtime procedure, and observe a fresh genuine
+   root-owned `sshd-session` failure window reaching `ssh_brute_force`. No deployment, detector restart, live attack or
+   runtime PASS occurred on 2026-10-25; G3 was not started.
 
 ## 4.5.10 IDEA 3 Result Summary
 
-44 of 64 rows PASS, 10 are FINDINGS and 10 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and was confirmed on the hardware by the A2 power-loss test and again after the P1-P6 changes (RC-03, PL-01). A2 also found that the Core never reported the device as OFFLINE (PL-06, F-A2-1); the fix was verified on the hardware. No automatic RESTORE was seen in any lab run (GR-04, OP-06).
+44 of 65 rows PASS, 11 are FINDINGS and 10 are PENDING. The relay actuation, the operator CUT and RESTORE paths, the dead-man's switch under a frozen Core, the Telegram notifications (after the delivery fix) and the isolation of the graduated-response units were observed on the lab hardware. Graduated response levels were verified offline only (GR-01 to GR-03 and GR-08 are not yet run live). The one functional defect found on hardware, the refused RESTORE after an uncommanded lockdown (RC-01), has a fix that passes its regression tests and was confirmed on the hardware by the A2 power-loss test and again after the P1-P6 changes (RC-03, PL-01). A2 also found that the Core never reported the device as OFFLINE (PL-06, F-A2-1); the fix was verified on the hardware. F-SSH-1 found that OpenSSH 10.5p1 authentication events use root-owned `sshd-session` journal records; its compatibility fix passed the human-run Arch Linux broad regression (237/237, exit code 0) but remains undeployed and has no runtime PASS. No automatic RESTORE was seen in any lab run (GR-04, OP-06).

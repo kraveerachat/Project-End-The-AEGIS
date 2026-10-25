@@ -132,3 +132,30 @@ Recorded from the operator's report; the terminal output was not archived, so th
 - **F-A2-1 on the hardware:** with the ESP32 USB unplugged, the Desktop showed `ESP32: OFFLINE` and uplink `UNKNOWN` after **38.40 s** (operator-measured, within the 45 s limit from the last device message), and the Recovery page showed NOT READY with its reasons. After replugging, the first status was LOCKDOWN (BOOT), a single RESTORE was accepted and tester pin 2 was on.
 - **Result:** F-A2-1 (fix `09005c6`) and F-A1-1 (fix `16b7565`) are verified on the hardware.
 - **Not repeated:** the 60 s Desktop STALE threshold with a frozen Core (A1 repeat), the 8 s expiry of an ACKed-but-unconfirmed RESTORE record (needs power loss between ACK and status), and the Chinese wording.
+
+## F-SSH-1 — OpenSSH 10.5p1 authentication records use `sshd-session` (2026-10-25)
+
+- **Observed failure and root cause:** the graduated detector followed only the SSH journal selector `_COMM=sshd` and
+  `trusted_record()` accepted only `_COMM=sshd`. On the live host, OpenSSH 10.5p1 emitted the genuine authentication
+  records as `_COMM=sshd-session`, `_UID=0`, `_TRANSPORT=syslog`; the records therefore never reached the SSH failure
+  counter even though their messages were valid.
+- **Live evidence:** seven genuine `Failed password` events from `10.90.90.3` were present within one second on
+  2026-10-25 with the fields above. This session inspected that existing evidence only; it did not run Hydra, Nmap or
+  another live attack.
+- **Minimal compatibility fix:** the constant `journalctl` query now selects
+  `kernel OR ((sshd OR sshd-session) AND UID=0)`. The same-field `_COMM` matches use `journalctl`'s implicit OR; the
+  separate `+` keeps the kernel records in their existing independent branch. `trusted_record()` accepts `sshd` and
+  `sshd-session` only when `_UID=0`. The existing trusted SSH transport allowlist (`syslog`, `journal`, `stdout`) is
+  unchanged, and kernel records remain supported.
+- **Local regression evidence:** `tests/test_graduated_response_core.py` passed **53/53**. The graduated policy,
+  detector and legacy detector set passed **85/85**; an additional detector-focused F1 subset passed **9/9**, and the
+  non-socket ingress subset passed **5/5**. The tests cover root-owned `sshd-session`, root-owned `sshd`, non-root
+  rejection, forged `logger` rejection, untrusted transport rejection, kernel compatibility, no alert after four
+  failures, `ssh_brute_force` after five failures within 30 seconds, and per-IP isolation.
+- **Broad host regression:** the human operator ran the five-file broad regression directly on the Arch Linux host:
+  **237 passed / 0 failed in 15.42 s, exit code 0**. The prior Codex-sandbox result was 183 passed / 54 failed, all at
+  AF_UNIX bind with `EPERM`; those 54 failures did not reproduce on the host and are classified as a sandbox limitation,
+  not a product regression.
+- **Remaining runtime acceptance:** the fix has not been deployed, the detector has not been restarted, and no fresh
+  real SSH-failure window has been observed through the fixed runtime. F-SSH-1 therefore remains runtime acceptance
+  pending; no runtime PASS is claimed, and G3 was not started.

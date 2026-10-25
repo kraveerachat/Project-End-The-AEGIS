@@ -8,9 +8,9 @@ changes three things:
    address *and* rule, so a second, different vector from the same address is still reported;
 2. one extra rule: a successful sshd login from an address that crossed the brute-force rule in the same window
    (``ssh_login_after_failures``), the compromise signal the Core needs before it may cut automatically;
-3. it follows ``journalctl -o json`` limited to the kernel and sshd, and checks journald's trusted fields (``_TRANSPORT``,
-   ``_COMM``, ``_UID``) so netfilter rules only see kernel records and SSH rules only see records from sshd running as
-   root. A local user writing look-alike lines with logger(1) is ignored.
+3. it follows ``journalctl -o json`` limited to the kernel and sshd/sshd-session, and checks journald's trusted fields
+   (``_TRANSPORT``, ``_COMM``, ``_UID``) so netfilter rules only see kernel records and SSH rules only see records from
+   the SSH daemon running as root. A local user writing look-alike lines with logger(1) is ignored.
 
 It still imports no MQTT client, opens no network socket, holds no secret and requests nothing: the Core decides.
 """
@@ -31,8 +31,14 @@ KIND_SSH_BRUTE_FORCE = "ssh_brute_force"
 KIND_SYN_FLOOD = "syn_flood"
 KIND_SSH_LOGIN_AFTER_FAILURES = "ssh_login_after_failures"
 
-# A constant argv: kernel records OR sshd records, JSON so the trusted journald fields are available.
-TRUSTED_JOURNAL_ARGV = ("journalctl", "-f", "-n", "0", "-o", "json", "_TRANSPORT=kernel", "+", "_COMM=sshd")
+# A constant argv: kernel records OR SSH records, JSON so the trusted journald fields are available. The live OpenSSH
+# 10.5p1 host (F-SSH-1) records authentication under "sshd-session"; keep it in the SAME OR-group as classic "sshd"
+# (journalctl implicitly ORs matches on one field). The "+" still separates the complete root-owned SSH group from the
+# independent kernel group.
+TRUSTED_JOURNAL_ARGV = (
+    "journalctl", "-f", "-n", "0", "-o", "json", "_TRANSPORT=kernel", "+",
+    "_COMM=sshd", "_COMM=sshd-session", "_UID=0",
+)
 SOURCE_KERNEL = "kernel"
 SOURCE_SSHD = "sshd"
 RECORD_MAX_CHARS = 4 * pd.LINE_MAX_CHARS
@@ -42,7 +48,7 @@ _SSH_ACCEPTED_RE = re.compile(r"Accepted \S+ for \S+ from (\d+\.\d+\.\d+\.\d+) p
 
 
 def trusted_record(raw: str) -> tuple[str, str] | None:
-    """``(source, message)`` for a journald JSON record from the kernel or from sshd running as root, else None."""
+    """``(source, message)`` for a journald JSON record from the kernel or a root-owned SSH daemon, else None."""
     if len(raw) > RECORD_MAX_CHARS:
         return None
     try:
@@ -56,7 +62,14 @@ def trusted_record(raw: str) -> tuple[str, str] | None:
         return None  # journald encodes non-UTF-8 messages as byte arrays: never parsed
     if record.get("_TRANSPORT") == "kernel":
         return SOURCE_KERNEL, message[: pd.LINE_MAX_CHARS]
-    if record.get("_COMM") == "sshd" and record.get("_UID") == "0" and record.get("_TRANSPORT") in ("syslog", "journal", "stdout"):
+    # F-SSH-1: the live OpenSSH 10.5p1 host uses _COMM=sshd-session for authentication. Accept that and classic sshd
+    # only when root-owned; keep the existing transport allowlist unchanged. The observed sshd-session transport is
+    # syslog (2026-10-25).
+    if (
+        record.get("_COMM") in ("sshd", "sshd-session")
+        and record.get("_UID") == "0"
+        and record.get("_TRANSPORT") in ("syslog", "journal", "stdout")
+    ):
         return SOURCE_SSHD, message[: pd.LINE_MAX_CHARS]
     return None
 
