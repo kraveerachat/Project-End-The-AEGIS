@@ -64,7 +64,7 @@ CORE_USER="${SUDO_USER:?run through sudo so the operator is known}"
 HOME_DIR="$(getent passwd "$CORE_USER" | cut -d: -f6)" || die "could not determine the operator's home directory"
 [[ -n $HOME_DIR && -d $HOME_DIR ]] || die "the operator home directory is empty or missing"
 WORK="$HOME_DIR/aegis-live-run"
-TEARDOWN="$WORK/review/teardown-g3-target.sh"
+TEARDOWN="$WORK/review/redteam/teardown-g3-target.sh"
 KEYDIR="$WORK/review/redteam/g3-target"
 
 VH="aegis-att-h"                      # must already exist: deploy/live-lab/redteam/attacker-ns-up.sh
