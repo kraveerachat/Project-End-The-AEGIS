@@ -50,6 +50,29 @@
 #   isolation (InaccessiblePaths + ProtectHome + ProtectSystem=strict + a locked, key-only, no-shell account still
 #   apply); both are left for your review before this runs.
 #
+# CONFIRMED LIVE 2026-10-27: a first run of this unit (full CapabilityBoundingSet, no AmbientCapabilities=) failed
+# every connection with "setresuid 65534: Operation not permitted [preauth]" in the unit's own journal. Read from
+# /proc/<pid>/status on the running (root) daemon itself -- no connection, no fork, no privsep child involved yet --
+# CapBnd included CAP_SETUID (bit 7) but CapPrm/CapEff did NOT: of every bit CapBnd held, CAP_SETUID was the ONLY
+# one missing from CapPrm/CapEff (CAP_SETGID, CAP_SYS_CHROOT, CAP_CHOWN, CAP_DAC_OVERRIDE, CAP_SETPCAP, CAP_KILL,
+# CAP_SYS_RESOURCE, CAP_AUDIT_WRITE -- the rest of the originally-considered list -- were already present in
+# CapPrm/CapEff without any extra setting). A capability can be in Bounding without being in Permitted/Effective:
+# Bounding is only a ceiling on what a later execve may grant, and apparently this systemd version does not carry
+# CAP_SETUID through for a `User=root` unit unless told to. The fix is `AmbientCapabilities=`, not loosening
+# NoNewPrivileges: Ambient capabilities are a kernel mechanism (Linux 4.3+) specifically for "this capability
+# survives my own process's later privilege drop (setuid/setresuid away from root)" -- precisely sshd's privsep
+# case -- and systemd guarantees an Ambient capability lands in Permitted+Effective after exec regardless of
+# NoNewPrivileges. NoNewPrivileges=yes is KEPT (not flipped to no): it was never the cause (it blocks gaining new
+# privileges via exec of setuid binaries / LSM transitions, not a process's own setresuid using capabilities it
+# already holds), and the capability bit-dump above shows no change tied to it. The full originally-considered
+# list is still granted as Ambient below, even though only CAP_SETUID was empirically proven missing, so the
+# fix is not fragile to a systemd-version difference that drops more than this one bit elsewhere.
+#
+# Also checked and ruled out: modern OpenSSH (10.5p1, confirmed via `sshd -V`) has no "UsePrivilegeSeparation"
+# directive and the installed sshd binary's strings hold no "var/empty" or "privsep" chroot-path reference --
+# privilege separation here is the modern seccomp-based preauth sandbox, not the old chroot-into-a-directory
+# design, so no extra writable directory or ReadWritePaths= is needed for privsep itself.
+#
 # WHAT THIS SCRIPT NEVER TOUCHES: /etc/ssh (the Core's real sshd, its config, its host keys), any existing account,
 # core.env, any nftables table, any route, the AP interface, the ESP32, or any production aegis-idea3-* unit. It
 # refuses to start if the target address, account, port, or state file already exist. Prints no secrets (the
@@ -77,6 +100,10 @@ HOSTKEY="$RUNDIR/ssh_host_ed25519_key"
 AUTHKEYS="$RUNDIR/authorized_keys"
 SSHD_CONFIG="$RUNDIR/sshd_config"
 UNIT="aegis-g3-target-sshd"
+# Granted as Ambient (not just Bounding) so they survive sshd's own privsep setuid/setresuid away from root --
+# see the CONFIRMED LIVE 2026-10-27 header note. CapabilityBoundingSet is left at its default (full); this list is
+# a strict subset of it, carried into Permitted+Effective across sshd's own credential change, nothing more.
+NEEDED_CAPS=(CAP_SETUID CAP_SETGID CAP_SYS_CHROOT CAP_CHOWN CAP_DAC_OVERRIDE CAP_SETPCAP CAP_KILL CAP_SYS_RESOURCE CAP_AUDIT_WRITE)
 STATE="/run/aegis-g3-target.state"
 
 as_user() { runuser -u "$CORE_USER" -- "$@"; }
@@ -108,6 +135,30 @@ sandbox_report() {
   done
   [[ $leaked -eq 0 ]] || return 1
   echo "      all ${#MUST_BE_HIDDEN[@]} secret paths hidden"
+}
+
+# cap_check <pid>: every name in NEEDED_CAPS must be set in that process's CapEff (/proc/<pid>/status), by bit
+# number -- not just in CapBnd, which only bounds what a later execve may grant (see the CONFIRMED LIVE header
+# note: CapBnd having a capability does not mean CapEff/CapPrm does). Fails loudly, names exactly which bit.
+cap_check() {
+  local pid=$1 effhex
+  effhex="$(awk '/^CapEff:/ {print $2}' "/proc/$pid/status")"
+  [[ $effhex =~ ^[0-9a-fA-F]+$ ]] || die "could not read CapEff for pid $pid"
+  CAP_EFF_PID="$pid" CAP_EFF_HEX="$effhex" CAP_NAMES="${NEEDED_CAPS[*]}" python3 - <<'PY'
+import os, sys
+bits = {
+    "CAP_CHOWN": 0, "CAP_DAC_OVERRIDE": 1, "CAP_DAC_READ_SEARCH": 2, "CAP_FOWNER": 3, "CAP_FSETID": 4,
+    "CAP_KILL": 5, "CAP_SETGID": 6, "CAP_SETUID": 7, "CAP_SETPCAP": 8, "CAP_SYS_CHROOT": 18,
+    "CAP_SYS_RESOURCE": 24, "CAP_AUDIT_WRITE": 29,
+}
+eff = int(os.environ["CAP_EFF_HEX"], 16)
+missing = [n for n in os.environ["CAP_NAMES"].split() if eff & (1 << bits[n]) == 0]
+print(f"   [cap_check] pid={os.environ['CAP_EFF_PID']} CapEff=0x{eff:x}")
+if missing:
+    print("      MISSING from CapEff: " + " ".join(missing))
+    sys.exit(1)
+print("      all " + str(len(os.environ["CAP_NAMES"].split())) + " needed capabilities present in CapEff")
+PY
 }
 
 # ---- rollback on every non-success exit --------------------------------------------------------------------------------
@@ -217,12 +268,14 @@ systemd-run --unit="$UNIT" --collect \
   -p NoNewPrivileges=yes -p PrivateTmp=yes \
   -p ProtectSystem=strict -p ProtectKernelTunables=yes -p ProtectKernelModules=yes -p ProtectControlGroups=yes \
   -p RestrictNamespaces=yes -p LockPersonality=yes \
+  -p "AmbientCapabilities=${NEEDED_CAPS[*]}" \
   "$SSHD_BIN" -D -e -f "$SSHD_CONFIG" >/dev/null
 sleep 1
 systemctl is-active --quiet "$UNIT.service" || { journalctl -u "$UNIT.service" -n 20 --no-pager; die "$UNIT.service did not come up"; }
 PID="$(systemctl show -p MainPID --value "$UNIT.service")"
 [[ $PID =~ ^[0-9]+$ && $PID -gt 0 ]] || die "could not read the unit's main pid"
 sandbox_report "$PID" || die "a secret path is visible inside $UNIT; aborting and rolling back"
+cap_check "$PID" || die "a capability sshd's privsep needs is missing from CapEff; aborting and rolling back"
 ss -ltn "( sport = :$TARGET_PORT )" 2>/dev/null | grep -q "$TARGET_ADDR:$TARGET_PORT" || die "sshd is not listening on $TARGET_ADDR:$TARGET_PORT"
 echo "   listening on $TARGET_ADDR:$TARGET_PORT only (checked)"
 
