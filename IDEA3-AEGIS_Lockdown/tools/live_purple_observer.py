@@ -453,9 +453,30 @@ def _live_gui_class(gui):
             section = gui.Section(page, "CORE LOCKDOWN EVIDENCE")
             section.pack(fill="x", padx=16, pady=(0, 16))
             values = evidence_values(self.latest)
-            for label, key in (("ARM/DISARM reported state", "armed"), ("Uplink reported state", "uplink"), ("Dispatch mode", "dispatch"), ("AUTO_CONTAIN reported mode", "auto_contain"), ("Evidence freshness", "freshness")):
-                self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
-            self._add_fact(section.body, "Operational controls", "NOT_AVAILABLE — observer mode", status=gui.pres.STATUS_WARNING)
+            rows = [
+                (label, values[key], _status(gui, values[key]))
+                for label, key in (
+                    ("ARM/DISARM reported state", "armed"), ("Uplink reported state", "uplink"),
+                    ("Dispatch mode", "dispatch"), ("AUTO_CONTAIN reported mode", "auto_contain"),
+                    ("Evidence freshness", "freshness"),
+                )
+            ]
+            rows.append(("Operational controls", "NOT_AVAILABLE — observer mode", gui.pres.STATUS_WARNING))
+            # Same rows, same order/values/colors as before -- two columns (the pinned _reflow_columns
+            # fact-grid used on Recovery/Overview) instead of one tall stack, so this section is about
+            # half as high. The page itself is already rebuilt whole on every evidence change and its
+            # scroll position preserved by fraction (see _workspace_scroll_fraction), so this needs no
+            # extra wiring: any resulting change is picked up by that existing mechanism automatically.
+            grid = tk.Frame(section.body, bg=section.body.cget("bg"))
+            grid.pack(fill="x")
+            half = (len(rows) + 1) // 2
+            columns = []
+            for chunk in (rows[:half], rows[half:]):
+                column = tk.Frame(grid, bg=grid.cget("bg"))
+                for label, value, status in chunk:
+                    self._add_fact(column, label, value, status=status)
+                columns.append(column)
+            self._reflow_columns(grid, columns)
             controls = gui.Section(page, "READ-ONLY CONTROL AVAILABILITY", accent=gui.COLOR_WARN_HL)
             controls.pack(fill="x", padx=16, pady=(0, 20))
             tk.Button(
