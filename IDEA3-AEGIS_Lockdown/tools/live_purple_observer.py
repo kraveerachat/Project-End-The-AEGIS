@@ -421,11 +421,22 @@ def _live_gui_class(gui):
                 self._observer_evidence_section.destroy()
             section = gui.Section(self._observer_page, "LIVE CORE EVIDENCE — READ ONLY")
             section.pack(fill="x", padx=16, pady=(0, 16))
-            for label, value, status in snapshot:
-                self._add_fact(section.body, label, value, status=status)
+            # Same rows, same order, same values/colors as before -- just in two columns
+            # (the pinned _reflow_columns fact-grid, the same responsive mechanism the
+            # Recovery page's cause/attempts cards use) instead of one tall stack, so this
+            # section is about half as high and needs far less scrolling to read.
+            grid = tk.Frame(section.body, bg=section.body.cget("bg"))
+            grid.pack(fill="x")
+            half = (len(snapshot) + 1) // 2
+            columns = []
+            for rows in (snapshot[:half], snapshot[half:]):
+                column = tk.Frame(grid, bg=grid.cget("bg"))
+                for label, value, status in rows:
+                    self._add_fact(column, label, value, status=status)
+                columns.append(column)
+            self._reflow_columns(grid, columns)
             self._observer_evidence_section = section
             self._restore_scroll_yview(saved)
-            self._observer_evidence_section = section
 
         def _build_devices_page(self, parent):
             page = self._new_page(parent, "devices.title", "devices.subtitle")
