@@ -372,10 +372,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 
         # -- read-only Core pages (Recovery; Incidents and Audit follow) ------------------------------------------------
-        def _start_live_page(self, key, render):
-            """Render now and again every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page."""
+        def _start_live_page(self, key, render, *, scroll_anchor=None):
+            """Render now and again every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page.
+            ``scroll_anchor`` is any live widget inside the page's ScrollFrame (e.g. a Section's body): the render
+            destroys and rebuilds its children every tick, which otherwise resets the enclosing scroll position back
+            to the top (see _scroll_yview)."""
             self._stop_live_page()
-            self._page_tick = (key, render)
+            self._page_tick = (key, render, scroll_anchor)
             self._tick_live_page(first=True)
 
         def _stop_live_page(self):
@@ -391,19 +394,46 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._page_after = None
             if self._page_tick is None:
                 return
-            key, render = self._page_tick
+            key, render, scroll_anchor = self._page_tick
             if getattr(self, "active_page", None) != key:
                 self._page_tick = None
                 return
+            saved = self._scroll_yview(scroll_anchor)
             try:
                 render()
             except tk.TclError:   # the page was destroyed under us
                 self._page_tick = None
                 return
+            self._restore_scroll_yview(saved)
             try:
                 self._page_after = self.root.after(SEVERITY_POLL_MS, self._tick_live_page)
             except (tk.TclError, RuntimeError):
                 self._page_after = None
+
+        def _scroll_yview(self, anchor):
+            """The enclosing ScrollFrame and its current vertical view fraction, from any widget inside it (the
+            same ``_aegis_scroll_frame`` lookup the accepted mouse-wheel dispatcher already uses) -- or None when
+            there is no anchor, no enclosing ScrollFrame, or its canvas is already gone."""
+            if anchor is None:
+                return None
+            frame = gui.ui_theme._scroll_frame_at(anchor)
+            if frame is None or not frame.canvas.winfo_exists():
+                return None
+            return frame, frame.canvas.yview()[0]
+
+        def _restore_scroll_yview(self, saved):
+            if saved is None:
+                return
+            frame, position = saved
+            # The body's destroy()+rebuild only *schedules* the inner frame's <Configure> handler that
+            # recomputes the canvas scrollregion (theme.ScrollFrame binds it, and Tk defers it to the next
+            # idle pass); without flushing it here first, yview_moveto() below runs against the stale
+            # pre-rebuild scrollregion, and the real recompute -- which fires later, during whatever
+            # root.update() the caller does next -- then reinterprets that position against the new
+            # scrollregion and silently throws the restore away. Flushing first fixes the ordering.
+            frame.canvas.update_idletasks()
+            if frame.canvas.winfo_exists():
+                frame.canvas.yview_moveto(position)
 
         def _clear(self, body):
             for child in body.winfo_children():
@@ -420,7 +450,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = self._new_page(parent, "incidents.title", "incidents.subtitle")
             section = gui.Section(page, gui.i18n.t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("incidents", lambda: self._render_incidents(section.body))
+            self._start_live_page("incidents", lambda: self._render_incidents(section.body), scroll_anchor=section.body)
 
         def _render_incidents(self, body):
             t = gui.i18n.t
@@ -443,7 +473,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = self._new_page(parent, "audit.title", "audit.subtitle")
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("audit", lambda: self._render_audit(section.body))
+            self._start_live_page("audit", lambda: self._render_audit(section.body), scroll_anchor=section.body)
 
         def _render_audit(self, body):
             t = gui.i18n.t
@@ -482,7 +512,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
             self._start_live_page(
-                "recovery", lambda: self._render_recovery(cause.body, checklist.body, blocked.body, attempts.body)
+                "recovery", lambda: self._render_recovery(cause.body, checklist.body, blocked.body, attempts.body),
+                scroll_anchor=cause.body,
             )
 
         def _build_runbook(self, body):
@@ -558,7 +589,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._severity_after = None
             if self._severity_body is None or not self._severity_body.winfo_exists():
                 return
+            saved = self._scroll_yview(self._severity_body)
             self._render_severity()
+            self._restore_scroll_yview(saved)
             self._schedule_severity()
 
         def _render_severity(self):

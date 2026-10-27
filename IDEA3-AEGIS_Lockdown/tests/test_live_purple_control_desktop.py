@@ -602,6 +602,57 @@ def test_the_recovery_page_updates_while_open_and_stops_when_left(app_factory, t
     assert app._page_tick is None and app._page_after is None
 
 
+def test_the_recovery_page_preserves_scroll_position_across_a_live_refresh_tick(app_factory, tmp_path):
+    """Regression: _render_recovery() destroys and rebuilds every Section's children on each
+    SEVERITY_POLL_MS tick; the enclosing ScrollFrame's canvas used to reset to the top on every
+    tick because its scrollregion collapses while the old children are gone and nothing restored
+    the view afterward."""
+    app, root, _ = open_recovery(app_factory, tmp_path)
+    # The bug (and this fix) is specifically about the <Configure>-driven scrollregion recompute that a
+    # real, mapped window processes on its own idle cycle; a withdrawn window never gets that from the X
+    # server, so this one test needs a real, small, on-screen window instead of the suite's usual withdraw().
+    root.deiconify()
+    root.geometry("1024x300")
+    root.update()
+    canvases = _widgets(root, "Canvas")
+    assert canvases, "expected the Recovery page's ScrollFrame canvas"
+    canvas = canvases[0]
+    bbox = canvas.bbox("all")
+    assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+    canvas.yview_moveto(0.5)
+    root.update()
+    before = canvas.yview()[0]
+    assert before > 0.05, "test setup did not actually scroll down"
+    app._tick_live_page()
+    root.update()
+    after = canvas.yview()[0]
+    assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
+    root.withdraw()
+
+
+def test_the_lockdown_severity_panel_preserves_scroll_position_across_a_live_refresh_tick(app_factory, tmp_path):
+    """Same mechanism and fix as the Recovery page above, applied to the Lockdown page's severity panel
+    (_render_severity), which is driven by its own, separate SEVERITY_POLL_MS timer."""
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    root.deiconify()
+    root.geometry("1024x300")
+    root.update()
+    canvases = _widgets(root, "Canvas")
+    assert canvases, "expected the Lockdown page's ScrollFrame canvas"
+    canvas = canvases[0]
+    bbox = canvas.bbox("all")
+    assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+    canvas.yview_moveto(0.5)
+    root.update()
+    before = canvas.yview()[0]
+    assert before > 0.05, "test setup did not actually scroll down"
+    app._tick_severity()
+    root.update()
+    after = canvas.yview()[0]
+    assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
+    root.withdraw()
+
+
 @pytest.mark.parametrize("language,marker", [("th", "พร้อม"), ("zh", "可执行")])
 def test_the_recovery_page_follows_the_language_and_keeps_codes(app_factory, tmp_path, language, marker):
     _app, root, _ = open_recovery(app_factory, tmp_path, language=language, restore_pending=True, restore_pending_remaining_sec=3.0)
