@@ -177,6 +177,42 @@ LOCAL_CUT_SOCKET_GID = _optional_int("AEGIS_LOCAL_CUT_SOCKET_GID")
 LOCAL_CUT_CREDENTIAL_FILE = os.getenv("AEGIS_LOCAL_CUT_CREDENTIAL_FILE", "").strip()
 # OD-F1-DEPLOY-01: the dedicated F1 alert transport. Constants on purpose (no environment override): the general runtime
 # directory and the Recovery runtime are never an alert path. The group is filesystem reachability only; the uid is the authority.
+# IDEA3 graduated response (see aegis_soc/graduated_response.py). INERT unless exactly YES: with it off the alert path
+# keeps its original R1-only behaviour (bind the incident, never contain or cut). With it on, the Core scores the alert
+# evidence: MEDIUM = reversible software block, HIGH = CUT recommended to an operator, CRITICAL (score plus corroboration
+# a detector line cannot supply) = one automatic CUT per lockdown episode. RESTORE is never automatic.
+GRADUATED_RESPONSE = os.getenv("AEGIS_GRADUATED_RESPONSE", "")
+# Lab only: lets a lab-profile Core serve the same F1 alert socket (same uid/group checks) so the graduated response can be
+# exercised on the bench. INERT unless exactly YES, and only together with AEGIS_GRADUATED_RESPONSE=YES.
+LAB_ALERT_INGRESS = os.getenv("AEGIS_LAB_ALERT_INGRESS", "")
+# Telegram notification language for graduated-response alerts: th (default), en or zh. Notification only.
+TELEGRAM_LANGUAGE = (os.getenv("AEGIS_TG_LANG", "th").strip().lower() or "th")
+# Read-only Desktop projection of the latest graduated-response decisions (default: <runtime_dir>/graduated-status.json).
+GRADUATED_STATUS_PATH = os.getenv("AEGIS_GRADUATED_STATUS_PATH", "").strip()
+
+
+def graduated_response_enabled() -> bool:
+    return GRADUATED_RESPONSE == "YES"
+
+
+def lab_alert_ingress_enabled() -> bool:
+    return LAB_ALERT_INGRESS == "YES" and graduated_response_enabled()
+
+
+# Lab only: the alert socket for a lab-profile Core that does not run as the production Core account. The production
+# constant below stays fixed. Honoured only with the lab ingress flags and an absolute path outside the production
+# directory; the directory checks (Core-owned, alert group, 2750, never created) are unchanged.
+LAB_ALERT_SOCKET = os.getenv("AEGIS_LAB_ALERT_SOCKET", "").strip()
+
+
+def alert_socket_path(profile: str) -> str:
+    if profile == "lab" and lab_alert_ingress_enabled() and LAB_ALERT_SOCKET.startswith("/"):
+        candidate = os.path.normpath(LAB_ALERT_SOCKET)
+        if os.path.dirname(candidate) != ALERT_RUNTIME_DIR and candidate.endswith("/alert.sock"):
+            return candidate
+    return ALERT_SOCKET_PATH
+
+
 ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"
 ALERT_SOCKET_PATH = ALERT_RUNTIME_DIR + "/alert.sock"
 ALERT_GROUP = "aegis-idea3-alert"

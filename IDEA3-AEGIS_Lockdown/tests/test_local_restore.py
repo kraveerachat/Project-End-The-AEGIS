@@ -524,6 +524,62 @@ def test_duplicate_invocations_are_deterministic_and_audited(core):
     ]
 
 
+def _confirmed_restore(core):
+    """A RESTORE that was published, ACKed and physically confirmed (device NORMAL carrying the command's own ids)."""
+    first = core.ask(request())
+    assert first["code"] == "PUBLISHED"
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="NORMAL", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    physical = core.supervisor.awaiting_physical_confirmation
+    assert physical["action"] == RESTORE_UPLINK and physical["acknowledged_at"] is not None
+    assert physical["physical_confirmed_at"] is not None, "the scenario needs a physically confirmed RESTORE"
+    assert core.supervisor.status.uplink == "NORMAL"
+    return first
+
+
+@pytest.mark.parametrize("reason", ["DEADMAN", "BOOT"])
+def test_a_confirmed_restore_does_not_block_a_new_restore_after_an_uncommanded_lockdown(core, reason):
+    """Lab finding A1: after a CONFIRMED RESTORE, a dead-man or power-loss LOCKDOWN (no Core command) left a stale RESTORE record
+    and every new operator RESTORE was refused with RESTORE_ALREADY_PENDING until the Core restarted."""
+    first = _confirmed_restore(core)
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason=reason, device_seq_hwm=first["seq"])
+    assert core.supervisor.status.uplink == "LOCKDOWN"
+    assert core.supervisor.pending_command is None
+
+    second = core.ask(request())
+    assert (second["ok"], second["code"]) == (True, "PUBLISHED"), second
+    assert second["seq"] == first["seq"] + 1
+    assert len(core.restores()) == 2
+    assert [event for event, *_ in core.audit.strict] == ["RESTORE_REQUESTED", "RESTORE_REQUESTED"]
+
+
+def test_an_acknowledged_but_unconfirmed_restore_stays_pending_after_the_device_reports_lockdown(core):
+    """The guard's real purpose is unchanged: while the device evidence for an ACKed RESTORE is missing, no second RESTORE."""
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    assert core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is None
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="DEADMAN", device_seq_hwm=first["seq"])
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    assert len(core.restores()) == 1
+
+
+def test_a_correlated_status_that_contradicts_the_restore_does_not_count_as_confirmation(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    physical = core.supervisor.awaiting_physical_confirmation
+    assert physical["observed_state"] == "LOCKDOWN" and physical["physical_confirmed_at"] is None
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    assert len(core.restores()) == 1
+
+
+def test_a_restore_still_awaiting_its_ack_is_refused_as_command_pending_not_confirmed(core):
+    assert core.ask(request())["code"] == "PUBLISHED"
+    assert core.ask(request())["code"] == "COMMAND_PENDING"
+
+
 def test_a_concurrent_cut_cannot_cross_the_local_restore_actuation_boundary(core):
     audit_entered = threading.Event()
     release_audit = threading.Event()
@@ -1309,3 +1365,141 @@ def test_the_local_channel_opens_no_network_listener():
     source = (ROOT / "aegis_soc/local_restore.py").read_text("utf-8")
     assert "AF_INET" not in source and "AF_INET6" not in source
     assert "socket.AF_UNIX" in source
+
+
+# ---- P6: an ACKed RESTORE whose status evidence never arrives stops blocking after PHYSICAL_CONFIRM_TIMEOUT_SEC ----
+
+def _acked_unconfirmed_restore(core):
+    first = core.ask(request())
+    assert first["code"] == "PUBLISHED"
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    assert core.supervisor.awaiting_physical_confirmation["physical_confirmed_at"] is None
+    return first
+
+
+def test_the_refusal_within_the_timeout_names_the_remaining_seconds(core):
+    from aegis_soc import config
+
+    _acked_unconfirmed_restore(core)
+    core.now[0] += 3
+    response = core.ask(request())
+    assert (response["ok"], response["code"]) == (False, "RESTORE_ALREADY_PENDING")
+    remaining = config.PHYSICAL_CONFIRM_TIMEOUT_SEC - 3
+    assert f"in {remaining} s" in response["detail"], response
+    core.now[0] += 2   # the countdown follows the clock
+    assert f"in {remaining - 2} s" in core.ask(request())["detail"]
+    assert len(core.restores()) == 1
+
+
+def test_an_acked_restore_without_status_evidence_stops_blocking_after_the_timeout(core):
+    """Lab case G6: the device lost power after the ACK, its status never arrived, and every later RESTORE was refused."""
+    from aegis_soc import config
+
+    first = _acked_unconfirmed_restore(core)
+    core.now[0] += config.PHYSICAL_CONFIRM_TIMEOUT_SEC          # exactly at the limit: still pending
+    assert core.ask(request())["code"] == "RESTORE_ALREADY_PENDING"
+    core.now[0] += 0.5                                          # past it
+    second = core.ask(request())
+    assert (second["ok"], second["code"]) == (True, "PUBLISHED"), second
+    assert second["seq"] == first["seq"] + 1
+    assert len(core.restores()) == 2
+
+
+def test_a_recorded_physical_timeout_also_ends_the_block(core):
+    _acked_unconfirmed_restore(core)
+    core.supervisor.awaiting_physical_confirmation["physical_timeout_at"] = core.now[0]   # set by the supervisor tick
+    assert core.ask(request())["code"] == "PUBLISHED"
+
+
+def test_a_confirmed_restore_and_a_pending_one_are_unchanged_by_the_expiry(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.deliver(p1.STATUS, output_state="NORMAL", reason="COMMAND", cmd_msg_id=first["msg_id"], cmd_seq=first["seq"],
+                 device_seq_hwm=first["seq"])
+    assert core.ask(request())["code"] == "UPLINK_NOT_LOCKDOWN"
+    core.now[0] += 1000
+    assert core.ask(request())["code"] == "UPLINK_NOT_LOCKDOWN"   # confirmed and no longer LOCKDOWN: nothing to restore
+
+
+
+# ---- recovery-status.json: the bounded, read-only RESTORE-readiness projection read by the Desktop's Recovery page ----
+
+def _view(core):
+    from aegis_soc import recovery_view
+
+    return recovery_view.build(core.supervisor, core.gate)
+
+
+def test_recovery_view_without_any_command_record(core):
+    view = _view(core)
+    assert view["v"] == 1 and view["uplink"] == "LOCKDOWN"
+    assert view["uplink_why"] == "NO_COMMAND_RECORD" and view["last_command"] is None
+    assert view["restore_pending"] is False and view["restore_pending_remaining_sec"] is None
+    assert view["lockout_remaining_sec"] == 0.0 and view["restore_served"] is True
+
+
+def test_recovery_view_follows_an_acked_unconfirmed_restore_and_its_expiry(core):
+    from aegis_soc import config
+
+    first = core.ask(request())
+    assert _view(core)["restore_command_pending"] is True
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    core.now[0] += 3
+    view = _view(core)
+    assert view["restore_pending"] is True and view["restore_command_pending"] is False
+    assert view["restore_pending_remaining_sec"] == config.PHYSICAL_CONFIRM_TIMEOUT_SEC - 3
+    assert view["last_command"] == {"action": "RESTORE_UPLINK", "acked": True, "confirmed": False, "timed_out": False}
+    core.now[0] += config.PHYSICAL_CONFIRM_TIMEOUT_SEC
+    assert _view(core)["restore_pending"] is False
+
+
+def test_recovery_view_tells_a_commanded_cut_from_an_uncommanded_lockdown(core):
+    first = _confirmed_restore(core)
+    core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="DEADMAN", device_seq_hwm=first["seq"])
+    assert _view(core)["uplink_why"] == "UNCOMMANDED_AFTER_RESTORE"
+    physical = core.supervisor.awaiting_physical_confirmation
+    core.supervisor.awaiting_physical_confirmation = {**physical, "action": "CUT_UPLINK", "acknowledged_at": 1.0,
+                                                      "physical_confirmed_at": None}
+    assert _view(core)["uplink_why"] == "COMMANDED_CUT"
+    core.supervisor.awaiting_physical_confirmation = {**physical, "action": "CUT_UPLINK", "acknowledged_at": None}
+    assert _view(core)["uplink_why"] == "CUT_NOT_ACKED"
+    core.supervisor.status.uplink = "NORMAL"
+    assert _view(core)["uplink_why"] == "NOT_LOCKDOWN"
+
+
+def test_recovery_view_reports_the_authentication_lockout_remaining(core):
+    for _ in range(3):
+        assert core.ask(request(secret="guess guess guess"))["code"] == "AUTH_FAILED"
+    assert 0 < _view(core)["lockout_remaining_sec"] <= lr.AUTH_LOCKOUT_SEC
+    core.now[0] += 10
+    assert 0 < _view(core)["lockout_remaining_sec"] <= lr.AUTH_LOCKOUT_SEC - 10 + 0.1
+    core.now[0] += lr.AUTH_LOCKOUT_SEC
+    assert _view(core)["lockout_remaining_sec"] == 0.0
+
+
+def test_recovery_view_holds_no_secret_reason_or_identifier(core):
+    first = core.ask(request())
+    core.deliver(p1.ACK, ack_for_msg_id=first["msg_id"], ack_for_seq=first["seq"], result="ACCEPTED")
+    text = json.dumps(_view(core))
+    for forbidden in (SECRET, REASON, first["msg_id"], "reason", "secret", "nonce", "msg_id"):
+        assert forbidden not in text
+    assert set(_view(core)) == {
+        "v", "updated_at", "uplink", "device", "uplink_why", "last_command", "restore_pending",
+        "restore_pending_remaining_sec", "restore_command_pending", "lockout_remaining_sec", "restore_served",
+    }
+
+
+def test_the_supervisor_writes_the_view_atomically_and_never_raises(core, tmp_path):
+    core.supervisor.write_recovery_view()
+    path = core.supervisor.recovery_view_path()
+    assert json.loads(path.read_text(encoding="utf-8"))["uplink"] == "LOCKDOWN"
+    assert (path.stat().st_mode & 0o777) == 0o640
+    assert not list(path.parent.glob("recovery-*.tmp"))
+    core.supervisor.settings = replace(core.supervisor.settings, runtime_dir=tmp_path / "missing" / "x")
+    core.supervisor.settings.runtime_dir.parent.mkdir()
+    core.supervisor.settings.runtime_dir.parent.chmod(0o500)
+    try:
+        core.supervisor.write_recovery_view()   # unwritable: logged once, no exception
+        core.supervisor.write_recovery_view()
+    finally:
+        core.supervisor.settings.runtime_dir.parent.chmod(0o700)

@@ -1,8 +1,9 @@
 """F1 production alert sink: one bounded AF_UNIX request to the Core-owned ``alert.sock``.
 
 Stdlib and ``ip_containment`` only (the same address rules the Core ingress applies). It holds no broker credential, no key, no
-database handle and never publishes to MQTT. The sender chooses nothing but the IPv4 address it observed: the payload is exactly
-``{"v":1,"attacker_ip":"<IPv4>"}`` plus a newline, the socket path is a constant (never derived from detection input), and the
+database handle and never publishes to MQTT. The sender chooses nothing but the IPv4 address it observed (and, in version 2, which
+detector rule matched): the payload is exactly ``{"v":1,"attacker_ip":"<IPv4>"}`` or
+``{"v":2,"attacker_ip":"<IPv4>","kind":"<rule>"}`` plus a newline, the socket path is a constant (never derived from detection input), and the
 Core account is verified through SO_PEERCRED before a byte is written. One call is one attempt: there is no retry loop here.
 
 Every outcome is a stable, secret-free ``AlertResult.code``. The module also carries the bounded start-time socket check used by the
@@ -29,6 +30,8 @@ CORE_USER = "aegis-idea3"
 ALERT_GROUP = "aegis-idea3-alert"  # filesystem reachability only; SO_PEERCRED uid stays the authentication authority
 DETECTOR_ACCOUNT = "aegis-idea3-detector"
 PAYLOAD_VERSION = 1
+PAYLOAD_VERSION_WITH_KIND = 2  # adds the detector-observed "kind" for the graduated response
+ALERT_KINDS = frozenset({"port_scan", "ssh_brute_force", "syn_flood", "ssh_login_after_failures"})
 SEND_TIMEOUT_SEC = 2.0  # one monotonic budget for connect + write + read (the Core's own request deadline is 2 s)
 MAX_REPLY_BYTES = 4096
 SOCKET_MODE = 0o620  # Core-owned, group aegis-idea3-alert: owner rw, group write (= connect) only, nothing for others
@@ -39,6 +42,7 @@ CHECK_POLL_SEC = 0.5
 # Result codes. The first group is produced locally; REJECTED_* mirror the Core's stable refusal codes.
 SENT_BOUND = "SENT_BOUND"
 SENT_EXISTING = "SENT_EXISTING"
+SENT_OBSERVED = "SENT_OBSERVED"  # lab Core with the graduated response enabled: scored, no incident binding
 INVALID_ADDRESS = "INVALID_ADDRESS"
 SOCKET_MISSING = "SOCKET_MISSING"
 SOCKET_REFUSED = "SOCKET_REFUSED"
@@ -60,13 +64,20 @@ class AlertResult(NamedTuple):
     detail: str = ""  # a stable non-secret token (for a Core refusal: the Core's own code), never free text
 
 
-def build_payload(address: object) -> bytes:
-    """The exact F1 request line. Raises ``ValueError`` for anything the Core ingress would refuse as an address."""
+def build_payload(address: object, kind: str | None = None) -> bytes:
+    """The exact F1 request line: version 1 without ``kind``, version 2 with one. Raises ``ValueError`` for anything the Core
+    ingress would refuse (address or kind)."""
     try:
         validated = str(ip_containment.validate_block_target(address, ()))
     except ip_containment.ContainmentRejected:
         raise ValueError(INVALID_ADDRESS) from None
-    return json.dumps({"v": PAYLOAD_VERSION, "attacker_ip": validated}, separators=(",", ":")).encode("ascii") + b"\n"
+    if kind is None:
+        body = {"v": PAYLOAD_VERSION, "attacker_ip": validated}
+    else:
+        if kind not in ALERT_KINDS:
+            raise ValueError(INVALID_ADDRESS)
+        body = {"v": PAYLOAD_VERSION_WITH_KIND, "attacker_ip": validated, "kind": kind}
+    return json.dumps(body, separators=(",", ":")).encode("ascii") + b"\n"
 
 
 def _peer_uid(connection: socket.socket) -> int:
@@ -75,9 +86,11 @@ def _peer_uid(connection: socket.socket) -> int:
 
 
 def core_uid() -> int:
+    """The Core account the ingress must belong to. Deployment configuration (AEGIS_ALERT_CORE_USER, e.g. a lab Core run as the
+    operator) or the production default; never derived from detection input."""
     import pwd
 
-    return pwd.getpwnam(CORE_USER).pw_uid
+    return pwd.getpwnam(os.environ.get("AEGIS_ALERT_CORE_USER", "").strip() or CORE_USER).pw_uid
 
 
 def alert_gid() -> int:
@@ -86,11 +99,11 @@ def alert_gid() -> int:
     return grp.getgrnam(ALERT_GROUP).gr_gid
 
 
-def send_alert(address: object, *, path: str = ALERT_SOCKET_PATH, expected_core_uid: int | None = None,
-               timeout: float = SEND_TIMEOUT_SEC) -> AlertResult:
+def send_alert(address: object, kind: str | None = None, *, path: str = ALERT_SOCKET_PATH,
+               expected_core_uid: int | None = None, timeout: float = SEND_TIMEOUT_SEC) -> AlertResult:
     """Send one alert, once. ``path`` is configuration (tests, the constant default) and never comes from detection input."""
     try:
-        payload = build_payload(address)
+        payload = build_payload(address, kind)
     except ValueError:
         return AlertResult(False, INVALID_ADDRESS)
     if not hasattr(socket, "AF_UNIX") or not hasattr(socket, "SO_PEERCRED"):
@@ -148,6 +161,8 @@ def _interpret(reply: bytes) -> AlertResult:
             return AlertResult(True, SENT_BOUND)
         if code == "EXISTING":
             return AlertResult(True, SENT_EXISTING)
+        if code == "OBSERVED":
+            return AlertResult(True, SENT_OBSERVED)
         return AlertResult(False, REPLY_INVALID)
     return AlertResult(False, CORE_REJECTED, code if code in _CORE_CODES else "UNRECOGNISED")
 

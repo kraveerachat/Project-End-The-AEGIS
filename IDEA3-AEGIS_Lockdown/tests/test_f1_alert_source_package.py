@@ -636,15 +636,39 @@ def test_every_other_start_path_is_gated_by_the_core_alert_socket_check():
 # ═══ Phase B: the real Core hook ═════════════════════════════════════════════════════════════════════════════════════════════
 
 
-def test_phase_b_the_real_core_creates_its_socket_only_at_the_dedicated_path_never_the_general_runtime():
+def test_phase_b_the_real_core_creates_its_socket_only_at_the_dedicated_path_never_the_general_runtime(monkeypatch):
     """CORE_ALERT_SOCKET_HOOK_IMPLEMENTED=YES. The Core builds the alert socket from the dedicated F1 constants (group-reachable 0620,
-    uid-authenticated), never from its general runtime directory, and never from the Recovery runtime."""
+    uid-authenticated), never from its general runtime directory, and never from the Recovery runtime.
+
+    The Core asks ``config.alert_socket_path(profile)`` for the path. That function is pinned below: the production profile gets exactly
+    ``config.ALERT_SOCKET_PATH`` whatever the lab settings are; only the lab profile with both lab flags may use the lab-only socket."""
+    from aegis_soc import config
+
     config_source = (ROOT / "aegis_soc" / "config.py").read_text()
     supervisor_source = (ROOT / "aegis_soc" / "supervisor.py").read_text()
     assert 'ALERT_SOCKET_PATH = ALERT_RUNTIME_DIR + "/alert.sock"' in config_source and 'ALERT_RUNTIME_DIR = "/run/aegis-idea3-alert"' in config_source
-    assert "config.ALERT_SOCKET_PATH" in supervisor_source and "socket_gid=alert_gid" in supervisor_source
+    assert supervisor_source.count("config.alert_socket_path(self.settings.profile)") == 1 and "socket_gid=alert_gid" in supervisor_source
     assert "self.settings.runtime_dir / rc.ALERT_CHANNEL_NAME" not in supervisor_source
     assert tool.SOCKET_PATH == "/run/aegis-idea3-alert/alert.sock"
+
+    # Behaviour: production is exactly the dedicated constant, with and without every lab setting present.
+    assert config.alert_socket_path("production") == config.ALERT_SOCKET_PATH == "/run/aegis-idea3-alert/alert.sock"
+    lab_socket = "/run/aegis-live-alert/alert.sock"
+    monkeypatch.setattr(config, "GRADUATED_RESPONSE", "YES")
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "YES")
+    monkeypatch.setattr(config, "LAB_ALERT_SOCKET", lab_socket)
+    assert config.alert_socket_path("production") == config.ALERT_SOCKET_PATH  # the lab path is refused for production
+    assert config.alert_socket_path("lab") == lab_socket  # only lab + both flags + a lab path
+    # The lab path never reaches the production directory, never relative, never another file name, never without the flags.
+    for bad in ("/run/aegis-idea3-alert/alert.sock", "/run/aegis-idea3-alert/../aegis-idea3-alert/alert.sock", "relative/alert.sock", "/run/x/other.sock", ""):
+        monkeypatch.setattr(config, "LAB_ALERT_SOCKET", bad)
+        assert config.alert_socket_path("lab") == config.ALERT_SOCKET_PATH, bad
+    monkeypatch.setattr(config, "LAB_ALERT_SOCKET", lab_socket)
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "")
+    assert config.alert_socket_path("lab") == config.ALERT_SOCKET_PATH
+    monkeypatch.setattr(config, "LAB_ALERT_INGRESS", "YES")
+    monkeypatch.setattr(config, "GRADUATED_RESPONSE", "")
+    assert config.alert_socket_path("lab") == config.ALERT_SOCKET_PATH
 
 
 def test_a_host_without_the_dedicated_socket_can_never_start_the_detector():

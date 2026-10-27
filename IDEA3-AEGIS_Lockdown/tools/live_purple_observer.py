@@ -8,7 +8,9 @@ fail-closed local fakes for every operational dependency.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -20,6 +22,11 @@ from tools.preview_purple_desktop import _install_import_isolation, _preview_gui
 PYTHONUI_ROOT = Path(ACCEPTED_PURPLE_SOURCE).resolve()
 LIVE_TITLE = "AEGIS IDEA3 — PURPLE LIVE READ-ONLY OBSERVER — CORE EVIDENCE"
 EVIDENCE_POLL_MS = 2000
+# The Desktop marks Core evidence STALE when the Core's status document is older than this: the ESP32 dead-man window (config.DEADMAN_TIMEOUT_SEC,
+# pinned equal by a test). It is deliberately separate from observer.DEFAULT_MAX_AGE_SECONDS (120 s), which the status sidecar and
+# push client use for a different purpose; a literal here keeps this module free of the Core's config import.
+DESKTOP_MAX_AGE_SECONDS = 60.0
+STATIC_EVIDENCE_PAGES = ("devices", "lockdown")  # pages whose facts are built once from the evidence; see _refresh_live_evidence
 
 
 def _load_reader():
@@ -34,6 +41,65 @@ def _load_reader():
 
 
 reader = _load_reader()
+
+
+def _load_containment():
+    path = Path(__file__).resolve().parents[1] / "aegis_soc" / "ip_containment.py"
+    spec = importlib.util.spec_from_file_location("aegis_containment_reader", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load read-only containment client: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["aegis_containment_reader"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+containment = _load_containment()
+
+CONTAINMENT_HEALTHY = "HEALTHY"
+CONTAINMENT_NOT_CONFIGURED = "NOT_CONFIGURED"
+CONTAINMENT_BLOCKED_CAP = 64
+
+# Diagnostics-page containment strings, added to the purple i18n table by both entry points (see
+# register_observer_strings), so this reads the same way whether the window is the pure observer or the
+# full control Desktop.
+OBSERVER_STRINGS = {
+    "diagnostics.containment": {
+        "en": "Containment helper", "th": "ตัวช่วยกักกัน (containment helper)", "zh": "遏制助手",
+    },
+    "diagnostics.containment_blocks": {
+        "en": "Active software blocks", "th": "การบล็อกทางซอฟต์แวร์ที่ใช้งานอยู่", "zh": "当前生效的软件封锁数",
+    },
+}
+
+
+def register_observer_strings(i18n_module) -> None:
+    """Add the strings above to the purple i18n table; a key that already exists is never replaced."""
+    for key, entry in OBSERVER_STRINGS.items():
+        i18n_module.STRINGS.setdefault(key, dict(entry))
+
+
+def containment_status():
+    """Read-only containment helper status as ``(status_text, blocked_ips)``.
+
+    Issues only ``op=list`` over the configured Unix socket (``AEGIS_CONTAINMENT_SOCKET``) — the same read
+    ``collect-evidence.sh`` already performs — and never ``block``/``unblock``. Fails closed: a missing
+    socket configuration, an unreachable helper, or a malformed reply is reported as a value; this never
+    raises, so a Diagnostics/Recovery page render can never crash on it."""
+    socket_path = os.environ.get(containment.SOCKET_ENV, "").strip()
+    if not socket_path:
+        return CONTAINMENT_NOT_CONFIGURED, []
+    try:
+        response = containment.ContainmentClient().list()
+    except Exception as error:  # the helper, its socket, or the OS can fail in many ways; never crash the page
+        return f"UNAVAILABLE — {type(error).__name__}", []
+    if not isinstance(response, dict) or response.get("ok") is not True or response.get("operation") != "list":
+        reason = response.get("reason_code") if isinstance(response, dict) else "MALFORMED_RESPONSE"
+        return f"UNAVAILABLE — {reason or 'MALFORMED_RESPONSE'}", []
+    blocked = response.get("blocked")
+    if not isinstance(blocked, list):
+        return "UNAVAILABLE — MALFORMED_RESPONSE", []
+    return CONTAINMENT_HEALTHY, [str(ip) for ip in blocked][:CONTAINMENT_BLOCKED_CAP]
 
 
 class LiveMQTT:
@@ -98,6 +164,17 @@ def _install_database_isolation() -> None:
     sys.modules["aegis_soc.database"] = module
 
 
+def _format_evidence_timestamp(raw):
+    """A Core evidence timestamp (a unix epoch float, or UNKNOWN) as a human-readable local date-time.
+    Anything that cannot be parsed as a real timestamp falls back to UNKNOWN rather than showing it raw."""
+    if raw == reader.UNKNOWN:
+        return reader.UNKNOWN
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(raw)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return reader.UNKNOWN
+
+
 def evidence_values(evidence):
     """Return only display values from the bounded evidence projection."""
 
@@ -128,7 +205,7 @@ def evidence_values(evidence):
         "dry_run": evidence.dry_run,
         "auto_contain": evidence.auto_contain,
         "freshness": evidence.freshness,
-        "timestamp": evidence.evidence_timestamp,
+        "timestamp": _format_evidence_timestamp(evidence.evidence_timestamp),
     }
 
 
@@ -174,7 +251,12 @@ def _live_gui_class(gui):
                 self._refresh_live_evidence()
             self._schedule_evidence_poll()
 
+        def _evidence_page_key(self):
+            """What the evidence-built pages show. The ever-changing timestamp is left out, so a page is rebuilt only on a real change."""
+            return tuple(sorted((key, value) for key, value in evidence_values(self.latest).items() if key != "timestamp"))
+
         def _refresh_live_evidence(self):
+            previous_page_key = self._evidence_page_key()
             self.latest = reader.read_observer_status(
                 self._status_path,
                 max_age_seconds=self._max_age_seconds,
@@ -193,6 +275,11 @@ def _live_gui_class(gui):
             self._refresh_header_evidence()
             if self._observer_page is not None and self._observer_page.winfo_exists():
                 self._render_evidence_section()
+            # The Devices and Lockdown pages are built once from the evidence at the time they are shown. Without this, a page that is
+            # open while the Core stops updating would keep showing the last uplink and device state as if it were current.
+            shown = getattr(self, "active_page", None)
+            if shown in STATIC_EVIDENCE_PAGES and self.session.authenticated and self._evidence_page_key() != previous_page_key:
+                self._show_page(shown)
 
         def _refresh_header_evidence(self):
             values = evidence_values(self.latest)
@@ -327,6 +414,12 @@ def _live_gui_class(gui):
         def _build_audit_page(self, parent):
             self._build_unavailable_observer_page(parent, "audit.title", "audit.subtitle")
 
+        def _diagnostics_audit_row(self):
+            """(value, status) for the Diagnostics "Database / audit history" row. The pure observer has no audit
+            source at all; a subclass with one (the control Desktop) overrides this to read it the same way the
+            Recovery/Audit pages already do, instead of a second, inconsistent hardcoded placeholder."""
+            return "NOT_AVAILABLE — observer mode", gui.pres.STATUS_WARNING
+
         def _build_diagnostics_page(self, parent):
             page = self._new_page(parent, "diagnostics.title", "diagnostics.subtitle")
             section = gui.Section(page, "LIVE CORE EVIDENCE")
@@ -334,7 +427,14 @@ def _live_gui_class(gui):
             values = evidence_values(self.latest)
             for label, key in (("Runtime state", "runtime"), ("Profile", "profile"), ("Dry-run", "dry_run"), ("AUTO_CONTAIN reported mode", "auto_contain"), ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"), ("Evidence timestamp", "timestamp")):
                 self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
-            self._add_fact(section.body, "Database / audit history", "NOT_AVAILABLE", status=gui.pres.STATUS_WARNING)
+            audit_value, audit_status = self._diagnostics_audit_row()
+            self._add_fact(section.body, "Database / audit history", audit_value, status=audit_status)
+            status_text, blocked = containment_status()
+            healthy = status_text == CONTAINMENT_HEALTHY
+            self._add_fact(section.body, gui.i18n.t("diagnostics.containment"), status_text,
+                           status=gui.pres.STATUS_HEALTHY if healthy else gui.pres.STATUS_WARNING)
+            self._add_fact(section.body, gui.i18n.t("diagnostics.containment_blocks"), str(len(blocked)),
+                           status=gui.pres.STATUS_NEUTRAL if healthy else gui.pres.STATUS_UNKNOWN)
 
         def _sync_arm_controls(self):
             return None
@@ -342,7 +442,7 @@ def _live_gui_class(gui):
     return LivePurpleObserverGUI
 
 
-def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=reader.DEFAULT_MAX_AGE_SECONDS):
+def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=DESKTOP_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("live observer must start without an imported aegis_soc package")
     sys.path.insert(0, str(PYTHONUI_ROOT))
@@ -352,6 +452,7 @@ def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=rea
 
     if not str(Path(gui.__file__).resolve()).startswith(str(PYTHONUI_ROOT)):
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
+    register_observer_strings(gui.i18n)
     app_class = _live_gui_class(gui)
     mqtt = LiveMQTT()
     controller = LiveController()
