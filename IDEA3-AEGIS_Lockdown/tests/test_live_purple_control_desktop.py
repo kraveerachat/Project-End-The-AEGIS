@@ -729,6 +729,26 @@ def test_the_control_desktops_diagnostics_page_also_shows_containment_health(app
     assert "NOT_CONFIGURED" in joined
 
 
+def test_the_diagnostics_page_reads_the_same_audit_source_as_recovery_and_audit(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, SECRET_REASON, make_audit
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=audit)
+    app._show_page("diagnostics")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "NOT_AVAILABLE" not in joined
+    assert "newest records shown" in joined and SECRET_REASON not in joined
+
+
+def test_the_diagnostics_page_reports_the_real_reason_without_an_audit_db(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts())
+    app._show_page("diagnostics")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "NOT_AVAILABLE — NOT_CONFIGURED" in joined
+
+
 # ---- Incidents and Audit pages (P4): read-only data from existing Core sources, NOT_AVAILABLE with the reason otherwise ----
 
 DECISIONS = {

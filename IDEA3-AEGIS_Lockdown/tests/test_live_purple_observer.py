@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import inspect
 import os
 import socket
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 import pytest
@@ -49,7 +51,18 @@ def test_live_mapping_uses_real_core_fields_only():
     assert values["dispatch"] == "ACTIVE"
     assert values["trusted_time"] == "SYNCED"
     assert values["freshness"] == "FRESH"
-    assert values["timestamp"] == "1700000000.0"
+    assert values["timestamp"] == time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1700000000.0))
+
+
+@pytest.mark.parametrize("raw", ["not-a-number", "", None])
+def test_timestamp_formatting_falls_back_to_unknown_for_anything_unparseable(raw):
+    evidence = dataclasses.replace(_fresh_evidence(), evidence_timestamp=raw)
+    assert live.evidence_values(evidence)["timestamp"] == UNKNOWN
+
+
+def test_unknown_timestamp_stays_unknown_and_is_not_parsed_as_a_number():
+    evidence = dataclasses.replace(_fresh_evidence(), evidence_timestamp=UNKNOWN)
+    assert live.evidence_values(evidence)["timestamp"] == UNKNOWN
 
 
 def test_live_mapping_projects_auto_contain_only_when_evidence_is_valid():
@@ -244,6 +257,33 @@ def test_diagnostics_page_shows_containment_health_and_block_count(tmp_path, mon
         joined = "\n".join(_label_texts(app.root))
         assert "NOT_CONFIGURED" in joined
         assert "0" in joined.splitlines()
+    finally:
+        for after_id in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(after_id)
+        root.destroy()
+        for name in list(sys.modules):
+            if name == "aegis_soc" or name.startswith("aegis_soc."):
+                del sys.modules[name]
+        sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+
+
+def test_diagnostics_page_says_not_available_with_a_reason_in_pure_observer_mode(tmp_path):
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Tk display unavailable: {error}")
+    root.withdraw()
+    for name in list(sys.modules):
+        if name == "aegis_soc" or name.startswith("aegis_soc."):
+            del sys.modules[name]
+    sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+    try:
+        app, _fakes = live.create_live_app(root, status_path=tmp_path / "missing-status.json")
+        app.session.login("test-admin")
+        app._on_authenticated()
+        app._show_page("diagnostics")
+        joined = "\n".join(_label_texts(app.root))
+        assert "NOT_AVAILABLE — observer mode" in joined
     finally:
         for after_id in root.tk.splitlist(root.tk.call("after", "info")):
             root.after_cancel(after_id)

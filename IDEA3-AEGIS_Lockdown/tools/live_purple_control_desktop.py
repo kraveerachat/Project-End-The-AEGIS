@@ -432,6 +432,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             if data is not None:
                 self._lines(body, [describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")])
 
+        def _diagnostics_audit_row(self):
+            """The Diagnostics page's audit row, read the same way the Recovery/Audit pages already read it
+            (the same ``AEGIS_DESKTOP_AUDIT_DB``), instead of the base observer's hardcoded placeholder."""
+            rows, reason = records.read_audit(audit_path, records.AUDIT_KINDS, records.AUDIT_LIMIT)
+            value, level = records.audit_facts(rows, reason, gui.i18n.t)[0][1:]
+            return value, _status(gui, level)
+
         def _build_audit_page(self, parent):
             page = self._new_page(parent, "audit.title", "audit.subtitle")
             section = gui.Section(page, gui.i18n.t("audit.view.section"))

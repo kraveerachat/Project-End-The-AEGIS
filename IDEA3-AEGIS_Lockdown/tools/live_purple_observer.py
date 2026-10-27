@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -163,6 +164,17 @@ def _install_database_isolation() -> None:
     sys.modules["aegis_soc.database"] = module
 
 
+def _format_evidence_timestamp(raw):
+    """A Core evidence timestamp (a unix epoch float, or UNKNOWN) as a human-readable local date-time.
+    Anything that cannot be parsed as a real timestamp falls back to UNKNOWN rather than showing it raw."""
+    if raw == reader.UNKNOWN:
+        return reader.UNKNOWN
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(raw)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return reader.UNKNOWN
+
+
 def evidence_values(evidence):
     """Return only display values from the bounded evidence projection."""
 
@@ -193,7 +205,7 @@ def evidence_values(evidence):
         "dry_run": evidence.dry_run,
         "auto_contain": evidence.auto_contain,
         "freshness": evidence.freshness,
-        "timestamp": evidence.evidence_timestamp,
+        "timestamp": _format_evidence_timestamp(evidence.evidence_timestamp),
     }
 
 
@@ -402,6 +414,12 @@ def _live_gui_class(gui):
         def _build_audit_page(self, parent):
             self._build_unavailable_observer_page(parent, "audit.title", "audit.subtitle")
 
+        def _diagnostics_audit_row(self):
+            """(value, status) for the Diagnostics "Database / audit history" row. The pure observer has no audit
+            source at all; a subclass with one (the control Desktop) overrides this to read it the same way the
+            Recovery/Audit pages already do, instead of a second, inconsistent hardcoded placeholder."""
+            return "NOT_AVAILABLE — observer mode", gui.pres.STATUS_WARNING
+
         def _build_diagnostics_page(self, parent):
             page = self._new_page(parent, "diagnostics.title", "diagnostics.subtitle")
             section = gui.Section(page, "LIVE CORE EVIDENCE")
@@ -409,7 +427,8 @@ def _live_gui_class(gui):
             values = evidence_values(self.latest)
             for label, key in (("Runtime state", "runtime"), ("Profile", "profile"), ("Dry-run", "dry_run"), ("AUTO_CONTAIN reported mode", "auto_contain"), ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"), ("Evidence timestamp", "timestamp")):
                 self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
-            self._add_fact(section.body, "Database / audit history", "NOT_AVAILABLE", status=gui.pres.STATUS_WARNING)
+            audit_value, audit_status = self._diagnostics_audit_row()
+            self._add_fact(section.body, "Database / audit history", audit_value, status=audit_status)
             status_text, blocked = containment_status()
             healthy = status_text == CONTAINMENT_HEALTHY
             self._add_fact(section.body, gui.i18n.t("diagnostics.containment"), status_text,
