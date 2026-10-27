@@ -247,8 +247,10 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._restore_status = None
             self._severity_body = None
             self._severity_after = None
+            self._severity_snapshot_value = None
             self._page_tick = None
             self._page_after = None
+            self._page_snapshot = None
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
 
@@ -372,13 +374,19 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 
         # -- read-only Core pages (Recovery; Incidents and Audit follow) ------------------------------------------------
-        def _start_live_page(self, key, render, *, scroll_anchor=None):
-            """Render now and again every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page.
-            ``scroll_anchor`` is any live widget inside the page's ScrollFrame (e.g. a Section's body): the render
-            destroys and rebuilds its children every tick, which otherwise resets the enclosing scroll position back
-            to the top (see _scroll_yview)."""
+        def _start_live_page(self, key, compute, render, *, scroll_anchor=None):
+            """Re-evaluated every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page.
+            ``compute()`` reads the Core sources and returns a plain, ``==``-comparable snapshot of everything the
+            page shows (no widgets touched); ``render(snapshot)`` is the one place that destroys and rebuilds the
+            page's widgets from it. Every tick re-computes the snapshot and only calls ``render`` when it actually
+            differs from the last one rendered -- otherwise the page is left alone. A naive unconditional rebuild
+            on every tick is what caused the periodic flicker and the Task-1 scroll jump; comparing first removes
+            the flicker in steady state (nothing changed -> no rebuild) while a real change still renders promptly.
+            ``scroll_anchor`` is any live widget inside the page's ScrollFrame (e.g. a Section's body): on the
+            rebuild path, its scroll position is preserved across the rebuild (see _scroll_yview)."""
             self._stop_live_page()
-            self._page_tick = (key, render, scroll_anchor)
+            self._page_tick = (key, compute, render, scroll_anchor)
+            self._page_snapshot = None
             self._tick_live_page(first=True)
 
         def _stop_live_page(self):
@@ -394,17 +402,20 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._page_after = None
             if self._page_tick is None:
                 return
-            key, render, scroll_anchor = self._page_tick
+            key, compute, render, scroll_anchor = self._page_tick
             if getattr(self, "active_page", None) != key:
                 self._page_tick = None
                 return
-            saved = self._scroll_yview(scroll_anchor)
-            try:
-                render()
-            except tk.TclError:   # the page was destroyed under us
-                self._page_tick = None
-                return
-            self._restore_scroll_yview(saved)
+            snapshot = compute()
+            if first or snapshot != self._page_snapshot:
+                self._page_snapshot = snapshot
+                saved = self._scroll_yview(scroll_anchor)
+                try:
+                    render(snapshot)
+                except tk.TclError:   # the page was destroyed under us
+                    self._page_tick = None
+                    return
+                self._restore_scroll_yview(saved)
             try:
                 self._page_after = self.root.after(SEVERITY_POLL_MS, self._tick_live_page)
             except (tk.TclError, RuntimeError):
@@ -450,17 +461,28 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = self._new_page(parent, "incidents.title", "incidents.subtitle")
             section = gui.Section(page, gui.i18n.t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("incidents", lambda: self._render_incidents(section.body), scroll_anchor=section.body)
+            self._start_live_page("incidents", self._incidents_snapshot,
+                                  lambda snapshot: self._render_incidents(snapshot, section.body),
+                                  scroll_anchor=section.body)
 
-        def _render_incidents(self, body):
+        def _incidents_snapshot(self):
+            """Everything _render_incidents shows, read-only -- no widget touched. Compared on every tick so the
+            page is rebuilt only when this actually changes (see _start_live_page)."""
             t = gui.i18n.t
-            self._clear(body)
             data = read_graduated(graduated_path)
             reason = "" if data is not None else records.file_reason(graduated_path)
-            for label, value, level in records.incident_facts(data, reason, t):
+            facts = tuple(records.incident_facts(data, reason, t))
+            lines = tuple([describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")]) \
+                if data is not None else None
+            return facts, lines
+
+        def _render_incidents(self, snapshot, body):
+            facts, lines = snapshot
+            self._clear(body)
+            for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
-            if data is not None:
-                self._lines(body, [describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")])
+            if lines is not None:
+                self._lines(body, list(lines))
 
         def _diagnostics_audit_row(self):
             """The Diagnostics page's audit row, read the same way the Recovery/Audit pages already read it
@@ -473,16 +495,24 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = self._new_page(parent, "audit.title", "audit.subtitle")
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("audit", lambda: self._render_audit(section.body), scroll_anchor=section.body)
+            self._start_live_page("audit", self._audit_snapshot,
+                                  lambda snapshot: self._render_audit(snapshot, section.body),
+                                  scroll_anchor=section.body)
 
-        def _render_audit(self, body):
+        def _audit_snapshot(self):
             t = gui.i18n.t
-            self._clear(body)
             rows, reason = records.read_audit(audit_path, records.AUDIT_KINDS, records.AUDIT_LIMIT)
-            for label, value, level in records.audit_facts(rows, reason, t):
+            facts = tuple(records.audit_facts(rows, reason, t))
+            lines = tuple([records.audit_line(row) for row in rows] or [t("audit.view.none")]) if rows is not None else None
+            return facts, lines
+
+        def _render_audit(self, snapshot, body):
+            facts, lines = snapshot
+            self._clear(body)
+            for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
-            if rows is not None:
-                self._lines(body, [records.audit_line(row) for row in rows] or [t("audit.view.none")])
+            if lines is not None:
+                self._lines(body, list(lines))
 
         def _enable_navigation_button(self):
             button = getattr(self, "_go_button", None)
@@ -531,7 +561,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
             self._start_live_page(
-                "recovery", lambda: self._render_recovery(cause.body, blocked.body, attempts.body),
+                "recovery", self._recovery_snapshot,
+                lambda snapshot: self._render_recovery(snapshot, cause.body, blocked.body, attempts.body),
                 scroll_anchor=cause.body,
             )
 
@@ -547,10 +578,12 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                     bg=body.cget("bg"), fg=gui.ui_theme.COLOR_DANGER if prominent else gui.ui_theme.COLOR_MUTED,
                 ).pack(fill="x", pady=(4, 4) if prominent else (0, 0))
 
-        def _render_recovery(self, cause_body, blocked_body, attempts_body):
-            self._clear(cause_body)
-            self._clear(blocked_body)
-            self._clear(attempts_body)
+        def _recovery_snapshot(self):
+            """Everything _render_recovery shows, read-only -- no widget touched. Compared on every tick so the
+            page (and the tile row) is rebuilt only when this actually changes (see _start_live_page). Note: a
+            live countdown (RESTORE pending/lockout seconds, "time since lockdown") is itself part of what is
+            shown, so while one of those is actively counting down this will keep changing every tick and the
+            page keeps refreshing promptly -- that is the real, intended behavior, not leftover flicker."""
             view, view_reason = records.read_recovery_view(recovery_path)
             rows, rows_reason = records.read_audit(audit_path, records.ATTEMPT_KINDS, 5)
             graduated = read_graduated(graduated_path)
@@ -558,35 +591,51 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             t = gui.i18n.t
             freshness = self._evidence_freshness()
 
-            tiles = records.recovery_tile_facts(evidence, view, graduated, freshness, t)
+            tiles = tuple(records.recovery_tile_facts(evidence, view, graduated, freshness, t))
+            cause_rows = tuple(records.lockdown_cause_facts(evidence, graduated, t))
+            # The detail list repeats recovery_facts() exactly, minus the rows shown elsewhere already: the
+            # tiles above (records.RECOVERY_TILE_ONLY_LABEL_KEYS) and the "Last RESTORE attempts" summary row,
+            # which the attempts card's own line list below covers (same rows/rows_reason). Nothing here is
+            # dropped -- only shown once, in the one place it now belongs.
+            skip_labels = {t(key) for key in records.RECOVERY_TILE_ONLY_LABEL_KEYS} | {t("recovery.attempts")}
+            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason, freshness, t)
+            detail_rows = tuple((label, value, level) for label, value, level in facts if label not in skip_labels)
+
+            status_text, blocked_ips = live.containment_status()
+            blocked_rows = tuple(records.blocked_ip_facts(blocked_ips, t))
+            blocked_extra = (t("diagnostics.containment"), status_text) if status_text != live.CONTAINMENT_HEALTHY else None
+            blocked_lines = tuple(blocked_ips) if status_text == live.CONTAINMENT_HEALTHY and blocked_ips else ()
+
+            if rows:
+                attempts_lines = tuple(records.audit_line(row) for row in rows)
+            else:
+                attempts_lines = (t("audit.view.none") if rows is not None else t("recovery.unavailable", reason=rows_reason),)
+
+            return tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines
+
+        def _render_recovery(self, snapshot, cause_body, blocked_body, attempts_body):
+            tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines = snapshot
+
             for tile, (_label, value, level) in zip(self._recovery_tiles, tiles):
                 if tile.winfo_exists():
                     tile.update(value, _status(gui, level))
 
-            for label, value, level in records.lockdown_cause_facts(evidence, graduated, t):
+            self._clear(cause_body)
+            for label, value, level in cause_rows:
                 self._add_fact(cause_body, label, value, status=_status(gui, level))
-            # The detail list below repeats recovery_facts() exactly, minus the rows shown elsewhere already:
-            # the tiles above (records.RECOVERY_TILE_ONLY_LABEL_KEYS) and the "Last RESTORE attempts" summary
-            # row, which the attempts card's own line list below covers (same rows/rows_reason). Nothing here
-            # is dropped -- only shown once, in the one place it now belongs.
-            skip_labels = {t(key) for key in records.RECOVERY_TILE_ONLY_LABEL_KEYS} | {t("recovery.attempts")}
-            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason, freshness, t)
-            for label, value, level in facts:
-                if label not in skip_labels:
-                    self._add_fact(cause_body, label, value, status=_status(gui, level))
-            status_text, blocked_ips = live.containment_status()
-            for label, value, level in records.blocked_ip_facts(blocked_ips, gui.i18n.t):
+            for label, value, level in detail_rows:
+                self._add_fact(cause_body, label, value, status=_status(gui, level))
+
+            self._clear(blocked_body)
+            for label, value, level in blocked_rows:
                 self._add_fact(blocked_body, label, value, status=_status(gui, level))
-            if status_text != live.CONTAINMENT_HEALTHY:
-                self._add_fact(blocked_body, gui.i18n.t("diagnostics.containment"), status_text,
-                               status=gui.pres.STATUS_WARNING)
-            elif blocked_ips:
-                self._lines(blocked_body, blocked_ips)
-            if rows:
-                self._lines(attempts_body, [records.audit_line(row) for row in rows])
-            else:
-                self._lines(attempts_body, [gui.i18n.t("audit.view.none") if rows is not None else
-                                            gui.i18n.t("recovery.unavailable", reason=rows_reason)])
+            if blocked_extra is not None:
+                self._add_fact(blocked_body, blocked_extra[0], blocked_extra[1], status=gui.pres.STATUS_WARNING)
+            elif blocked_lines:
+                self._lines(blocked_body, list(blocked_lines))
+
+            self._clear(attempts_body)
+            self._lines(attempts_body, list(attempts_lines))
 
         # -- severity panel ---------------------------------------------------------------------------------------------
         def _new_page(self, parent, title_key, subtitle_key, **kwargs):
@@ -602,7 +651,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             section = gui.Section(page, gui.i18n.t("severity.title"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 20))
             self._severity_body = section.body
-            self._render_severity()
+            self._severity_snapshot_value = self._severity_snapshot()
+            self._render_severity(self._severity_snapshot_value)
             self._schedule_severity()
 
         def _schedule_severity(self):
@@ -620,24 +670,34 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._severity_after = None
             if self._severity_body is None or not self._severity_body.winfo_exists():
                 return
-            saved = self._scroll_yview(self._severity_body)
-            self._render_severity()
-            self._restore_scroll_yview(saved)
+            snapshot = self._severity_snapshot()
+            if snapshot != self._severity_snapshot_value:
+                self._severity_snapshot_value = snapshot
+                saved = self._scroll_yview(self._severity_body)
+                self._render_severity(snapshot)
+                self._restore_scroll_yview(saved)
             self._schedule_severity()
 
-        def _render_severity(self):
-            body = self._severity_body
-            for child in body.winfo_children():
-                child.destroy()
+        def _severity_snapshot(self):
+            """Everything _render_severity shows, read-only -- no widget touched. Compared on every tick so the
+            panel is rebuilt only when this actually changes (see _tick_severity), the same no-flicker pattern
+            _start_live_page uses for Recovery/Incidents/Audit."""
             data = read_graduated(graduated_path)
             latest = getattr(self, "latest", None)
             freshness = None if latest is None else ("FRESH" if latest.valid else latest.freshness)
-            for label, value, level in severity_facts(data, gui.i18n.t, freshness):
+            facts = tuple(severity_facts(data, gui.i18n.t, freshness))
+            lines = tuple(describe_decision(item) for item in reversed(data["decisions"][-6:])) if data is not None else ()
+            return facts, lines
+
+        def _render_severity(self, snapshot):
+            facts, lines = snapshot
+            body = self._severity_body
+            for child in body.winfo_children():
+                child.destroy()
+            for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
-            if data is None:
-                return
-            for item in reversed(data["decisions"][-6:]):
-                tk.Label(body, text=describe_decision(item), anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+            for line in lines:
+                tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
     return LivePurpleControlDesktopGUI

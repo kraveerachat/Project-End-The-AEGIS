@@ -393,7 +393,7 @@ def test_the_severity_panel_marks_graduated_status_stale_when_status_json_stops_
 
     write_core_status(app._status_path, 125)
     _poll(app, root)
-    app._render_severity()
+    app._tick_severity()
     root.update()
     texts = " | ".join(_texts(root))
     assert "Core evidence" in texts and "STALE — the Core is not updating" in texts
@@ -401,7 +401,7 @@ def test_the_severity_panel_marks_graduated_status_stale_when_status_json_stops_
 
     write_core_status(app._status_path, 1)
     _poll(app, root)
-    app._render_severity()
+    app._tick_severity()
     root.update()
     assert "STALE" not in " | ".join(_texts(root))
 
@@ -606,8 +606,11 @@ def test_the_recovery_page_preserves_scroll_position_across_a_live_refresh_tick(
     """Regression: _render_recovery() destroys and rebuilds every Section's children on each
     SEVERITY_POLL_MS tick; the enclosing ScrollFrame's canvas used to reset to the top on every
     tick because its scrollregion collapses while the old children are gone and nothing restored
-    the view afterward."""
-    app, root, _ = open_recovery(app_factory, tmp_path)
+    the view afterward. The snapshot comparison added since (task 3, no-flicker) means a tick with
+    no real data change now skips the rebuild entirely -- harmless for scroll, but it would no
+    longer exercise the restore path this test is actually about, so the view is changed here too,
+    forcing a real rebuild, exactly like test_..._updates_while_open_and_stops_when_left already does."""
+    app, root, recovery = open_recovery(app_factory, tmp_path)
     # The bug (and this fix) is specifically about the <Configure>-driven scrollregion recompute that a
     # real, mapped window processes on its own idle cycle; a withdrawn window never gets that from the X
     # server, so this one test needs a real, small, on-screen window instead of the suite's usual withdraw().
@@ -623,8 +626,10 @@ def test_the_recovery_page_preserves_scroll_position_across_a_live_refresh_tick(
     root.update()
     before = canvas.yview()[0]
     assert before > 0.05, "test setup did not actually scroll down"
+    write_recovery_view(recovery, restore_pending=True, restore_pending_remaining_sec=6.0, lockout_remaining_sec=20.0)
     app._tick_live_page()
     root.update()
+    assert any(text.startswith("NOT READY") for text in _texts(root)), "test setup did not actually change the data"
     after = canvas.yview()[0]
     assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
     root.withdraw()
@@ -632,7 +637,10 @@ def test_the_recovery_page_preserves_scroll_position_across_a_live_refresh_tick(
 
 def test_the_lockdown_severity_panel_preserves_scroll_position_across_a_live_refresh_tick(app_factory, tmp_path):
     """Same mechanism and fix as the Recovery page above, applied to the Lockdown page's severity panel
-    (_render_severity), which is driven by its own, separate SEVERITY_POLL_MS timer."""
+    (_render_severity), which is driven by its own, separate SEVERITY_POLL_MS timer. The graduated-status.json
+    file is rewritten before the tick (same path app_factory itself writes the initial projection to) so the
+    snapshot comparison added since (task 3) sees a real change and actually rebuilds, rather than skipping --
+    this test is about the restore-on-rebuild path, not the (also correct, but different) skip path."""
     app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
     root.deiconify()
     root.geometry("1024x300")
@@ -646,11 +654,82 @@ def test_the_lockdown_severity_panel_preserves_scroll_position_across_a_live_ref
     root.update()
     before = canvas.yview()[0]
     assert before > 0.05, "test setup did not actually scroll down"
+    changed = dict(DECISIONS, highest_level="CRITICAL")
+    (tmp_path / "graduated-status.json").write_text(json.dumps(changed), encoding="utf-8")
     app._tick_severity()
     root.update()
+    assert "CRITICAL" in _texts(root), "test setup did not actually change the data"
     after = canvas.yview()[0]
     assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
     root.withdraw()
+
+
+def test_the_recovery_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory, tmp_path):
+    """The periodic rebuild-every-tick is what caused the flicker; widget identity staying the same across a
+    no-change tick is the proxy for "nothing was destroyed/recreated, so nothing visibly flickered"."""
+    app, root, _ = open_recovery(app_factory, tmp_path)
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_recovery_page_rebuilds_promptly_when_the_data_actually_changes(app_factory, tmp_path):
+    app, root, recovery = open_recovery(app_factory, tmp_path)
+    before = [id(w) for w in _widgets(root, "Label")]
+    write_recovery_view(recovery, restore_pending=True, restore_pending_remaining_sec=6.0)
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before != after
+    assert any(text.startswith("NOT READY") for text in _texts(root))
+
+
+def test_the_incidents_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_audit_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, make_audit
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, audit_db=audit)
+    app._show_page("audit")
+    root.update()
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_lockdown_severity_panel_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_severity()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_lockdown_severity_panel_rebuilds_promptly_when_the_data_actually_changes(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    before = [id(w) for w in _widgets(root, "Label")]
+    changed = dict(DECISIONS, highest_level="CRITICAL")
+    (tmp_path / "graduated-status.json").write_text(json.dumps(changed), encoding="utf-8")
+    app._tick_severity()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before != after
+    assert "CRITICAL" in _texts(root)
 
 
 @pytest.mark.parametrize("language,marker", [("th", "พร้อม"), ("zh", "可执行")])
