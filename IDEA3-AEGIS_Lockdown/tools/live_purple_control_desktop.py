@@ -496,14 +496,33 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _build_recovery_page(self, parent):
             t = gui.i18n.t
             page = self._new_page(parent, "recovery.page_title", "recovery.page_subtitle")
-            cause = gui.Section(page, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
-            cause.pack(fill="x", padx=16, pady=(0, 16))
-            checklist = gui.Section(page, t("recovery.section"), accent=gui.COLOR_WARN_HL)
-            checklist.pack(fill="x", padx=16, pady=(0, 16))
-            blocked = gui.Section(page, t("recovery.blocked_section"))
-            blocked.pack(fill="x", padx=16, pady=(0, 16))
-            attempts = gui.Section(page, t("recovery.attempts_section"))
-            attempts.pack(fill="x", padx=16, pady=(0, 16))
+
+            # 1. A top row of quick-glance status tiles (reuses the accepted MetricCard/_reflow_cards from the
+            # Overview page -- same widget, same responsive 3/2/1-column behaviour, no new styling). Built once;
+            # only each tile's value/status is updated on every refresh tick (see _render_recovery), never its
+            # label, so this never destroys/rebuilds and cannot disturb scroll position on its own.
+            tile_grid = tk.Frame(page, bg=gui.COLOR_BG)
+            tile_grid.pack(fill="x", padx=16, pady=(0, 16))
+            self._recovery_tiles = [
+                gui.MetricCard(tile_grid, t(key), status=gui.pres.STATUS_UNKNOWN)
+                for key in records.RECOVERY_TILE_LABEL_KEYS
+            ]
+            self._reflow_cards(tile_grid, self._recovery_tiles, choices=(3, 2, 1))
+
+            # 2. Two columns (reuses the accepted _reflow_columns from Diagnostics/Settings): left stacks the
+            # lockdown-cause detail and the active-blocks card, right holds recent RESTORE attempts.
+            columns = tk.Frame(page, bg=gui.COLOR_BG)
+            columns.pack(fill="x", padx=16, pady=(0, 16))
+            left = tk.Frame(columns, bg=gui.COLOR_BG)
+            cause = gui.Section(left, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
+            cause.pack(fill="x", pady=(0, 16))
+            blocked = gui.Section(left, t("recovery.blocked_section"))
+            blocked.pack(fill="x")
+            attempts = gui.Section(columns, t("recovery.attempts_section"))
+            self._reflow_columns(columns, (left, attempts))
+
+            # 3. Full width: the 8-step runbook (step 6 / pin-2 keeps its existing red emphasis), the pin-2
+            # safety hint, and the one navigation button.
             runbook = gui.Section(page, t("recovery.runbook_section"))
             runbook.pack(fill="x", padx=16, pady=(0, 16))
             self._build_runbook(runbook.body)
@@ -512,7 +531,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
             self._start_live_page(
-                "recovery", lambda: self._render_recovery(cause.body, checklist.body, blocked.body, attempts.body),
+                "recovery", lambda: self._render_recovery(cause.body, blocked.body, attempts.body),
                 scroll_anchor=cause.body,
             )
 
@@ -528,21 +547,33 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                     bg=body.cget("bg"), fg=gui.ui_theme.COLOR_DANGER if prominent else gui.ui_theme.COLOR_MUTED,
                 ).pack(fill="x", pady=(4, 4) if prominent else (0, 0))
 
-        def _render_recovery(self, cause_body, body, blocked_body, attempts_body):
+        def _render_recovery(self, cause_body, blocked_body, attempts_body):
             self._clear(cause_body)
-            self._clear(body)
             self._clear(blocked_body)
             self._clear(attempts_body)
             view, view_reason = records.read_recovery_view(recovery_path)
             rows, rows_reason = records.read_audit(audit_path, records.ATTEMPT_KINDS, 5)
             graduated = read_graduated(graduated_path)
             evidence = live.evidence_values(self.latest)
-            for label, value, level in records.lockdown_cause_facts(evidence, graduated, gui.i18n.t):
+            t = gui.i18n.t
+            freshness = self._evidence_freshness()
+
+            tiles = records.recovery_tile_facts(evidence, view, graduated, freshness, t)
+            for tile, (_label, value, level) in zip(self._recovery_tiles, tiles):
+                if tile.winfo_exists():
+                    tile.update(value, _status(gui, level))
+
+            for label, value, level in records.lockdown_cause_facts(evidence, graduated, t):
                 self._add_fact(cause_body, label, value, status=_status(gui, level))
-            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason,
-                                           self._evidence_freshness(), gui.i18n.t)
+            # The detail list below repeats recovery_facts() exactly, minus the rows shown elsewhere already:
+            # the tiles above (records.RECOVERY_TILE_ONLY_LABEL_KEYS) and the "Last RESTORE attempts" summary
+            # row, which the attempts card's own line list below covers (same rows/rows_reason). Nothing here
+            # is dropped -- only shown once, in the one place it now belongs.
+            skip_labels = {t(key) for key in records.RECOVERY_TILE_ONLY_LABEL_KEYS} | {t("recovery.attempts")}
+            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason, freshness, t)
             for label, value, level in facts:
-                self._add_fact(body, label, value, status=_status(gui, level))
+                if label not in skip_labels:
+                    self._add_fact(cause_body, label, value, status=_status(gui, level))
             status_text, blocked_ips = live.containment_status()
             for label, value, level in records.blocked_ip_facts(blocked_ips, gui.i18n.t):
                 self._add_fact(blocked_body, label, value, status=_status(gui, level))

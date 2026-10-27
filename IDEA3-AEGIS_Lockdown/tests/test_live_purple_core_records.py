@@ -250,6 +250,39 @@ def test_graduated_row_and_header_facts():
     assert rec.audit_facts([], "", t)[0][1].startswith("0 newest")
 
 
+def test_recovery_tile_facts_mirror_the_same_values_and_conditions_as_recovery_facts(tmp_path):
+    view = make_view(tmp_path)
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": "203.0.113.9", "auto_cut_latched": True, "decisions": [{}]}
+    tiles = dict((label, (value, level)) for label, value, level in rec.recovery_tile_facts(EVIDENCE, view, graduated, "FRESH", t))
+    rows = dict((label, (value, level)) for label, value, level in rec.recovery_facts(EVIDENCE, view, "", graduated, [], "", "FRESH", t))
+    assert tiles["Ready for a RESTORE"] == ("READY", "LOW")
+    assert rows["Ready for a RESTORE"][1] == "LOW" and rows["Ready for a RESTORE"][0].startswith("READY")
+    for label in ("Uplink state", "ESP32 device", "Broker", "Trusted time"):
+        assert tiles[label] == rows[label]   # identical value and level -- only the row label differs for Graduated
+    assert tiles["Graduated response"] == ("HIGH", "HIGH")   # the tile omits the "latched" suffix the detail row keeps
+    assert rows["Graduated response"] == ("HIGH — automatic CUT latched", "HIGH")
+
+
+def test_recovery_tile_facts_not_ready_and_no_graduated_projection():
+    bad = {"uplink": "NORMAL", "device": "OFFLINE", "broker": "DISCONNECTED", "trusted_time": "UNTRUSTED"}
+    tiles = dict((label, (value, level)) for label, value, level in rec.recovery_tile_facts(bad, None, None, "FRESH", t))
+    assert tiles["Ready for a RESTORE"] == ("NOT READY", "HIGH")
+    assert tiles["Graduated response"] == ("NOT_AVAILABLE — no Core projection", None)
+
+
+def test_recovery_tile_only_label_keys_excludes_ready_and_matches_real_labels():
+    assert "recovery.ready" not in rec.RECOVERY_TILE_ONLY_LABEL_KEYS
+    labels = {t(key) for key in rec.RECOVERY_TILE_ONLY_LABEL_KEYS}
+    assert labels == {"Uplink state", "ESP32 device", "Broker", "Trusted time", "Graduated response"}
+
+
+def test_recovery_tile_label_keys_order_matches_recovery_tile_facts_output_order(tmp_path):
+    view = make_view(tmp_path)
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    tiles = rec.recovery_tile_facts(EVIDENCE, view, graduated, "FRESH", t)
+    assert [label for label, _v, _l in tiles] == [t(key) for key in rec.RECOVERY_TILE_LABEL_KEYS]
+
+
 # ---- lockdown cause / blocked IPs / runbook ----
 
 DECISION = {

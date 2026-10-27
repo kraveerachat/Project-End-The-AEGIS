@@ -285,6 +285,40 @@ def recovery_facts(evidence, view, view_reason, graduated, attempts, attempts_re
     return rows
 
 
+# Labels recovery_facts() computes that also get a quick-glance tile (see recovery_tile_facts below); the
+# Desktop uses this to leave the full-detail row out of the "cause" card where a tile already shows it, so
+# the same value is not printed twice. "recovery.ready" is NOT here on purpose: the tile shows a short
+# READY/NOT READY, but the full row (with the blocker list) stays in the detail card -- nothing is dropped.
+RECOVERY_TILE_ONLY_LABEL_KEYS = ("recovery.uplink", "recovery.device", "recovery.broker", "recovery.time", "recovery.graduated")
+
+# The exact order recovery_tile_facts() returns its six tiles in -- the Desktop builds its six MetricCard
+# labels from this (a MetricCard's label is set once, at construction; only the value/status are updated on
+# each refresh tick), so the GUI's tile order and this function's row order can never drift apart.
+RECOVERY_TILE_LABEL_KEYS = ("recovery.ready", "recovery.uplink", "recovery.device", "recovery.broker", "recovery.time", "recovery.graduated")
+
+
+def recovery_tile_facts(evidence, view, graduated, freshness, translate) -> list[tuple[str, str, str | None]]:
+    """The Recovery page's six quick-glance tiles -- Ready?, Uplink, ESP32, Broker, Time, Graduated response
+    -- as ``(label, short_value, level)``. Every value and condition here is the exact same one
+    ``recovery_facts`` already computes for its fact rows; this only re-packages them for tile display, so a
+    tile and the equivalent detail row (when one still exists) never disagree."""
+    t = translate
+    blockers = readiness_blockers(evidence, view, freshness)
+    ready = not blockers
+    tiles = [
+        (t("recovery.ready"), t("recovery.ready_yes_short") if ready else t("recovery.ready_no_short"), "LOW" if ready else "HIGH"),
+        (t("recovery.uplink"), evidence.get("uplink", "UNKNOWN"), "HIGH" if evidence.get("uplink") == "LOCKDOWN" else None),
+        (t("recovery.device"), evidence.get("device", "UNKNOWN"), "HIGH" if evidence.get("device") != "ONLINE" else "LOW"),
+        (t("recovery.broker"), evidence.get("broker", "UNKNOWN"), "HIGH" if evidence.get("broker") != "CONNECTED" else "LOW"),
+        (t("recovery.time"), evidence.get("trusted_time", "UNKNOWN"), "HIGH" if evidence.get("trusted_time") != "SYNCED" else "LOW"),
+    ]
+    if graduated is None:
+        tiles.append((t("recovery.graduated"), t("severity.unavailable"), None))
+    else:
+        tiles.append((t("recovery.graduated"), graduated["highest_level"], graduated["highest_level"]))
+    return tiles
+
+
 def incident_facts(graduated, reason, translate):
     """Header rows of the Incidents page from the Core's graduated decisions; the decision lines are printed by the page."""
     t = translate
@@ -362,6 +396,8 @@ RECORD_STRINGS = {
                            "th": "READY — ผ่านทุกข้อด้านล่าง (Core เป็นผู้ตัดสินขั้นสุดท้าย)",
                            "zh": "READY — 以下各项均已满足（最终由 Core 决定）"},
     "recovery.ready_no": {"en": "NOT READY", "th": "NOT READY — ยังไม่พร้อม", "zh": "NOT READY — 尚未就绪"},
+    "recovery.ready_yes_short": {"en": "READY", "th": "READY", "zh": "READY"},
+    "recovery.ready_no_short": {"en": "NOT READY", "th": "NOT READY", "zh": "NOT READY"},
     "recovery.uplink": {"en": "Uplink state", "th": "สถานะอัปลิงก์", "zh": "上行链路状态"},
     "recovery.why": {"en": "Why the uplink is in LOCKDOWN", "th": "สาเหตุที่อัปลิงก์อยู่ใน LOCKDOWN", "zh": "上行链路处于 LOCKDOWN 的原因"},
     "recovery.why.NOT_LOCKDOWN": {"en": "the uplink is not in LOCKDOWN", "th": "อัปลิงก์ไม่ได้อยู่ใน LOCKDOWN",
