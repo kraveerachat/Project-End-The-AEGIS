@@ -235,6 +235,20 @@ def _status(gui, level):
     }.get(level, gui.pres.STATUS_UNKNOWN)
 
 
+def _feed_status(gui, kind):
+    """A feed row's color, from the SAME severity palette as every other page -- no new color is introduced.
+    The pinned theme has one amber "warning" tone, not a separate yellow/orange, so GRADUATED_MEDIUM and
+    GRADUATED_HIGH both read as warning (exactly as _status() above already does for those two levels
+    elsewhere); only GRADUATED_CRITICAL is red and GRADUATED_LOW is neutral."""
+    if kind.startswith("GRADUATED_"):
+        return _status(gui, kind[len("GRADUATED_"):])
+    if kind == "CUT_PRE_DISPATCH":
+        return gui.pres.STATUS_CRITICAL
+    if kind.startswith("RESTORE"):
+        return gui.pres.STATUS_HEALTHY
+    return gui.pres.STATUS_NEUTRAL  # COMMAND_SENT, ACK_RECEIVED, ALERT_ACCEPTED, ALERT_REFUSED
+
+
 def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path, *, incident_source=None,
                        recovery_path=None, audit_path=None):
     Base = cut_desktop._cut_gui_class(gui, cut_flow, prompts, run_async, incident_source=incident_source)
@@ -374,7 +388,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 
         # -- read-only Core pages (Recovery; Incidents and Audit follow) ------------------------------------------------
-        def _start_live_page(self, key, compute, render, *, scroll_anchor=None):
+        def _start_live_page(self, key, compute, render, *, scroll_anchor=None, snap_to_bottom=False):
             """Re-evaluated every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page.
             ``compute()`` reads the Core sources and returns a plain, ``==``-comparable snapshot of everything the
             page shows (no widgets touched); ``render(snapshot)`` is the one place that destroys and rebuilds the
@@ -383,9 +397,15 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             on every tick is what caused the periodic flicker and the Task-1 scroll jump; comparing first removes
             the flicker in steady state (nothing changed -> no rebuild) while a real change still renders promptly.
             ``scroll_anchor`` is any live widget inside the page's ScrollFrame (e.g. a Section's body): on the
-            rebuild path, its scroll position is preserved across the rebuild (see _scroll_yview)."""
+            rebuild path, its scroll position is preserved across the rebuild (see _scroll_yview).
+            ``snap_to_bottom`` (the Audit page's live feed only): preserving the exact old fraction is the
+            wrong behaviour for a growing newest-at-the-bottom console -- a fixed fraction drifts away from the
+            bottom as rows are appended. When the viewport's bottom edge was already at (or essentially at) the
+            end before the rebuild, this snaps to the new bottom afterwards instead of restoring the old
+            fraction, so a feed the operator is watching keeps following new events, like a terminal "tail -f";
+            scrolled up to read history, the normal fraction-preserving restore still applies unchanged."""
             self._stop_live_page()
-            self._page_tick = (key, compute, render, scroll_anchor)
+            self._page_tick = (key, compute, render, scroll_anchor, snap_to_bottom)
             self._page_snapshot = None
             self._tick_live_page(first=True)
 
@@ -402,7 +422,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._page_after = None
             if self._page_tick is None:
                 return
-            key, compute, render, scroll_anchor = self._page_tick
+            key, compute, render, scroll_anchor, snap_to_bottom = self._page_tick
             if getattr(self, "active_page", None) != key:
                 self._page_tick = None
                 return
@@ -410,12 +430,23 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             if first or snapshot != self._page_snapshot:
                 self._page_snapshot = snapshot
                 saved = self._scroll_yview(scroll_anchor)
+                at_bottom = False
+                if snap_to_bottom and saved is not None:
+                    frame, _position = saved
+                    _top, bottom = frame.canvas.yview()
+                    at_bottom = bottom >= 0.999
                 try:
                     render(snapshot)
                 except tk.TclError:   # the page was destroyed under us
                     self._page_tick = None
                     return
-                self._restore_scroll_yview(saved)
+                if snap_to_bottom and at_bottom:
+                    frame, _position = saved
+                    frame.canvas.update_idletasks()
+                    if frame.canvas.winfo_exists():
+                        frame.canvas.yview_moveto(1.0)
+                else:
+                    self._restore_scroll_yview(saved)
             try:
                 self._page_after = self.root.after(SEVERITY_POLL_MS, self._tick_live_page)
             except (tk.TclError, RuntimeError):
@@ -473,15 +504,24 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = self._new_page(parent, "audit.title", "audit.subtitle")
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
+            # snap_to_bottom: a console-style live feed, newest row last -- the operator watching it scroll
+            # should follow new events automatically, the same as a terminal "tail -f", but only while they
+            # are already at the bottom; scrolling up to read history must not get yanked back down.
             self._start_live_page("audit", self._audit_snapshot,
                                   lambda snapshot: self._render_audit(snapshot, section.body),
-                                  scroll_anchor=section.body)
+                                  scroll_anchor=section.body, snap_to_bottom=True)
 
         def _audit_snapshot(self):
+            """Everything _render_audit shows, read-only -- no widget touched. ``lines`` widens the Audit
+            page's own feed (and only this page) to the security kinds too (records.FEED_KINDS = AUDIT_KINDS
+            + SECURITY_KINDS); _diagnostics_audit_row above keeps reading records.AUDIT_KINDS unchanged, and
+            every row is oldest-first here (read_audit itself returns newest-first) so the feed renders with
+            the newest event at the bottom, like a console."""
             t = gui.i18n.t
-            rows, reason = records.read_audit(audit_path, records.AUDIT_KINDS, records.AUDIT_LIMIT)
+            rows, reason = records.read_audit(audit_path, records.FEED_KINDS, records.AUDIT_LIMIT_FEED)
             facts = tuple(records.audit_facts(rows, reason, t))
-            lines = tuple([records.audit_line(row) for row in rows] or [t("audit.view.none")]) if rows is not None else None
+            lines = (tuple((records.feed_line(row), _feed_status(gui, row["kind"])) for row in reversed(rows))
+                     or ((t("audit.view.none"), gui.pres.STATUS_NEUTRAL),)) if rows is not None else None
             return facts, lines
 
         def _render_audit(self, snapshot, body):
@@ -490,7 +530,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
             if lines is not None:
-                self._lines(body, list(lines))
+                for text, status in lines:
+                    tk.Label(body, text=text, anchor="w", justify="left", font=gui.ui_theme.FONT_MONO_SMALL,
+                             bg=body.cget("bg"), fg=gui.ui_theme.status_color(status)).pack(fill="x", anchor="w")
 
         def _enable_navigation_button(self):
             button = getattr(self, "_go_button", None)

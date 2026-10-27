@@ -929,7 +929,7 @@ def test_audit_page_lists_cut_and_restore_records_without_reasons(app_factory, t
     joined = "\n".join(_texts(root))
     assert "observer mode" not in joined and "Operational actions" not in joined
     for expected in ("RESTORE_REQUESTED", "COMMAND_SENT", "RESTORE_UPLINK", "ACK_RECEIVED", "RESTORE_ALREADY_PENDING",
-                     "CUT_PRE_DISPATCH", "ab" * 16, "RESTORE_AUTH_LOCKOUT", "2026-10-24 19:01:06"):
+                     "CUT_PRE_DISPATCH", "ab" * 16, "RESTORE_AUTH_LOCKOUT", "19:01:06"):  # the feed shows HH:MM:SS, not the full date
         assert expected in joined, expected
     assert "STATUS_AUTHENTICATED" not in joined and SECRET_REASON not in joined
 

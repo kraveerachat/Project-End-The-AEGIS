@@ -25,6 +25,10 @@ from urllib.parse import quote
 
 MAX_JSON_BYTES = 16 * 1024
 AUDIT_LIMIT = 30
+# read_audit()'s own `limit = max(1, min(int(limit), 50))` already hard-caps every caller at 50 rows (pinned,
+# tested); the Audit page's live feed asks for that same existing cap rather than raising it, so no shared
+# safety bound changes for this feature.
+AUDIT_LIMIT_FEED = 50
 AUDIT_DETAILS_CHARS = 512
 RECOVERY_MAX_AGE_SECONDS = 60.0   # the same freshness rule as the Core evidence (live_purple_observer.DESKTOP_MAX_AGE_SECONDS)
 
@@ -35,6 +39,13 @@ NOT_A_REGULAR_FILE, TOO_LARGE, UNREADABLE, MALFORMED, STALE = "NOT_A_REGULAR_FIL
 UPLINK_WHY = ("NOT_LOCKDOWN", "COMMANDED_CUT", "CUT_NOT_ACKED", "UNCOMMANDED_AFTER_RESTORE", "NO_COMMAND_RECORD")
 AUDIT_KINDS = ("COMMAND_SENT", "ACK_RECEIVED", "CUT_PRE_DISPATCH", "RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT")
 ATTEMPT_KINDS = ("RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT")
+# The graduated-response decision and alert-ingress kinds (aegis_soc/supervisor.py's _graduated_act,
+# aegis_soc/graduated_ingress.py's _audit_accepted/handle) land in the SAME audit_logs table as the kinds
+# above, but AUDIT_KINDS has never included them, so they have never been shown anywhere on the Desktop.
+# FEED_KINDS is a second, explicit, bounded allowlist (not a passthrough of arbitrary event_type values) for
+# the Audit page's live SOC feed only; every existing caller keeps passing AUDIT_KINDS/ATTEMPT_KINDS unchanged.
+SECURITY_KINDS = ("GRADUATED_LOW", "GRADUATED_MEDIUM", "GRADUATED_HIGH", "GRADUATED_CRITICAL", "ALERT_ACCEPTED", "ALERT_REFUSED")
+FEED_KINDS = AUDIT_KINDS + SECURITY_KINDS
 ACTIONS = ("CUT_UPLINK", "RESTORE_UPLINK")
 
 BLOCKERS = (
@@ -134,6 +145,13 @@ _SEQ_FIELD = re.compile(r"(?:^| )seq=(\d{1,10})(?: |$)")
 _ACTION_HEAD = re.compile(r"^(CUT_UPLINK|RESTORE_UPLINK) - ")
 _SEQ_TAIL = re.compile(r" seq=(\d{1,10})$")
 _ACK = re.compile(r"^([A-Z][A-Z_]{1,30}) - seq (\d{1,10})$")
+# aegis_soc/supervisor.py's _graduated_act() and aegis_soc/graduated_ingress.py's handle() build ``details`` as
+# space-joined ``key=value`` pairs from controlled, internally-generated values (an IPv4 address, uppercase
+# action/kind tokens, a comma list of MITRE technique ids) -- never operator free text -- so these can be
+# anchored the same way as the patterns above.
+_GRADUATED_ACTION = re.compile(r"(?:^| )action=([A-Z_]{1,30})(?: |$)")
+_ATTACKER_IP = re.compile(r"(?:^| )attacker_ip=(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?: |$)")
+_MITRE = re.compile(r"(?:^| )mitre=([A-Z0-9,]{0,80})(?: |$)")
 
 
 def parse_audit_details(kind: str, details) -> tuple[str, str]:
@@ -158,14 +176,29 @@ def parse_audit_details(kind: str, details) -> tuple[str, str]:
         ack = _ACK.match(text)
         if ack:
             code, ref = ack.group(1), f"seq {ack.group(2)}"
+    elif kind in ("GRADUATED_LOW", "GRADUATED_MEDIUM", "GRADUATED_HIGH", "GRADUATED_CRITICAL"):
+        action = _GRADUATED_ACTION.search(text)
+        code = action.group(1) if action else ""
     return code, ref
+
+
+def parse_security_details(details) -> tuple[str, str]:
+    """``(attacker_ip, mitre)`` from a GRADUATED_*/ALERT_ACCEPTED audit row's machine fields, same anchoring
+    rules as ``parse_audit_details``; ``("", "")`` for a kind/row that carries neither (e.g. ALERT_REFUSED,
+    whose details are only ``code=... uid=... pid=...``, no attacker_ip)."""
+    text = details[:AUDIT_DETAILS_CHARS] if isinstance(details, str) else ""
+    ip_match = _ATTACKER_IP.search(text)
+    mitre_match = _MITRE.search(text)
+    ip = ip_match.group(1) if ip_match else ""
+    mitre = mitre_match.group(1) if mitre_match and mitre_match.group(1) else ""
+    return ip, mitre
 
 
 def read_audit(path, kinds=AUDIT_KINDS, limit: int = AUDIT_LIMIT):
     """The newest audit rows of the given kinds as ``(rows, reason)``, newest first. Read-only connection, fixed query, bounded."""
     if path is None:
         return None, NOT_CONFIGURED
-    kinds = tuple(kind for kind in kinds if kind in AUDIT_KINDS)
+    kinds = tuple(kind for kind in kinds if kind in FEED_KINDS)
     limit = max(1, min(int(limit), 50))
     try:
         info = os.lstat(path)
@@ -192,11 +225,12 @@ def read_audit(path, kinds=AUDIT_KINDS, limit: int = AUDIT_LIMIT):
         connection.close()
     rows = []
     for row_id, stamp, kind, details in found:
-        if not isinstance(row_id, int) or kind not in AUDIT_KINDS:
+        if not isinstance(row_id, int) or kind not in FEED_KINDS:
             continue
         code, ref = parse_audit_details(kind, details)
+        ip, mitre = parse_security_details(details) if kind in SECURITY_KINDS else ("", "")
         at = stamp[:19] if isinstance(stamp, str) and _TIME.match(stamp) else ""
-        rows.append({"id": row_id, "at": at, "kind": kind, "code": code, "ref": ref})
+        rows.append({"id": row_id, "at": at, "kind": kind, "code": code, "ref": ref, "ip": ip, "mitre": mitre})
     return rows, ""
 
 
@@ -206,6 +240,21 @@ def audit_line(row) -> str:
         parts.append(row["code"])
     if row["ref"]:
         parts.append(f"[{row['ref']}]")
+    return "  ".join(parts)
+
+
+def feed_line(row) -> str:
+    """One console line for the Audit page's live SOC feed: HH:MM:SS  KIND  [code]  [ip]  [mitre]."""
+    clock = row["at"][-8:] if len(row["at"]) >= 8 else (row["at"] or "—")
+    parts = [clock, f"{row['kind']:<20}"]
+    if row["code"]:
+        parts.append(row["code"])
+    if row["ip"]:
+        parts.append(row["ip"])
+    if row["ref"]:
+        parts.append(f"[{row['ref']}]")
+    if row["mitre"]:
+        parts.append(f"[{row['mitre']}]")
     return "  ".join(parts)
 
 
