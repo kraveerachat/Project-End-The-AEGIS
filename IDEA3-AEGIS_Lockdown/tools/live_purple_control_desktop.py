@@ -459,27 +459,60 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _build_recovery_page(self, parent):
             t = gui.i18n.t
             page = self._new_page(parent, "recovery.page_title", "recovery.page_subtitle")
+            cause = gui.Section(page, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
+            cause.pack(fill="x", padx=16, pady=(0, 16))
             checklist = gui.Section(page, t("recovery.section"), accent=gui.COLOR_WARN_HL)
             checklist.pack(fill="x", padx=16, pady=(0, 16))
+            blocked = gui.Section(page, t("recovery.blocked_section"))
+            blocked.pack(fill="x", padx=16, pady=(0, 16))
             attempts = gui.Section(page, t("recovery.attempts_section"))
             attempts.pack(fill="x", padx=16, pady=(0, 16))
+            runbook = gui.Section(page, t("recovery.runbook_section"))
+            runbook.pack(fill="x", padx=16, pady=(0, 16))
+            self._build_runbook(runbook.body)
             gui.make_hint(page, t("recovery.hint")).pack(anchor="w", padx=16, pady=(0, 8))
             # Navigation only: the RESTORE control exists on the Lockdown page and nowhere else.
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
-            self._start_live_page("recovery", lambda: self._render_recovery(checklist.body, attempts.body))
+            self._start_live_page(
+                "recovery", lambda: self._render_recovery(cause.body, checklist.body, blocked.body, attempts.body)
+            )
 
-        def _render_recovery(self, body, attempts_body):
+        def _build_runbook(self, body):
+            """A static, numbered RESTORE runbook. Read-only preview text only — it starts no action and has no
+            live state, so it is built once, not re-rendered on every poll tick."""
+            t = gui.i18n.t
+            for key in records.RUNBOOK_STEPS:
+                prominent = key == "recovery.runbook.6"   # "verify pin 2 physically": the system cannot prove this itself
+                tk.Label(
+                    body, text=t(key), anchor="w", justify="left", wraplength=640,
+                    font=gui.ui_theme.FONT_BTN if prominent else gui.ui_theme.FONT_BODY,
+                    bg=body.cget("bg"), fg=gui.ui_theme.COLOR_DANGER if prominent else gui.ui_theme.COLOR_MUTED,
+                ).pack(fill="x", pady=(4, 4) if prominent else (0, 0))
+
+        def _render_recovery(self, cause_body, body, blocked_body, attempts_body):
+            self._clear(cause_body)
             self._clear(body)
+            self._clear(blocked_body)
             self._clear(attempts_body)
             view, view_reason = records.read_recovery_view(recovery_path)
             rows, rows_reason = records.read_audit(audit_path, records.ATTEMPT_KINDS, 5)
             graduated = read_graduated(graduated_path)
             evidence = live.evidence_values(self.latest)
+            for label, value, level in records.lockdown_cause_facts(evidence, graduated, gui.i18n.t):
+                self._add_fact(cause_body, label, value, status=_status(gui, level))
             facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason,
                                            self._evidence_freshness(), gui.i18n.t)
             for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
+            status_text, blocked_ips = live.containment_status()
+            for label, value, level in records.blocked_ip_facts(blocked_ips, gui.i18n.t):
+                self._add_fact(blocked_body, label, value, status=_status(gui, level))
+            if status_text != live.CONTAINMENT_HEALTHY:
+                self._add_fact(blocked_body, gui.i18n.t("diagnostics.containment"), status_text,
+                               status=gui.pres.STATUS_WARNING)
+            elif blocked_ips:
+                self._lines(blocked_body, blocked_ips)
             if rows:
                 self._lines(attempts_body, [records.audit_line(row) for row in rows])
             else:
@@ -553,6 +586,7 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
     register_severity_strings(gui.i18n)
     records.register_record_strings(gui.i18n)
+    live.register_observer_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()
     prompts = prompts or ControlPrompts()

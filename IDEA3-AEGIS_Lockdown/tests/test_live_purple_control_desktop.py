@@ -649,6 +649,86 @@ def test_the_page_cannot_issue_a_restore_even_when_every_control_is_pressed(app_
     assert flow.submitted == [] and prompts.asked == [] and flow.polls == 0
 
 
+LOCKDOWN_DECISIONS = {
+    "v": 1, "updated_at": 1.0, "auto_cut_latched": True, "highest_level": "CRITICAL", "cut_recommended_for": None,
+    "decisions": [
+        {"at": 1_800_000_000.0, "attacker_ip": "203.0.113.9", "kind": "ssh_login_after_failures", "level": "CRITICAL",
+         "action": "AUTO_CUT", "outcome": "CUT_SENT", "score": 140,
+         "reasons": ["ssh_brute_force+40", "ssh_login_after_failures+100"], "mitre": ["T1110"]},
+    ],
+}
+
+
+def test_the_recovery_page_shows_the_most_recent_decision_as_the_lockdown_cause(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery, graduated=LOCKDOWN_DECISIONS)
+    write_core_status(app._status_path, 5, uplink="LOCKDOWN")
+    _poll(app, root)
+    app._show_page("recovery")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "203.0.113.9 — CRITICAL" in joined
+    assert "ssh_brute_force+40, ssh_login_after_failures+100" in joined
+    assert "T1110" in joined
+    assert "AUTO_CUT → CUT_SENT" in joined
+    assert "ago" in joined
+
+
+def test_the_recovery_page_shows_no_active_lockdown_when_the_uplink_is_normal(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json", uplink="NORMAL", uplink_why="NOT_LOCKDOWN")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery, graduated=LOCKDOWN_DECISIONS)
+    app._show_page("recovery")
+    root.update()
+    assert "no active lockdown" in "\n".join(_texts(root))
+
+
+def test_the_recovery_page_shows_active_software_blocks_from_the_containment_helper(app_factory, tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop.live, "containment_status",
+                        lambda: (desktop.live.CONTAINMENT_HEALTHY, ["203.0.113.5", "203.0.113.6"]))
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery)
+    app._show_page("recovery")
+    root.update()
+    texts = _texts(root)
+    joined = "\n".join(texts)
+    assert "Active software blocks" in joined and "2" in texts
+    assert "203.0.113.5" in joined and "203.0.113.6" in joined
+
+
+def test_the_recovery_page_reports_an_unreachable_containment_helper_instead_of_crashing(app_factory, tmp_path, monkeypatch):
+    monkeypatch.setattr(desktop.live, "containment_status", lambda: ("UNAVAILABLE — ContainmentUnavailable", []))
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery)
+    errors = []
+    root.report_callback_exception = lambda *exc: errors.append(exc[1])
+    app._show_page("recovery")
+    root.update()
+    assert not errors, errors
+    assert "UNAVAILABLE" in "\n".join(_texts(root))
+
+
+def test_the_recovery_page_shows_the_runbook_with_the_pin2_step_visually_prominent(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery)
+    app._show_page("recovery")
+    root.update()
+    labels = _widgets(root, "Label")
+    pin2 = next(w for w in labels if "PIN 2" in str(w.cget("text")))
+    ordinary = next(w for w in labels if str(w.cget("text")).startswith("1. Verify the threat is over"))
+    assert str(pin2.cget("fg")) != str(ordinary.cget("fg"))
+    joined = "\n".join(_texts(root))
+    assert "8. Close the incident" in joined
+
+
+def test_the_control_desktops_diagnostics_page_also_shows_containment_health(app_factory, monkeypatch):
+    monkeypatch.delenv(desktop.live.containment.SOCKET_ENV, raising=False)
+    _app, root = app_factory(FakeRestoreFlow(), FakePrompts())
+    _app._show_page("diagnostics")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "NOT_CONFIGURED" in joined
+
+
 # ---- Incidents and Audit pages (P4): read-only data from existing Core sources, NOT_AVAILABLE with the reason otherwise ----
 
 DECISIONS = {

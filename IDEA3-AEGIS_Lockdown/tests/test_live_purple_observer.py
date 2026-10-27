@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import os
+import socket
 import sys
+import threading
 import tkinter as tk
 from pathlib import Path
 import pytest
@@ -165,6 +168,96 @@ def _buttons(widget):
             buttons.append(child)
         buttons.extend(_buttons(child))
     return buttons
+
+
+def _label_texts(widget):
+    texts = []
+    for child in widget.winfo_children():
+        if child.winfo_class() == "Label":
+            texts.append(child.cget("text"))
+        texts.extend(_label_texts(child))
+    return texts
+
+
+def test_containment_status_is_not_configured_without_a_socket_env(monkeypatch):
+    monkeypatch.delenv(live.containment.SOCKET_ENV, raising=False)
+    status, blocked = live.containment_status()
+    assert status == live.CONTAINMENT_NOT_CONFIGURED and blocked == []
+
+
+def test_containment_status_is_unavailable_when_the_socket_does_not_exist(monkeypatch, tmp_path):
+    monkeypatch.setenv(live.containment.SOCKET_ENV, str(tmp_path / "missing.sock"))
+    status, blocked = live.containment_status()
+    assert status.startswith("UNAVAILABLE") and blocked == []
+
+
+def _serve_one_list(tmp_path, blocked_ips):
+    """A real Unix-socket containment helper serving exactly one request, answering 'list' with ``blocked_ips``."""
+
+    class _FixedBlockSet:
+        def members(self):
+            return set(blocked_ips)
+
+    path = tmp_path / "containment.sock"
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(path))
+    listener.listen(1)
+    service = live.containment.ContainmentService(_FixedBlockSet(), ())
+    server = live.containment.ContainmentServer(listener, service, allowed_uids={os.geteuid()})
+    thread = threading.Thread(target=server.serve_one, daemon=True)
+    thread.start()
+    return path, listener, thread
+
+
+def test_containment_status_is_healthy_and_lists_blocked_ips(monkeypatch, tmp_path):
+    path, listener, thread = _serve_one_list(tmp_path, ["203.0.113.5", "203.0.113.6"])
+    monkeypatch.setenv(live.containment.SOCKET_ENV, str(path))
+    # The real helper is root-owned (uid 0), the default ContainmentClient() peer check; this test's fake
+    # server runs as the test's own uid, so only the peer-uid check is relaxed here.
+    real_client = live.containment.ContainmentClient
+    monkeypatch.setattr(live.containment, "ContainmentClient", lambda: real_client(expected_server_uid=os.geteuid()))
+    try:
+        status, blocked = live.containment_status()
+    finally:
+        thread.join(2)
+        listener.close()
+    assert status == live.CONTAINMENT_HEALTHY
+    assert blocked == ["203.0.113.5", "203.0.113.6"]
+
+
+def test_diagnostics_page_shows_containment_health_and_block_count(tmp_path, monkeypatch):
+    monkeypatch.delenv(live.containment.SOCKET_ENV, raising=False)
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Tk display unavailable: {error}")
+    root.withdraw()
+    for name in list(sys.modules):
+        if name == "aegis_soc" or name.startswith("aegis_soc."):
+            del sys.modules[name]
+    sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+    try:
+        app, _fakes = live.create_live_app(root, status_path=tmp_path / "missing-status.json")
+        app.session.login("test-admin")
+        app._on_authenticated()
+        app._show_page("diagnostics")
+        joined = "\n".join(_label_texts(app.root))
+        assert "NOT_CONFIGURED" in joined
+        assert "0" in joined.splitlines()
+    finally:
+        for after_id in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(after_id)
+        root.destroy()
+        for name in list(sys.modules):
+            if name == "aegis_soc" or name.startswith("aegis_soc."):
+                del sys.modules[name]
+        sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+
+
+def test_containment_source_never_mutates_the_set():
+    source = inspect.getsource(live)
+    assert '"op": "list"' not in source   # containment_status() calls .list() only, through the client wrapper
+    assert ".block(" not in source and ".unblock(" not in source
 
 
 def test_accepted_purple_snapshot_has_exact_owner_accepted_source_hashes():

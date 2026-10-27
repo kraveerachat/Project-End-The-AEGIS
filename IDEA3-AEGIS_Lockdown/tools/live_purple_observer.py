@@ -8,6 +8,7 @@ fail-closed local fakes for every operational dependency.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import tkinter as tk
 from pathlib import Path
@@ -39,6 +40,65 @@ def _load_reader():
 
 
 reader = _load_reader()
+
+
+def _load_containment():
+    path = Path(__file__).resolve().parents[1] / "aegis_soc" / "ip_containment.py"
+    spec = importlib.util.spec_from_file_location("aegis_containment_reader", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load read-only containment client: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["aegis_containment_reader"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+containment = _load_containment()
+
+CONTAINMENT_HEALTHY = "HEALTHY"
+CONTAINMENT_NOT_CONFIGURED = "NOT_CONFIGURED"
+CONTAINMENT_BLOCKED_CAP = 64
+
+# Diagnostics-page containment strings, added to the purple i18n table by both entry points (see
+# register_observer_strings), so this reads the same way whether the window is the pure observer or the
+# full control Desktop.
+OBSERVER_STRINGS = {
+    "diagnostics.containment": {
+        "en": "Containment helper", "th": "ตัวช่วยกักกัน (containment helper)", "zh": "遏制助手",
+    },
+    "diagnostics.containment_blocks": {
+        "en": "Active software blocks", "th": "การบล็อกทางซอฟต์แวร์ที่ใช้งานอยู่", "zh": "当前生效的软件封锁数",
+    },
+}
+
+
+def register_observer_strings(i18n_module) -> None:
+    """Add the strings above to the purple i18n table; a key that already exists is never replaced."""
+    for key, entry in OBSERVER_STRINGS.items():
+        i18n_module.STRINGS.setdefault(key, dict(entry))
+
+
+def containment_status():
+    """Read-only containment helper status as ``(status_text, blocked_ips)``.
+
+    Issues only ``op=list`` over the configured Unix socket (``AEGIS_CONTAINMENT_SOCKET``) — the same read
+    ``collect-evidence.sh`` already performs — and never ``block``/``unblock``. Fails closed: a missing
+    socket configuration, an unreachable helper, or a malformed reply is reported as a value; this never
+    raises, so a Diagnostics/Recovery page render can never crash on it."""
+    socket_path = os.environ.get(containment.SOCKET_ENV, "").strip()
+    if not socket_path:
+        return CONTAINMENT_NOT_CONFIGURED, []
+    try:
+        response = containment.ContainmentClient().list()
+    except Exception as error:  # the helper, its socket, or the OS can fail in many ways; never crash the page
+        return f"UNAVAILABLE — {type(error).__name__}", []
+    if not isinstance(response, dict) or response.get("ok") is not True or response.get("operation") != "list":
+        reason = response.get("reason_code") if isinstance(response, dict) else "MALFORMED_RESPONSE"
+        return f"UNAVAILABLE — {reason or 'MALFORMED_RESPONSE'}", []
+    blocked = response.get("blocked")
+    if not isinstance(blocked, list):
+        return "UNAVAILABLE — MALFORMED_RESPONSE", []
+    return CONTAINMENT_HEALTHY, [str(ip) for ip in blocked][:CONTAINMENT_BLOCKED_CAP]
 
 
 class LiveMQTT:
@@ -350,6 +410,12 @@ def _live_gui_class(gui):
             for label, key in (("Runtime state", "runtime"), ("Profile", "profile"), ("Dry-run", "dry_run"), ("AUTO_CONTAIN reported mode", "auto_contain"), ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"), ("Evidence timestamp", "timestamp")):
                 self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
             self._add_fact(section.body, "Database / audit history", "NOT_AVAILABLE", status=gui.pres.STATUS_WARNING)
+            status_text, blocked = containment_status()
+            healthy = status_text == CONTAINMENT_HEALTHY
+            self._add_fact(section.body, gui.i18n.t("diagnostics.containment"), status_text,
+                           status=gui.pres.STATUS_HEALTHY if healthy else gui.pres.STATUS_WARNING)
+            self._add_fact(section.body, gui.i18n.t("diagnostics.containment_blocks"), str(len(blocked)),
+                           status=gui.pres.STATUS_NEUTRAL if healthy else gui.pres.STATUS_UNKNOWN)
 
         def _sync_arm_controls(self):
             return None
@@ -367,6 +433,7 @@ def create_live_app(root, *, status_path=reader.STATUS_PATH, max_age_seconds=DES
 
     if not str(Path(gui.__file__).resolve()).startswith(str(PYTHONUI_ROOT)):
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
+    register_observer_strings(gui.i18n)
     app_class = _live_gui_class(gui)
     mqtt = LiveMQTT()
     controller = LiveController()

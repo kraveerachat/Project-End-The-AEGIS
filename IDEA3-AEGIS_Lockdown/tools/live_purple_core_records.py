@@ -299,6 +299,56 @@ def incident_facts(graduated, reason, translate):
     return rows
 
 
+def _elapsed_since(at, *, now=None) -> str:
+    current = time.time() if now is None else now
+    seconds = max(0.0, current - at)
+    if seconds < 90:
+        return f"{int(seconds)} s"
+    minutes = seconds / 60
+    if minutes < 90:
+        return f"{int(minutes)} m"
+    return f"{int(minutes / 60)} h"
+
+
+def lockdown_cause_facts(evidence, graduated, translate, *, now=None) -> list[tuple[str, str, str | None]]:
+    """Rows naming the graduated-response decision most likely to have caused the current LOCKDOWN, and how long
+    ago it was made. ``graduated-status.json`` is itself an append-only decision log, so its most recent entry is
+    the best read-only proxy for "the cause" the Core exposes today; it is not a separate, authoritative
+    cause field (the Core does not write one), so the label says "most recent decision", not "the cause"."""
+    t = translate
+    if evidence.get("uplink") != "LOCKDOWN":
+        return [(t("recovery.cause"), t("recovery.cause_none"), "LOW")]
+    if graduated is None or not graduated["decisions"]:
+        return [(t("recovery.cause"), t("severity.unavailable"), None)]
+    item = graduated["decisions"][-1]
+    rows = [
+        (t("recovery.cause"), t("recovery.cause_value", ip=item["attacker_ip"] or "—", level=item["level"]), item["level"]),
+        (t("recovery.cause_reasons"), ", ".join(item["reasons"]) if item["reasons"] else "—", None),
+        (t("recovery.cause_mitre"), ", ".join(item["mitre"]) if item["mitre"] else "—", None),
+        (t("recovery.cause_action"), f"{item['action']} → {item['outcome']}" if item["outcome"] else (item["action"] or "—"), None),
+    ]
+    if item["at"]:
+        rows.append((t("recovery.since"), t("recovery.since_value", elapsed=_elapsed_since(item["at"], now=now)), None))
+    else:
+        rows.append((t("recovery.since"), t("recovery.since_unknown"), None))
+    return rows
+
+
+def blocked_ip_facts(blocked, translate) -> list[tuple[str, str, str | None]]:
+    """The read-only containment-helper list (``live_purple_observer.containment_status``) as the Recovery page's
+    one fact row; the IPs themselves are printed as lines by the page, the same way attempts/decisions are."""
+    t = translate
+    if not blocked:
+        return [(t("recovery.blocked_count"), t("recovery.blocked_none"), "LOW")]
+    return [(t("recovery.blocked_count"), str(len(blocked)), "HIGH")]
+
+
+RUNBOOK_STEPS = (
+    "recovery.runbook.1", "recovery.runbook.2", "recovery.runbook.3", "recovery.runbook.4",
+    "recovery.runbook.5", "recovery.runbook.6", "recovery.runbook.7", "recovery.runbook.8",
+)
+
+
 def audit_facts(rows, reason, translate):
     t = translate
     if rows is None:
@@ -375,6 +425,53 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (ตั้งค่า AEGIS_DESKTOP_AUDIT_DB เป็นฐานข้อมูลตรวจสอบของ Core ที่ผู้ใช้ Desktop อ่านได้)",
         "zh": "NOT_AVAILABLE — {reason}（请将 AEGIS_DESKTOP_AUDIT_DB 设置为 Desktop 用户可读的 Core 审计数据库）"},
     "audit.view.none": {"en": "No CUT or RESTORE records.", "th": "ไม่มีบันทึก CUT หรือ RESTORE", "zh": "没有 CUT 或 RESTORE 记录。"},
+    "recovery.cause_section": {"en": "CAUSE OF CURRENT LOCKDOWN", "th": "สาเหตุของการ LOCKDOWN ในปัจจุบัน", "zh": "当前 LOCKDOWN 的原因"},
+    "recovery.cause": {"en": "Most recent decision (likely cause)", "th": "การตัดสินใจล่าสุด (สาเหตุที่เป็นไปได้)",
+                       "zh": "最近一次决策（可能的原因）"},
+    "recovery.cause_none": {"en": "no active lockdown", "th": "ไม่มีการตัดที่ค้างอยู่", "zh": "当前无锁定"},
+    "recovery.cause_value": {"en": "{ip} — {level}", "th": "{ip} — {level}", "zh": "{ip} — {level}"},
+    "recovery.cause_reasons": {"en": "Reason tokens", "th": "โทเค็นสาเหตุ", "zh": "原因标记"},
+    "recovery.cause_mitre": {"en": "MITRE ATT&CK", "th": "MITRE ATT&CK", "zh": "MITRE ATT&CK"},
+    "recovery.cause_action": {"en": "Action → outcome", "th": "การดำเนินการ → ผลลัพธ์", "zh": "处置动作 → 结果"},
+    "recovery.since": {"en": "Time since lockdown", "th": "ระยะเวลาตั้งแต่ LOCKDOWN", "zh": "锁定已持续时间"},
+    "recovery.since_value": {"en": "{elapsed} ago", "th": "{elapsed} ที่แล้ว", "zh": "{elapsed}前"},
+    "recovery.since_unknown": {"en": "UNKNOWN — the causing decision has no timestamp",
+                               "th": "UNKNOWN — การตัดสินใจที่เป็นสาเหตุไม่มีการบันทึกเวลา",
+                               "zh": "UNKNOWN — 该决策没有时间戳"},
+    "recovery.blocked_section": {"en": "ACTIVE SOFTWARE BLOCKS — CONTAINMENT HELPER (READ ONLY)",
+                                 "th": "การบล็อกทางซอฟต์แวร์ที่ใช้งานอยู่ — ตัวช่วยกักกัน (อ่านอย่างเดียว)",
+                                 "zh": "当前生效的软件封锁 — 遏制助手（只读）"},
+    "recovery.blocked_count": {"en": "Active software blocks", "th": "การบล็อกทางซอฟต์แวร์ที่ใช้งานอยู่", "zh": "当前生效的软件封锁数"},
+    "recovery.blocked_none": {"en": "none", "th": "ไม่มี", "zh": "无"},
+    "recovery.runbook_section": {"en": "RECOVERY RUNBOOK — READ-ONLY PREVIEW", "th": "ขั้นตอนการกู้คืน — ตัวอย่างอ่านอย่างเดียว",
+                                 "zh": "恢复操作手册 — 只读预览"},
+    "recovery.runbook.1": {"en": "1. Verify the threat is over — the attacker activity that caused this episode has stopped.",
+                           "th": "1. ยืนยันว่าภัยคุกคามสิ้นสุดแล้ว — กิจกรรมของผู้โจมตีที่ทำให้เกิดเหตุการณ์นี้หยุดลงแล้ว",
+                           "zh": "1. 确认威胁已结束 — 引发本次事件的攻击活动已停止。"},
+    "recovery.runbook.2": {"en": "2. Check that the ESP32 device, the MQTT broker, and trusted time are all healthy.",
+                           "th": "2. ตรวจสอบว่าอุปกรณ์ ESP32, โบรกเกอร์ MQTT และเวลาที่เชื่อถือได้ ทำงานปกติทั้งหมด",
+                           "zh": "2. 检查 ESP32 设备、MQTT 代理与可信时间是否均正常。"},
+    "recovery.runbook.3": {"en": "3. Confirm there is no RESTORE already pending and no RESTORE-secret lockout in effect.",
+                           "th": "3. ยืนยันว่าไม่มี RESTORE ที่ค้างอยู่ และไม่มีการล็อกรหัสลับ RESTORE อยู่",
+                           "zh": "3. 确认没有待处理的 RESTORE，也没有正在生效的 RESTORE 密钥锁定。"},
+    "recovery.runbook.4": {"en": "4. On the Lockdown page, the operator performs RESTORE with a reason, the typed "
+                                 "confirmation and the RESTORE secret.",
+                           "th": "4. ที่หน้า Lockdown ผู้ปฏิบัติงานทำ RESTORE โดยระบุเหตุผล พิมพ์คำยืนยัน และใส่รหัสลับ RESTORE",
+                           "zh": "4. 在“锁定”页面，操作员填写原因、输入确认文字并提供 RESTORE 密钥以执行 RESTORE。"},
+    "recovery.runbook.5": {"en": "5. Confirm the Core reports DEVICE_REPORTED_NORMAL and the uplink state is NORMAL.",
+                           "th": "5. ยืนยันว่า Core รายงาน DEVICE_REPORTED_NORMAL และสถานะอัปลิงก์เป็น NORMAL",
+                           "zh": "5. 确认 Core 报告 DEVICE_REPORTED_NORMAL，且上行链路状态为 NORMAL。"},
+    "recovery.runbook.6": {"en": "6. VERIFY PIN 2 ON THE CABLE TESTER PHYSICALLY — no software signal can prove the "
+                                 "physical link is actually reconnected; this step is mandatory.",
+                           "th": "6. ตรวจสอบพิน 2 บนเครื่องทดสอบสายทางกายภาพด้วยตนเอง — ไม่มีสัญญาณซอฟต์แวร์ใดพิสูจน์ได้ว่าสายกายภาพเชื่อมต่อจริง "
+                                 "ขั้นนี้จำเป็นเสมอ",
+                           "zh": "6. 必须亲自在线缆测试仪上核实第 2 针 — 任何软件信号都无法证明物理链路已真正重新连接，此步骤不可省略。"},
+    "recovery.runbook.7": {"en": "7. Watch for a repeat detection before standing the incident down.",
+                           "th": "7. เฝ้าสังเกตว่าจะมีการตรวจพบซ้ำหรือไม่ ก่อนปิดเหตุการณ์",
+                           "zh": "7. 在解除事件之前，观察是否再次出现检测告警。"},
+    "recovery.runbook.8": {"en": "8. Close the incident and record the outcome.",
+                           "th": "8. ปิดเหตุการณ์และบันทึกผลลัพธ์",
+                           "zh": "8. 关闭事件并记录处理结果。"},
 }
 
 

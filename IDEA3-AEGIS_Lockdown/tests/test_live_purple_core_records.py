@@ -250,6 +250,62 @@ def test_graduated_row_and_header_facts():
     assert rec.audit_facts([], "", t)[0][1].startswith("0 newest")
 
 
+# ---- lockdown cause / blocked IPs / runbook ----
+
+DECISION = {
+    "at": NOW, "attacker_ip": "203.0.113.9", "kind": "ssh_login_after_failures", "level": "CRITICAL",
+    "action": "AUTO_CUT", "outcome": "CUT_SENT", "score": 140,
+    "reasons": ["ssh_brute_force+40", "ssh_login_after_failures+100"], "mitre": ["T1110"],
+}
+GRADUATED_LOCKDOWN = {"highest_level": "CRITICAL", "cut_recommended_for": None, "auto_cut_latched": True,
+                      "decisions": [DECISION]}
+
+
+def test_lockdown_cause_shows_no_active_lockdown_when_uplink_is_normal():
+    rows = rec.lockdown_cause_facts({"uplink": "NORMAL"}, GRADUATED_LOCKDOWN, t)
+    assert rows == [("Most recent decision (likely cause)", "no active lockdown", "LOW")]
+
+
+def test_lockdown_cause_reads_the_most_recent_decision_when_locked_down():
+    rows = dict((label, value) for label, value, _ in rec.lockdown_cause_facts(EVIDENCE, GRADUATED_LOCKDOWN, t))
+    assert rows["Most recent decision (likely cause)"] == "203.0.113.9 — CRITICAL"
+    assert rows["Reason tokens"] == "ssh_brute_force+40, ssh_login_after_failures+100"
+    assert rows["MITRE ATT&CK"] == "T1110"
+    assert rows["Action → outcome"] == "AUTO_CUT → CUT_SENT"
+    assert rows["Time since lockdown"].endswith("ago")
+
+
+def test_lockdown_cause_is_unknown_without_a_decision_timestamp():
+    decision = dict(DECISION, at=None)
+    graduated = dict(GRADUATED_LOCKDOWN, decisions=[decision])
+    rows = dict((label, value) for label, value, _ in rec.lockdown_cause_facts(EVIDENCE, graduated, t))
+    assert rows["Time since lockdown"] == "UNKNOWN — the causing decision has no timestamp"
+
+
+def test_lockdown_cause_says_unavailable_without_a_graduated_projection():
+    rows = rec.lockdown_cause_facts(EVIDENCE, None, t)
+    assert rows == [("Most recent decision (likely cause)", "NOT_AVAILABLE — no Core projection", None)]
+
+
+def test_elapsed_since_scales_from_seconds_to_hours():
+    now = 10_000.0
+    assert rec._elapsed_since(now - 30, now=now) == "30 s"
+    assert rec._elapsed_since(now - 300, now=now) == "5 m"
+    assert rec._elapsed_since(now - 7200, now=now) == "2 h"
+
+
+def test_blocked_ip_facts_counts_and_says_none():
+    assert rec.blocked_ip_facts([], t) == [("Active software blocks", "none", "LOW")]
+    assert rec.blocked_ip_facts(["203.0.113.5", "203.0.113.6"], t) == [("Active software blocks", "2", "HIGH")]
+
+
+def test_runbook_steps_are_eight_ordered_keys_and_the_pin2_step_is_present():
+    assert len(rec.RUNBOOK_STEPS) == 8
+    assert rec.RUNBOOK_STEPS[5] == "recovery.runbook.6"
+    pin2 = rec.RECORD_STRINGS["recovery.runbook.6"]["en"]
+    assert "PIN 2" in pin2 and "CABLE TESTER" in pin2 and "PHYSICALLY" in pin2
+
+
 # ---- strings ----
 
 def test_every_record_string_exists_in_three_languages_with_the_same_placeholders():
