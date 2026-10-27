@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+from contextlib import contextmanager
 from pathlib import Path
 import pytest
 
@@ -190,6 +191,162 @@ def _label_texts(widget):
             texts.append(child.cget("text"))
         texts.extend(_label_texts(child))
     return texts
+
+
+def _widgets(widget, cls):
+    found = []
+    for child in widget.winfo_children():
+        if child.winfo_class() == cls:
+            found.append(child)
+        found.extend(_widgets(child, cls))
+    return found
+
+
+def _label_ids(root):
+    return [id(w) for w in _widgets(root, "Label")]
+
+
+@contextmanager
+def _real_live_app(tmp_path, *, deiconify=False):
+    """The same create_live_app isolation dance test_live_real_dashboard_renders_disabled_cut_restore_controls
+    uses, as a context manager so the no-flicker/scroll tests below can share it without repeating the
+    teardown by hand."""
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        pytest.skip(f"Tk display unavailable: {error}")
+    if deiconify:
+        root.deiconify()
+        root.geometry("1024x400")
+    else:
+        root.withdraw()
+    for name in list(sys.modules):
+        if name == "aegis_soc" or name.startswith("aegis_soc."):
+            del sys.modules[name]
+    sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+    try:
+        status_path = tmp_path / "status.json"
+        from test_live_purple_control_desktop import write_core_status
+        write_core_status(status_path, 5, uplink="NORMAL")
+        app, fakes = live.create_live_app(root, status_path=status_path)
+        app.session.login("test-admin")
+        app._on_authenticated()
+        yield app, root, status_path
+    finally:
+        for after_id in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(after_id)
+        root.destroy()
+        for name in list(sys.modules):
+            if name == "aegis_soc" or name.startswith("aegis_soc."):
+                del sys.modules[name]
+        sys.path[:] = [entry for entry in sys.path if entry != str(live.PYTHONUI_ROOT)]
+
+
+def test_overview_evidence_section_does_not_rebuild_on_an_unchanged_evidence_poll(tmp_path):
+    with _real_live_app(tmp_path) as (app, root, _status_path):
+        app._show_page("overview")
+        root.update()
+        before = _label_ids(root)
+        for _ in range(3):
+            app._refresh_live_evidence()
+            root.update()
+            after = _label_ids(root)
+            assert after == before, "an unchanged evidence poll rebuilt the Overview evidence section"
+
+
+def test_overview_evidence_section_rebuilds_when_evidence_actually_changes(tmp_path):
+    from test_live_purple_control_desktop import write_core_status
+
+    with _real_live_app(tmp_path) as (app, root, status_path):
+        app._show_page("overview")
+        root.update()
+        before = _label_ids(root)
+        write_core_status(status_path, 5, uplink="LOCKDOWN")
+        app._refresh_live_evidence()
+        root.update()
+        after = _label_ids(root)
+        assert after != before
+        assert "LOCKDOWN" in _label_texts(root)
+
+
+def test_overview_evidence_section_preserves_scroll_position_across_an_evidence_rebuild(tmp_path):
+    from test_live_purple_control_desktop import write_core_status
+
+    with _real_live_app(tmp_path, deiconify=True) as (app, root, status_path):
+        app._show_page("overview")
+        root.update()
+        canvases = _widgets(root, "Canvas")
+        assert canvases, "expected the Overview page's ScrollFrame canvas"
+        canvas = canvases[0]
+        bbox = canvas.bbox("all")
+        assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+        canvas.yview_moveto(0.5)
+        root.update()
+        before = canvas.yview()[0]
+        assert before > 0.05, "test setup did not actually scroll down"
+        write_core_status(status_path, 5, uplink="LOCKDOWN")
+        app._refresh_live_evidence()
+        root.update()
+        assert "LOCKDOWN" in _label_texts(root), "test setup did not actually change the data"
+        after = canvas.yview()[0]
+        assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on an evidence rebuild"
+
+
+def test_devices_and_lockdown_pages_do_not_rebuild_on_an_unchanged_evidence_poll(tmp_path):
+    with _real_live_app(tmp_path) as (app, root, _status_path):
+        for key in ("devices", "lockdown"):
+            app._show_page(key)
+            root.update()
+            before = _label_ids(root)
+            for _ in range(3):
+                app._refresh_live_evidence()
+                root.update()
+                after = _label_ids(root)
+                assert after == before, f"an unchanged evidence poll rebuilt the {key} page"
+
+
+def test_devices_and_lockdown_pages_rebuild_when_evidence_actually_changes(tmp_path):
+    from test_live_purple_control_desktop import write_core_status
+
+    with _real_live_app(tmp_path) as (app, root, status_path):
+        for key in ("devices", "lockdown"):
+            app._show_page(key)
+            root.update()
+            before_ids = _label_ids(root)
+            write_core_status(status_path, 5, uplink="LOCKDOWN" if key == "devices" else "NORMAL",
+                              dispatch="ACTIVE" if key == "lockdown" else "DISABLED")
+            app._refresh_live_evidence()
+            root.update()
+            after_ids = _label_ids(root)
+            assert after_ids != before_ids, f"a real evidence change did not rebuild the {key} page"
+
+
+def test_the_lockdown_page_preserves_scroll_position_across_an_evidence_rebuild(tmp_path):
+    """_refresh_live_evidence's STATIC_EVIDENCE_PAGES path calls self._show_page(shown) on a real change,
+    which rebuilds the page's ScrollFrame from scratch (a brand-new canvas object, not just a cleared body's
+    children) -- so the scroll fraction itself, not any particular canvas/frame object, is what must survive
+    (see _workspace_scroll_fraction/_restore_workspace_scroll_fraction). Devices has too little content to
+    ever overflow the window's minimum size, so only Lockdown (which does) is used here."""
+    from test_live_purple_control_desktop import write_core_status
+
+    with _real_live_app(tmp_path, deiconify=True) as (app, root, status_path):
+        root.geometry("700x400")   # narrower than the base's 1024 default: wraps the longer fact rows, enough
+        app._show_page("lockdown")  # extra height on this page's modest content to overflow the 700px minsize
+        root.update()
+        canvas = _widgets(root, "Canvas")[0]
+        bbox = canvas.bbox("all")
+        assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+        canvas.yview_moveto(0.5)
+        root.update()
+        before_fraction = canvas.yview()[0]
+        assert before_fraction > 0.05, "test setup did not actually scroll down"
+        write_core_status(status_path, 5, uplink="NORMAL", dispatch="ACTIVE")
+        app._refresh_live_evidence()
+        root.update()
+        new_canvas = _widgets(root, "Canvas")[0]
+        after_fraction = new_canvas.yview()[0]
+        assert abs(after_fraction - before_fraction) < 0.02, (
+            f"scroll position jumped from {before_fraction} to {after_fraction} on the Lockdown page rebuild")
 
 
 def test_containment_status_is_not_configured_without_a_socket_env(monkeypatch):

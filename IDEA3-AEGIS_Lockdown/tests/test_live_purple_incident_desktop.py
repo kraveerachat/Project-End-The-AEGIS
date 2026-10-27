@@ -51,6 +51,14 @@ def texts(app):
     return [w.cget("text") for w in _walk(app.root) if isinstance(w, (tk.Label, tk.Button)) and w.cget("text")]
 
 
+def _label_ids(app):
+    return [id(w) for w in _walk(app.root) if isinstance(w, tk.Label)]
+
+
+def _canvases(app):
+    return [w for w in _walk(app.root) if w.winfo_class() == "Canvas"]
+
+
 def _clean_modules():
     for name in list(sys.modules):
         if name == "aegis_soc" or name.startswith("aegis_soc."):
@@ -152,6 +160,58 @@ def test_polling_is_repeated_until_the_window_closes_and_only_reads(app_factory)
     app._start_poll()
     assert source.calls == first + 1
     assert fakes.mqtt.publish_calls == 0 and fakes.controller.issue_calls == 0
+
+
+def test_the_incident_section_does_not_rebuild_on_an_unchanged_poll(app_factory):
+    source = Source(snapshot())
+    app, _f, root = app_factory(source)
+    before = _label_ids(app)
+    for _ in range(3):
+        app._start_poll()
+        root.update()
+        after = _label_ids(app)
+        assert after == before, "an unchanged poll rebuilt the incident section and would flicker"
+
+
+def test_the_incident_section_rebuilds_when_the_data_actually_changes(app_factory):
+    source = Source(snapshot())
+    app, _f, root = app_factory(source)
+    before = _label_ids(app)
+    source.shot = snapshot(incident=None)
+    app._start_poll()
+    root.update()
+    after = _label_ids(app)
+    assert after != before
+    assert "NO OPEN INCIDENT REPORTED BY THE CORE" in "\n".join(texts(app))
+
+
+def test_the_incident_section_preserves_scroll_position_across_a_poll_rebuild(app_factory):
+    # A same-shape change (one gate's status, not the row count) is used here, not e.g. incident=None: that
+    # removes four rows and genuinely shrinks the page's total height, which would shift the preserved
+    # *fraction* away from the same pixel position on its own -- an inherent property of fraction-based
+    # scroll preservation across a real size change, not a bug in it; see the Recovery/Overview/Lockdown
+    # scroll tests elsewhere, which all change a value without changing the row count for the same reason.
+    gates = [gate(name, "PENDING") for name, _ in iv.GATES]
+    source = Source(snapshot(gates=gates))
+    app, _f, root = app_factory(source)
+    root.deiconify()
+    root.geometry("1024x300")
+    root.update()
+    canvas = _canvases(app)[0]
+    bbox = canvas.bbox("all")
+    assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+    canvas.yview_moveto(0.5)
+    root.update()
+    before = canvas.yview()[0]
+    assert before > 0.05, "test setup did not actually scroll down"
+    changed_gates = [gate(iv.GATES[0][0], "VERIFIED", summary="now verified")] + gates[1:]
+    source.shot = snapshot(gates=changed_gates)
+    app._start_poll()
+    root.update()
+    assert "VERIFIED · checked" in "\n".join(texts(app)), "test setup did not actually change the data"
+    after = canvas.yview()[0]
+    assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a poll rebuild"
+    root.withdraw()
 
 
 def test_no_control_is_added_or_enabled_and_cut_restore_stay_disabled(app_factory):

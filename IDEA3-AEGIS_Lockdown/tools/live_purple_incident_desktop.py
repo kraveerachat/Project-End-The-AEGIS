@@ -90,6 +90,7 @@ def _incident_gui_class(gui, source, run_async):
             self.snapshot = view.unavailable("Core STATUS not read yet")
             self._incident_page = None
             self._incident_section = None
+            self._incident_snapshot_value = None
             self._poll_started = False
             self._closed = False
             super().__init__(*args, **kwargs)
@@ -130,54 +131,84 @@ def _incident_gui_class(gui, source, run_async):
         def _build_incidents_page(self, parent):
             self._incident_page = self._new_page(parent, "incidents.title", "incidents.subtitle")
             self._incident_section = None
+            # A fresh page has no incident section of its own yet, regardless of what the last rendered
+            # snapshot was for the previous instance of this page -- that stale value must not make the
+            # render below skip building this one's.
+            self._incident_snapshot_value = None
             self._render_incident_section()
 
-        def _render_incident_section(self):
-            page = self._incident_page
-            if page is None or not page.winfo_exists():
-                return
-            if self._incident_section is not None and self._incident_section.winfo_exists():
-                self._incident_section.destroy()
+        def _incident_snapshot(self):
+            """Everything _render_incident_section shows, read-only -- no widget touched. Compared on every
+            poll (see _apply_snapshot) so the section is rebuilt only when this actually changes, the same
+            no-flicker pattern used elsewhere. "Fetched (Desktop clock)" is itself one of the displayed rows
+            here, so it stays part of the comparison on purpose: while the Core keeps answering, this section
+            keeps refreshing to show the latest fetch time, which is the intended clock-like behavior, not
+            leftover flicker."""
             shot = self.snapshot
-            host = tk.Frame(page, bg=page.cget("bg"))
-            host.pack(fill="x")
-            self._incident_section = host
-
-            summary = gui.Section(host, "INCIDENT — CORE-ATTESTED, READ ONLY")
-            summary.pack(fill="x", padx=16, pady=(0, 16))
-            self._add_fact(summary.body, "Authority", shot.authority, status=gui.pres.STATUS_NEUTRAL)
-            self._add_fact(summary.body, "Fetched (Desktop clock)", shot.fetched_text, status=gui.pres.STATUS_NEUTRAL)
+            summary_rows = [
+                ("Authority", shot.authority, gui.pres.STATUS_NEUTRAL),
+                ("Fetched (Desktop clock)", shot.fetched_text, gui.pres.STATUS_NEUTRAL),
+            ]
             if not shot.available:
-                self._add_fact(summary.body, "Core Recovery STATUS", view.NOT_AVAILABLE + " — " + shot.reason,
-                               status=gui.pres.STATUS_UNKNOWN)
+                summary_rows.append(("Core Recovery STATUS", view.NOT_AVAILABLE + " — " + shot.reason, gui.pres.STATUS_UNKNOWN))
             elif shot.incident is None:
-                self._add_fact(summary.body, "Incident", "NO OPEN INCIDENT REPORTED BY THE CORE", status=gui.pres.STATUS_HEALTHY)
+                summary_rows.append(("Incident", "NO OPEN INCIDENT REPORTED BY THE CORE", gui.pres.STATUS_HEALTHY))
             else:
                 incident = shot.incident
-                self._add_fact(summary.body, "Incident ID", incident.incident_id, status=gui.pres.STATUS_NEUTRAL)
-                self._add_fact(summary.body, "Incident state", incident.state,
-                               status=gui.pres.STATUS_WARNING if incident.state == "OPEN" else gui.pres.STATUS_UNKNOWN)
-                self._add_fact(summary.body, "Opened at (as reported by the Core)", incident.opened_at,
-                               status=gui.pres.STATUS_NEUTRAL)
-                self._add_fact(summary.body, "Source IP (detector alert bound by the Core)", incident.source_ip,
-                               status=gui.pres.STATUS_WARNING)
+                summary_rows.append(("Incident ID", incident.incident_id, gui.pres.STATUS_NEUTRAL))
+                summary_rows.append(("Incident state", incident.state,
+                                     gui.pres.STATUS_WARNING if incident.state == "OPEN" else gui.pres.STATUS_UNKNOWN))
+                summary_rows.append(("Opened at (as reported by the Core)", incident.opened_at, gui.pres.STATUS_NEUTRAL))
+                summary_rows.append(("Source IP (detector alert bound by the Core)", incident.source_ip, gui.pres.STATUS_WARNING))
 
-            gates = gui.Section(host, "RECOVERY GATES R1–R8 — CORE-ATTESTED")
-            gates.pack(fill="x", padx=16, pady=(0, 16))
+            gate_rows = []
             for gate in shot.gates:
                 parts = [gate.state]
                 if gate.checked_at_text not in {"NOT_AVAILABLE", view.UNKNOWN}:
                     parts.append("checked " + gate.checked_at_text)
                 if gate.summary != view.UNKNOWN and gate.summary:
                     parts.append(gate.summary)
-                self._add_fact(gates.body, gate.label, " · ".join(parts), status=status_for(gate.state))
-            gui.make_hint(gates.body, "VERIFIED older than 15 minutes is shown STALE. " + shot.not_physical).pack(
-                anchor="w", pady=(8, 0))
+                gate_rows.append((gate.label, " · ".join(parts), status_for(gate.state)))
+            hint_text = "VERIFIED older than 15 minutes is shown STALE. " + shot.not_physical
+
+            absent_rows = [(label, "UNKNOWN — not provided by this source", gui.pres.STATUS_UNKNOWN)
+                          for label in view.NOT_PROVIDED]
+
+            return tuple(summary_rows), tuple(gate_rows), hint_text, tuple(absent_rows)
+
+        def _render_incident_section(self):
+            page = self._incident_page
+            if page is None or not page.winfo_exists():
+                return
+            snapshot = self._incident_snapshot()
+            if snapshot == self._incident_snapshot_value:
+                return
+            self._incident_snapshot_value = snapshot
+            summary_rows, gate_rows, hint_text, absent_rows = snapshot
+
+            saved = self._scroll_yview(page)
+            if self._incident_section is not None and self._incident_section.winfo_exists():
+                self._incident_section.destroy()
+            host = tk.Frame(page, bg=page.cget("bg"))
+            host.pack(fill="x")
+            self._incident_section = host
+
+            summary = gui.Section(host, "INCIDENT — CORE-ATTESTED, READ ONLY")
+            summary.pack(fill="x", padx=16, pady=(0, 16))
+            for label, value, status in summary_rows:
+                self._add_fact(summary.body, label, value, status=status)
+
+            gates = gui.Section(host, "RECOVERY GATES R1–R8 — CORE-ATTESTED")
+            gates.pack(fill="x", padx=16, pady=(0, 16))
+            for label, value, status in gate_rows:
+                self._add_fact(gates.body, label, value, status=status)
+            gui.make_hint(gates.body, hint_text).pack(anchor="w", pady=(8, 0))
 
             absent = gui.Section(host, "NOT PROVIDED BY RECOVERY STATUS")
             absent.pack(fill="x", padx=16, pady=(0, 20))
-            for label in view.NOT_PROVIDED:
-                self._add_fact(absent.body, label, "UNKNOWN — not provided by this source", status=gui.pres.STATUS_UNKNOWN)
+            for label, value, status in absent_rows:
+                self._add_fact(absent.body, label, value, status=status)
+            self._restore_scroll_yview(saved)
 
     return LivePurpleIncidentDesktopGUI
 

@@ -230,8 +230,69 @@ def _live_gui_class(gui):
             self._max_age_seconds = max_age_seconds
             self.latest = reader.ObserverEvidence(False, "UNAVAILABLE", "Core evidence not read")
             self._observer_page = None
+            self._evidence_section_snapshot_value = None
             super().__init__(root, mqtt_manager, command_controller=command_controller)
             self.root.title(LIVE_TITLE)
+
+        # -- scroll-position preservation, shared by every launcher built on this class (observer, incident,
+        # cut, control): a periodic refresh that destroys and rebuilds part or all of a ScrollFrame-based
+        # page would otherwise reset the operator's scroll position to the top on every rebuild.
+        def _scroll_yview(self, anchor):
+            """The enclosing ScrollFrame and its current vertical view fraction, from any widget inside it
+            (the same ``_aegis_scroll_frame`` lookup the accepted mouse-wheel dispatcher already uses) --
+            or None when there is no anchor, no enclosing ScrollFrame, or its canvas is already gone."""
+            if anchor is None:
+                return None
+            frame = gui.ui_theme._scroll_frame_at(anchor)
+            if frame is None or not frame.canvas.winfo_exists():
+                return None
+            return frame, frame.canvas.yview()[0]
+
+        def _restore_scroll_yview(self, saved):
+            if saved is None:
+                return
+            frame, position = saved
+            # The rebuild only *schedules* the inner frame's <Configure> handler that recomputes the canvas
+            # scrollregion (theme.ScrollFrame binds it, and Tk defers it to the next idle pass); without
+            # flushing it here first, yview_moveto() below runs against the stale pre-rebuild scrollregion,
+            # and the real recompute -- which fires later, during whatever root.update() the caller does
+            # next -- then reinterprets that position against the new scrollregion and silently throws the
+            # restore away. Flushing first fixes the ordering.
+            frame.canvas.update_idletasks()
+            if frame.canvas.winfo_exists():
+                frame.canvas.yview_moveto(position)
+
+        def _workspace_scroll_frame(self):
+            """The page's ScrollFrame instance currently in self.workspace (_new_page's sole child there), or
+            None. ``_scroll_yview``'s ``_aegis_scroll_frame`` lookup is set on the ScrollFrame's *canvas*, a
+            child of it, not on the ScrollFrame object itself -- so it must be reached through ``.inner``
+            (also a child of that canvas), never by passing the ScrollFrame object directly."""
+            children = self.workspace.winfo_children()
+            if not children or not hasattr(children[0], "inner"):
+                return None
+            return children[0]
+
+        def _workspace_scroll_fraction(self):
+            """The scroll fraction of whichever ScrollFrame-based page is currently in self.workspace, or
+            None. Used around a full self._show_page(...) rebuild (which replaces the page's ScrollFrame
+            object entirely, not just a body's children), where the _scroll_yview anchor used before the
+            rebuild would itself be destroyed, so only the plain fraction -- not the (now dead) frame
+            reference -- can be carried across to _restore_workspace_scroll_fraction after it."""
+            scroll = self._workspace_scroll_frame()
+            saved = self._scroll_yview(scroll.inner) if scroll is not None else None
+            return None if saved is None else saved[1]
+
+        def _restore_workspace_scroll_fraction(self, fraction):
+            if fraction is None:
+                return
+            scroll = self._workspace_scroll_frame()
+            if scroll is None:
+                return
+            frame = gui.ui_theme._scroll_frame_at(scroll.inner)
+            if frame is None or not frame.canvas.winfo_exists():
+                return
+            frame.canvas.update_idletasks()
+            frame.canvas.yview_moveto(fraction)
 
         def _emit_startup_warnings(self):
             return None
@@ -277,9 +338,14 @@ def _live_gui_class(gui):
                 self._render_evidence_section()
             # The Devices and Lockdown pages are built once from the evidence at the time they are shown. Without this, a page that is
             # open while the Core stops updating would keep showing the last uplink and device state as if it were current.
+            # Already skip-aware (the key comparison above excludes the ever-changing timestamp, so this only runs on a real
+            # evidence change); it previously reset the operator's scroll position to the top on every such change, since
+            # _show_page rebuilds the whole page's ScrollFrame, not just a body's children -- preserved below.
             shown = getattr(self, "active_page", None)
             if shown in STATIC_EVIDENCE_PAGES and self.session.authenticated and self._evidence_page_key() != previous_page_key:
+                fraction = self._workspace_scroll_fraction()
                 self._show_page(shown)
+                self._restore_workspace_scroll_fraction(fraction)
 
         def _refresh_header_evidence(self):
             values = evidence_values(self.latest)
@@ -313,27 +379,52 @@ def _live_gui_class(gui):
             super()._build_overview_page(parent)
             scroll = next(child for child in parent.winfo_children() if hasattr(child, "inner"))
             self._observer_page = scroll.inner
+            # A fresh page (first show, or a reshow after navigating away and back) has no evidence section
+            # of its own yet, regardless of what the last rendered snapshot was for the previous instance of
+            # this page -- so that stale value must not make the render below skip building this one's.
+            self._evidence_section_snapshot_value = None
             self._render_evidence_section()
+
+        def _evidence_section_snapshot(self):
+            """Everything _render_evidence_section shows, read-only -- no widget touched. Compared on every
+            tick (see _render_evidence_section) so the section is rebuilt only when this actually changes,
+            the same no-flicker pattern used elsewhere. "Evidence timestamp" is itself one of the displayed
+            rows here (unlike Recovery/Incidents/Audit, which never show the raw Core timestamp), so it
+            stays part of the comparison on purpose: while the Core keeps writing a fresh one, this section
+            keeps refreshing to show it, which is the intended clock-like behavior, not leftover flicker."""
+            values = evidence_values(self.latest)
+            rows = tuple(
+                (label, values[key], _status(gui, values[key]))
+                for label, key in (
+                    ("Runtime state", "runtime"), ("Profile", "profile"), ("Broker connection", "broker"),
+                    ("ESP32 reported presence", "device"), ("Uplink reported state", "uplink"),
+                    ("ARM/DISARM reported state", "armed"), ("Dispatch mode", "dispatch"),
+                    ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"),
+                    ("Evidence timestamp", "timestamp"),
+                )
+            )
+            return rows + (
+                ("Physical cable tester", self.latest.physical_observation, gui.pres.STATUS_UNKNOWN),
+                ("Physical source", "OPERATOR OBSERVATION", gui.pres.STATUS_UNKNOWN),
+                ("Python verification", "NOT_VERIFIED", gui.pres.STATUS_WARNING),
+            )
 
         def _render_evidence_section(self):
             if self._observer_page is None or not self._observer_page.winfo_exists():
                 return
+            snapshot = self._evidence_section_snapshot()
+            if snapshot == self._evidence_section_snapshot_value:
+                return
+            self._evidence_section_snapshot_value = snapshot
+            saved = self._scroll_yview(self._observer_page)
             if hasattr(self, "_observer_evidence_section") and self._observer_evidence_section.winfo_exists():
                 self._observer_evidence_section.destroy()
-            values = evidence_values(self.latest)
             section = gui.Section(self._observer_page, "LIVE CORE EVIDENCE — READ ONLY")
             section.pack(fill="x", padx=16, pady=(0, 16))
-            for label, key in (
-                ("Runtime state", "runtime"), ("Profile", "profile"), ("Broker connection", "broker"),
-                ("ESP32 reported presence", "device"), ("Uplink reported state", "uplink"),
-                ("ARM/DISARM reported state", "armed"), ("Dispatch mode", "dispatch"),
-                ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"),
-                ("Evidence timestamp", "timestamp"),
-            ):
-                self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
-            self._add_fact(section.body, "Physical cable tester", self.latest.physical_observation, status=gui.pres.STATUS_UNKNOWN)
-            self._add_fact(section.body, "Physical source", "OPERATOR OBSERVATION", status=gui.pres.STATUS_UNKNOWN)
-            self._add_fact(section.body, "Python verification", "NOT_VERIFIED", status=gui.pres.STATUS_WARNING)
+            for label, value, status in snapshot:
+                self._add_fact(section.body, label, value, status=status)
+            self._observer_evidence_section = section
+            self._restore_scroll_yview(saved)
             self._observer_evidence_section = section
 
         def _build_devices_page(self, parent):

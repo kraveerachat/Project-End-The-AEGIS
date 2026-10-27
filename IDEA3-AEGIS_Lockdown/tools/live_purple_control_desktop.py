@@ -421,30 +421,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             except (tk.TclError, RuntimeError):
                 self._page_after = None
 
-        def _scroll_yview(self, anchor):
-            """The enclosing ScrollFrame and its current vertical view fraction, from any widget inside it (the
-            same ``_aegis_scroll_frame`` lookup the accepted mouse-wheel dispatcher already uses) -- or None when
-            there is no anchor, no enclosing ScrollFrame, or its canvas is already gone."""
-            if anchor is None:
-                return None
-            frame = gui.ui_theme._scroll_frame_at(anchor)
-            if frame is None or not frame.canvas.winfo_exists():
-                return None
-            return frame, frame.canvas.yview()[0]
-
-        def _restore_scroll_yview(self, saved):
-            if saved is None:
-                return
-            frame, position = saved
-            # The body's destroy()+rebuild only *schedules* the inner frame's <Configure> handler that
-            # recomputes the canvas scrollregion (theme.ScrollFrame binds it, and Tk defers it to the next
-            # idle pass); without flushing it here first, yview_moveto() below runs against the stale
-            # pre-rebuild scrollregion, and the real recompute -- which fires later, during whatever
-            # root.update() the caller does next -- then reinterprets that position against the new
-            # scrollregion and silently throws the restore away. Flushing first fixes the ordering.
-            frame.canvas.update_idletasks()
-            if frame.canvas.winfo_exists():
-                frame.canvas.yview_moveto(position)
+        # _scroll_yview/_restore_scroll_yview now live on the shared LivePurpleObserverGUI base
+        # (tools/live_purple_observer.py), so every launcher built on it can reuse them.
 
         def _clear(self, body):
             for child in body.winfo_children():
