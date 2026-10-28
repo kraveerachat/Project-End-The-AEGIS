@@ -13,6 +13,7 @@ import time
 import tkinter as tk
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 
 from aegis_soc.observer import ObserverEvidence, UNKNOWN
@@ -53,6 +54,52 @@ def test_live_mapping_uses_real_core_fields_only():
     assert values["trusted_time"] == "SYNCED"
     assert values["freshness"] == "FRESH"
     assert values["timestamp"] == time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(1700000000.0))
+
+
+def test_shared_operational_page_strings_cover_every_supported_language():
+    required = (
+        "overview.live_evidence.section",
+        "overview.live_evidence.core",
+        "overview.live_evidence.connectivity",
+        "devices.summary.section",
+        "devices.evidence.section",
+        "devices.physical_limit.section",
+        "lockdown.current.section",
+        "lockdown.controls.section",
+        "settings.language.label",
+        "settings.theme.label",
+        "settings.autosave.note",
+        "settings.feedback.language",
+        "settings.feedback.theme",
+        "devices.field.heartbeat",
+        "devices.field.reported_uplink",
+        "devices.field.physical_relay",
+        "devices.physical.not_proven",
+        "lockdown.field.armed",
+        "lockdown.field.dispatch",
+        "lockdown.field.auto_contain",
+        "lockdown.field.software_containment",
+        "lockdown.control.cut_reason",
+        "lockdown.control.restore_reason",
+    )
+
+    for key in required:
+        entry = live.OBSERVER_STRINGS[key]
+        assert set(entry) == {"en", "th", "zh"}
+        assert all(entry[language].strip() for language in ("en", "th", "zh"))
+        assert entry["th"] != entry["en"]
+        assert entry["zh"] != entry["en"]
+
+
+def test_register_observer_strings_never_replaces_a_pinned_translation():
+    fake_i18n = SimpleNamespace(STRINGS={
+        "settings.language.label": {"en": "Pinned language label"},
+    })
+
+    live.register_observer_strings(fake_i18n)
+
+    assert fake_i18n.STRINGS["settings.language.label"] == {"en": "Pinned language label"}
+    assert fake_i18n.STRINGS["settings.theme.label"]["th"] == "ธีม"
 
 
 @pytest.mark.parametrize("raw", ["not-a-number", "", None])

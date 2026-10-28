@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 import tkinter as tk
@@ -1087,3 +1088,68 @@ def test_switching_the_language_relabels_the_controls_and_back(app_factory, tmp_
     app._show_page("lockdown")
     root.update()
     assert desktop.RESTORE_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
+
+
+@pytest.mark.parametrize(("language", "page", "marker"), [
+    ("th", "overview", "หลักฐานสดจาก Core — อ่านอย่างเดียว"),
+    ("zh", "devices", "连接与心跳证据"),
+    ("th", "lockdown", "สถานะล็อกดาวน์ปัจจุบัน"),
+    ("zh", "settings", "界面语言"),
+])
+def test_refined_operational_pages_use_the_selected_language(app_factory, language, page, marker):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language, status_age=0)
+
+    app._show_page(page)
+    root.update()
+
+    assert marker in _texts(root)
+
+
+def test_audit_console_has_structured_headers_and_keeps_machine_fields(app_factory, tmp_path):
+    audit_db = tmp_path / "audit.sqlite3"
+    connection = sqlite3.connect(audit_db)
+    connection.execute(
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, timestamp TEXT, event_type TEXT, details TEXT)"
+    )
+    connection.execute(
+        "INSERT INTO audit_logs VALUES (1, '2026-10-24 19:01:06', 'ACK_RECEIVED', 'OK - seq 16')"
+    )
+    connection.commit()
+    connection.close()
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=audit_db)
+
+    app._show_page("audit")
+    root.update()
+    texts = _texts(root)
+
+    assert "TIME" in texts
+    assert "EVENT" in texts
+    assert "DETAILS" in texts
+    assert "ACK_RECEIVED" in texts
+    assert "OK · seq 16" in texts
+
+
+def test_settings_language_callback_keeps_persistence_and_shows_localized_feedback(app_factory, tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_DB_PATH", str(tmp_path / "audit.db"))
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="en")
+    from aegis_soc import i18n
+
+    app._show_page("settings")
+    app._set_language("th")
+    root.update()
+
+    assert i18n.get_language() == "th"
+    assert "อัปเดตภาษาเรียบร้อยแล้ว" in _texts(root)
+
+
+def test_settings_theme_callback_keeps_theme_state_and_shows_feedback(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="zh")
+    from aegis_soc import theme_state
+
+    app._show_page("settings")
+    target = "light" if theme_state.get_theme() == "dark" else "dark"
+    app._set_theme(target)
+    root.update()
+
+    assert theme_state.get_theme() == target
+    assert "外观已成功更新。" in _texts(root)

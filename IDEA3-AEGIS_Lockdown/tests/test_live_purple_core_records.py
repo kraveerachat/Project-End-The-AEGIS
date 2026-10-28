@@ -135,6 +135,29 @@ def test_audit_rows_carry_only_machine_fields_and_never_the_reason(tmp_path):
     assert SECRET_REASON not in text and "uid=" not in text and "pid" not in text
 
 
+def test_feed_record_separates_time_event_and_safe_machine_detail():
+    row = {
+        "at": "2026-10-24 19:01:06",
+        "kind": "ACK_RECEIVED",
+        "code": "OK",
+        "ref": "seq 16",
+        "ip": "203.0.113.7",
+        "mitre": "T1046,T1110",
+    }
+
+    assert rec.feed_record(row) == (
+        "19:01:06",
+        "ACK_RECEIVED",
+        "OK · 203.0.113.7 · seq 16 · T1046,T1110",
+    )
+
+
+def test_feed_record_uses_an_explicit_empty_detail_without_exposing_reason_text():
+    row = {"at": "", "kind": "RESTORE_REQUESTED", "code": "", "ref": "", "ip": "", "mitre": ""}
+
+    assert rec.feed_record(row) == ("—", "RESTORE_REQUESTED", "—")
+
+
 def test_text_inside_a_reason_cannot_fake_a_field():
     spoof = "code=FAKE_OK seq=99 msg_id=" + "cd" * 16 + " seq=7"
     assert rec.parse_audit_details("COMMAND_SENT", f"CUT_UPLINK - local cut: {spoof}; uid=1; pid=2 (origin=x) seq=5") == ("CUT_UPLINK", "seq 5")

@@ -11,6 +11,36 @@ edit_policy: owner-writable
 
 # 🔒 IDEA3: AEGIS Lockdown
 
+## IDEA3 Purple Desktop full UI refinement — in progress — 2026-10-28
+
+### Current Task
+
+- Task: Refine all eight existing Python/Tkinter Purple Desktop pages and the surrounding desktop experience
+- Branch: `feat/idea3-ui-readability`
+- Owner: `music`
+- PR: existing task branch; publication is outside this session
+- Current state: IN PROGRESS — implementation, offline regression, and visual evidence pending
+- Started: 2026-10-28
+- Starting SHA: `7d5ccd5bc03bb18d49661554b41c7f89de85355d`
+- Production mutation allowed: NO
+
+### Goal and scope
+
+Polish the existing Purple Desktop presentation without changing security architecture, authority, data sources, callbacks, persistence, or runtime control behavior. Intended code scope is the IDEA3-owned `tools/` presentation subclasses/helpers and focused desktop tests. The five accepted files under `tools/purple_ui_source/aegis_soc/` and every Core file under `IDEA3-AEGIS_Lockdown/aegis_soc/` are immutable for this task.
+
+### Safety boundaries
+
+- Offline/fake-control fixtures only; no live CUT, RESTORE, attack traffic, service restart, process termination, deployment, or hardware interaction.
+- Preserve `compute() -> render(snapshot) -> skip-if-unchanged`, scroll save/restore, all authorization checks, and the one existing RESTORE path.
+- Preserve the established purple palette, dark/light support, and Thai/English/Chinese behavior; do not add telemetry or reinterpret unavailable data as zero.
+- No commit, push, merge, rebase, reset, branch switch, worktree, or deployment in this session.
+
+### Session Register
+
+| ID | Scope | State | Evidence | Checkpoint | Result | Remaining | Next |
+|---|---|---|---|---|---|---|---|
+| PURPLE-UI-R1 | Eight-page refinement, shared presentation, shell/settings, offline regression, screenshots | IN PROGRESS | initial clean status; pinned SHA-256 recorded; branch verified | `7d5ccd5` | pending | implementation, tests, screenshots, final hash/scope audit | execute display-only plan |
+
 ## IDEA3 graduated response, Desktop RESTORE and severity panel — repository + offline tests — 2026-10-23
 
 > [!important] `PRODUCTION_MUTATION = NO`. Branch `feat/idea3-graduated-response`. Opt-in only (`AEGIS_GRADUATED_RESPONSE=YES`); with it unset the alert path is unchanged. Design and lab procedure: `IDEA3-AEGIS_Lockdown/doc/Content/16_GRADUATED_RESPONSE.md`.

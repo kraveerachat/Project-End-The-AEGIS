@@ -180,6 +180,108 @@ def severity_badge(parent, text, *, palette, status):
     return row
 
 
+def section_note(parent, text, *, palette, bg=None):
+    """A full-width supporting sentence for a section.
+
+    Unlike a fixed-width hint, this follows its container and wraps at the real available width. It is
+    intentionally plain text: operational context should clarify a section without becoming another card.
+    """
+    label = tk.Label(
+        parent, text=text, font=font("note"), fg=palette.muted,
+        bg=bg if bg is not None else palette.panel, anchor="w", justify="left",
+    )
+    parent.bind(
+        "<Configure>",
+        lambda event, widget=label: widget.winfo_exists() and widget.configure(
+            wraplength=max(240, event.width - 4)
+        ),
+        add="+",
+    )
+    return label
+
+
+def feedback_banner(parent, text, *, palette, status):
+    """Inline confirmation/attention feedback using the existing status shape and palette.
+
+    This is deliberately not a modal or toast: a display preference already applied, so the confirmation
+    belongs next to the controls and must not interrupt the operator's flow.
+    """
+    from aegis_soc import theme as ui_theme
+
+    color = ui_theme.status_color(status)
+    row = tk.Frame(
+        parent, bg=palette.surface_elevated, highlightbackground=color,
+        highlightthickness=1, bd=0,
+    )
+    inner = tk.Frame(row, bg=palette.surface_elevated)
+    inner.pack(fill="x", padx=SPACE_MD, pady=SPACE_SM)
+    tk.Label(
+        inner, text=ui_theme.status_glyph(status), font=font("card_title"),
+        fg=color, bg=palette.surface_elevated,
+    ).pack(side="left", padx=(0, SPACE_SM))
+    label = tk.Label(
+        inner, text=text, font=font("body"), fg=palette.text,
+        bg=palette.surface_elevated, anchor="w", justify="left",
+    )
+    label.pack(side="left", fill="x", expand=True)
+    inner.bind(
+        "<Configure>",
+        lambda event, widget=label: widget.winfo_exists() and widget.configure(
+            wraplength=max(220, event.width - 64)
+        ),
+        add="+",
+    )
+    return row
+
+
+def data_table_row(
+    parent,
+    values,
+    *,
+    palette,
+    minimums=(150, 180, 520),
+    header=False,
+    status=None,
+    status_column=1,
+):
+    """A readable, responsive data row for audit/event records.
+
+    Pixel minimums keep headers aligned with records across Thai/English/Chinese fonts; the final column
+    receives spare width and wraps. A semantic status may decorate one column with the same glyph and color
+    used everywhere else, so severity never relies on color alone.
+    """
+    from aegis_soc import theme as ui_theme
+
+    row = tk.Frame(parent, bg=palette.panel)
+    for index, (value, minimum) in enumerate(zip(values, minimums)):
+        last = index == len(values) - 1
+        row.grid_columnconfigure(index, minsize=minimum, weight=1 if last else 0)
+        shown = str(value)
+        color = palette.muted if header else palette.text
+        role = "label" if header else ("note" if last else "body")
+        if not header and status is not None and index == status_column:
+            shown = f"{ui_theme.status_glyph(status)}  {shown}"
+            color = ui_theme.status_color(status)
+            role = "card_title"
+        label = tk.Label(
+            row, text=shown, font=font(role), fg=color, bg=palette.panel,
+            anchor="w", justify="left",
+        )
+        label.grid(row=0, column=index, sticky="nw", padx=(0 if index == 0 else SPACE_MD, 0), pady=SPACE_SM)
+        if last:
+            row.bind(
+                "<Configure>",
+                lambda event, widget=label, used=sum(minimums[:-1]): widget.winfo_exists() and widget.configure(
+                    wraplength=max(220, event.width - used - SPACE_MD * len(minimums))
+                ),
+                add="+",
+            )
+    tk.Frame(row, bg=palette.border, height=1).grid(
+        row=1, column=0, columnspan=len(values), sticky="ew"
+    )
+    return row
+
+
 def explained_row(parent, label, value, meaning, *, palette, status=None):
     """An info_row (label/value, colored exactly as the caller's own verified status logic says) plus a
     short muted one-line plain-language meaning directly underneath it -- for a health-dashboard style

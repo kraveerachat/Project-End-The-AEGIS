@@ -305,9 +305,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for label in [w for w in self._walk(self.workspace) if isinstance(w, tk.Label)]:
                 text = str(label.cget("text"))
                 language = gui.i18n.get_language()
-                if text == "READ-ONLY CONTROL AVAILABILITY":
+                if text == gui.i18n.t("lockdown.controls.section"):
                     label.configure(text=strings.text("control.caption", language))
-                elif text == "NOT_AVAILABLE — observer mode":
+                elif text == gui.i18n.t("lockdown.controls.observer_note"):
                     label.configure(text=strings.text("control.caption_note", language))
             button.configure(text=RESTORE_BUTTON_TEXT, state=tk.NORMAL, command=self._on_restore_pressed)
             self._restore_button = button
@@ -608,7 +608,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             t = gui.i18n.t
             rows, reason = records.read_audit(audit_path, records.FEED_KINDS, records.AUDIT_LIMIT_FEED)
             facts = tuple(records.audit_facts(rows, reason, t))
-            lines = (tuple((records.feed_line(row), _feed_status(gui, row["kind"])) for row in reversed(rows))
+            lines = (tuple((records.feed_record(row), _feed_status(gui, row["kind"])) for row in reversed(rows))
                      or ((t("audit.view.none"), gui.pres.STATUS_NEUTRAL),)) if rows is not None else None
             return facts, lines
 
@@ -618,13 +618,24 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             palette = gui.ui_theme.get_palette()
             for label, value, level in facts:
                 design.info_row(body, label, value, palette=palette, status=_status(gui, level))
-            # The feed lines keep the pinned monospace font/size: the live console's column alignment
-            # (timestamp/kind/detail) depends on a fixed-width face, and widening it is a separate change
-            # from this typography pass -- "keep the Audit live-feed console behavior intact".
             if lines is not None:
-                for text, status in lines:
-                    tk.Label(body, text=text, anchor="w", justify="left", font=gui.ui_theme.FONT_MONO_SMALL,
-                             bg=body.cget("bg"), fg=gui.ui_theme.status_color(status)).pack(fill="x", anchor="w")
+                # A source with zero rows keeps its localized empty state instead of pretending to be a
+                # three-column record. Real records use the same oldest-first live-feed order as before.
+                if lines and isinstance(lines[0][0], str):
+                    design.empty_state(body, title=lines[0][0], palette=palette, bg=body.cget("bg"))
+                    return
+                design.data_table_row(
+                    body,
+                    (gui.i18n.t("audit.table.time"), gui.i18n.t("audit.table.event"),
+                     gui.i18n.t("audit.table.details")),
+                    palette=palette, header=True,
+                ).pack(fill="x")
+                for record, status in lines:
+                    # Keep the machine event token byte-for-byte visible for scanning/copying; carry the
+                    # semantic status glyph on the adjacent time column instead of prefixing the token.
+                    design.data_table_row(
+                        body, record, palette=palette, status=status, status_column=0,
+                    ).pack(fill="x")
 
         def _enable_navigation_button(self):
             button = getattr(self, "_go_button", None)

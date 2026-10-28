@@ -258,6 +258,19 @@ def feed_line(row) -> str:
     return "  ".join(parts)
 
 
+def feed_record(row) -> tuple[str, str, str]:
+    """Project one safe audit row into the Audit table's time, event and detail columns.
+
+    ``read_audit()`` has already reduced the database record to allowlisted machine fields. This helper
+    deliberately consumes only those fields, so operator reasons and other free text cannot reach the UI.
+    """
+    at = row.get("at", "")
+    clock = at[-8:] if isinstance(at, str) and len(at) >= 8 else "—"
+    event = str(row.get("kind") or "—")
+    details = [str(row.get(name)) for name in ("code", "ip", "ref", "mitre") if row.get(name)]
+    return clock, event, " · ".join(details) or "—"
+
+
 # ---- facts for the pages ----------------------------------------------------------------------------------------------------
 
 def readiness_blockers(evidence, view, freshness) -> list[str]:
@@ -656,6 +669,9 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (ตั้งค่า AEGIS_DESKTOP_AUDIT_DB เป็นฐานข้อมูลตรวจสอบของ Core ที่ผู้ใช้ Desktop อ่านได้)",
         "zh": "NOT_AVAILABLE — {reason}（请将 AEGIS_DESKTOP_AUDIT_DB 设置为 Desktop 用户可读的 Core 审计数据库）"},
     "audit.view.none": {"en": "No CUT or RESTORE records.", "th": "ไม่มีบันทึก CUT หรือ RESTORE", "zh": "没有 CUT 或 RESTORE 记录。"},
+    "audit.table.time": {"en": "TIME", "th": "เวลา", "zh": "时间"},
+    "audit.table.event": {"en": "EVENT", "th": "เหตุการณ์", "zh": "事件"},
+    "audit.table.details": {"en": "DETAILS", "th": "รายละเอียด", "zh": "详情"},
     "recovery.cause_section": {"en": "CAUSE OF CURRENT LOCKDOWN", "th": "สาเหตุของการ LOCKDOWN ในปัจจุบัน", "zh": "当前 LOCKDOWN 的原因"},
     "recovery.cause": {"en": "Most recent decision (likely cause)", "th": "การตัดสินใจล่าสุด (สาเหตุที่เป็นไปได้)",
                        "zh": "最近一次决策（可能的原因）"},

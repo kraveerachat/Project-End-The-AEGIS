@@ -65,6 +65,96 @@ CONTAINMENT_BLOCKED_CAP = 64
 # register_observer_strings), so this reads the same way whether the window is the pure observer or the
 # full control Desktop.
 OBSERVER_STRINGS = {
+    # Shared operational-page vocabulary. These keys live in the IDEA3-owned integration layer so the
+    # accepted i18n.py snapshot remains byte-identical; register_observer_strings() adds them without ever
+    # replacing a key already owned by the pinned source.
+    "overview.live_evidence.section": {
+        "en": "LIVE CORE EVIDENCE — READ ONLY", "th": "หลักฐานสดจาก Core — อ่านอย่างเดียว",
+        "zh": "Core 实时证据 — 只读",
+    },
+    "overview.live_evidence.core": {
+        "en": "CORE & POLICY", "th": "Core และนโยบาย", "zh": "Core 与策略",
+    },
+    "overview.live_evidence.connectivity": {
+        "en": "CONNECTIVITY & DEVICE", "th": "การเชื่อมต่อและอุปกรณ์", "zh": "连接与设备",
+    },
+    "devices.summary.section": {
+        "en": "DEVICE HEALTH SUMMARY", "th": "สรุปสุขภาพอุปกรณ์", "zh": "设备健康摘要",
+    },
+    "devices.evidence.section": {
+        "en": "CONNECTIVITY & HEARTBEAT EVIDENCE", "th": "หลักฐานการเชื่อมต่อและ heartbeat",
+        "zh": "连接与心跳证据",
+    },
+    "devices.physical_limit.section": {
+        "en": "REPORTED STATE & PHYSICAL LIMIT", "th": "สถานะที่รายงานและข้อจำกัดทางกายภาพ",
+        "zh": "上报状态与物理限制",
+    },
+    "lockdown.current.section": {
+        "en": "CURRENT LOCKDOWN STATE", "th": "สถานะล็อกดาวน์ปัจจุบัน", "zh": "当前锁定状态",
+    },
+    "lockdown.controls.section": {
+        "en": "OPERATOR CONTROLS", "th": "การควบคุมของผู้ปฏิบัติงาน", "zh": "操作员控制",
+    },
+    "lockdown.controls.observer_note": {
+        "en": "CUT and RESTORE are disabled in read-only observer mode.",
+        "th": "CUT และ RESTORE ถูกปิดใช้งานในโหมดสังเกตการณ์แบบอ่านอย่างเดียว",
+        "zh": "在只读观察模式下，CUT 与 RESTORE 均已禁用。",
+    },
+    "settings.language.label": {"en": "Interface language", "th": "ภาษาของอินเทอร์เฟซ", "zh": "界面语言"},
+    "settings.theme.label": {"en": "Appearance", "th": "ธีม", "zh": "外观"},
+    "settings.autosave.note": {
+        "en": "Changes apply immediately and keep the existing persistence behavior.",
+        "th": "การเปลี่ยนแปลงมีผลทันทีและใช้การบันทึกค่าแบบเดิมของระบบ",
+        "zh": "更改会立即生效，并保留现有的持久化行为。",
+    },
+    "settings.feedback.language": {
+        "en": "Language updated successfully.", "th": "อัปเดตภาษาเรียบร้อยแล้ว", "zh": "语言已成功更新。",
+    },
+    "settings.feedback.theme": {
+        "en": "Appearance updated successfully.", "th": "อัปเดตรูปแบบการแสดงผลเรียบร้อยแล้ว", "zh": "外观已成功更新。",
+    },
+    "devices.field.heartbeat": {
+        "en": "Heartbeat", "th": "สัญญาณ heartbeat", "zh": "心跳信号",
+    },
+    "devices.field.reported_uplink": {
+        "en": "Reported uplink", "th": "สถานะ uplink ที่รายงาน", "zh": "上报的上行链路状态",
+    },
+    "devices.field.physical_relay": {
+        "en": "Physical relay", "th": "รีเลย์ทางกายภาพ", "zh": "物理继电器",
+    },
+    "devices.physical.not_proven": {
+        "en": "NOT PROVEN — software evidence does not verify the relay or network path.",
+        "th": "ยังไม่พิสูจน์ — หลักฐานซอฟต์แวร์ไม่ยืนยันรีเลย์หรือเส้นทางเครือข่ายจริง",
+        "zh": "尚未证明 — 软件证据不能验证继电器或实际网络路径。",
+    },
+    "devices.field.broker": {"en": "MQTT broker", "th": "โบรกเกอร์ MQTT", "zh": "MQTT 代理"},
+    "devices.field.device": {"en": "ESP32 presence", "th": "การเชื่อมต่อ ESP32", "zh": "ESP32 在线状态"},
+    "devices.field.freshness": {"en": "Evidence freshness", "th": "ความสดของหลักฐาน", "zh": "证据新鲜度"},
+    "devices.field.timestamp": {"en": "Last evidence", "th": "หลักฐานล่าสุด", "zh": "最新证据时间"},
+    "devices.field.rssi": {"en": "Wi-Fi signal (RSSI)", "th": "สัญญาณ Wi-Fi (RSSI)", "zh": "Wi-Fi 信号（RSSI）"},
+    "devices.field.heap": {"en": "Free heap", "th": "หน่วยความจำ heap ที่ว่าง", "zh": "可用堆内存"},
+    "lockdown.field.armed": {
+        "en": "Armed state", "th": "สถานะพร้อมทำงาน", "zh": "布防状态",
+    },
+    "lockdown.field.dispatch": {
+        "en": "Dispatch state", "th": "สถานะการส่งคำสั่ง", "zh": "命令分发状态",
+    },
+    "lockdown.field.auto_contain": {
+        "en": "Automatic containment", "th": "การกักกันอัตโนมัติ", "zh": "自动遏制",
+    },
+    "lockdown.field.software_containment": {
+        "en": "Software containment", "th": "การกักกันด้วยซอฟต์แวร์", "zh": "软件遏制",
+    },
+    "lockdown.control.cut_reason": {
+        "en": "CUT requests remain Core-authenticated and require an operator reason.",
+        "th": "คำขอ CUT ยังต้องผ่านการยืนยันของ Core และระบุเหตุผลโดยผู้ปฏิบัติงาน",
+        "zh": "CUT 请求仍由 Core 认证，并要求操作员填写原因。",
+    },
+    "lockdown.control.restore_reason": {
+        "en": "RESTORE remains separately authorized and never runs automatically.",
+        "th": "RESTORE ต้องได้รับอนุญาตแยกต่างหากและจะไม่ทำงานอัตโนมัติ",
+        "zh": "RESTORE 仍需单独授权，且绝不会自动执行。",
+    },
     "diagnostics.containment": {
         "en": "Containment helper", "th": "ตัวช่วยกักกัน (containment helper)", "zh": "遏制助手",
     },
@@ -296,6 +386,7 @@ def _live_gui_class(gui):
             self.latest = reader.ObserverEvidence(False, "UNAVAILABLE", "Core evidence not read")
             self._observer_page = None
             self._evidence_section_snapshot_value = None
+            self._settings_feedback_key = None
             super().__init__(root, mqtt_manager, command_controller=command_controller)
             self.root.title(LIVE_TITLE)
 
@@ -367,6 +458,22 @@ def _live_gui_class(gui):
             super()._on_authenticated()
             self.root.title(LIVE_TITLE)
             self._schedule_evidence_poll()
+
+        def _show_page(self, key):
+            if key != "settings":
+                self._settings_feedback_key = None
+            return super()._show_page(key)
+
+        def _set_language(self, code):
+            # The pinned callback still owns persistence and the full UI rebuild. This flag merely lets the
+            # rebuilt Settings page acknowledge that completed action in the newly selected language.
+            self._settings_feedback_key = "settings.feedback.language"
+            return super()._set_language(code)
+
+        def _set_theme(self, name):
+            # Keep theme_state, palette synchronization and dialog restyling entirely in the pinned callback.
+            self._settings_feedback_key = "settings.feedback.theme"
+            return super()._set_theme(name)
 
         def _schedule_evidence_poll(self):
             if self.root.winfo_exists():
@@ -463,19 +570,20 @@ def _live_gui_class(gui):
             stays part of the comparison on purpose: while the Core keeps writing a fresh one, this section
             keeps refreshing to show it, which is the intended clock-like behavior, not leftover flicker."""
             values = evidence_values(self.latest)
+            t = gui.i18n.t
             rows = tuple(
-                (label, values[key], _status(gui, values[key]))
-                for label, key in (
-                    ("Runtime state", "runtime"), ("Profile", "profile"), ("Broker connection", "broker"),
-                    ("ESP32 reported presence", "device"), ("Uplink reported state", "uplink"),
-                    ("ARM/DISARM reported state", "armed"), ("Dispatch mode", "dispatch"),
-                    ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"),
-                    ("Evidence timestamp", "timestamp"),
+                (t(label_key), values[key], _status(gui, values[key]))
+                for label_key, key in (
+                    ("diagnostics.field.runtime", "runtime"), ("diagnostics.field.profile", "profile"),
+                    ("devices.field.broker", "broker"), ("devices.field.device", "device"),
+                    ("devices.field.reported_uplink", "uplink"), ("lockdown.field.armed", "armed"),
+                    ("lockdown.field.dispatch", "dispatch"), ("diagnostics.field.trusted_time", "trusted_time"),
+                    ("devices.field.freshness", "freshness"), ("devices.field.timestamp", "timestamp"),
                 )
             )
             return rows + (
-                ("Physical cable tester", self.latest.physical_observation, gui.pres.STATUS_UNKNOWN),
-                ("Physical source", "OPERATOR OBSERVATION", gui.pres.STATUS_UNKNOWN),
+                (t("devices.field.physical_relay"), self.latest.physical_observation, gui.pres.STATUS_UNKNOWN),
+                (t("devices.physical.not_proven"), "OPERATOR OBSERVATION", gui.pres.STATUS_UNKNOWN),
                 ("Python verification", "NOT_VERIFIED", gui.pres.STATUS_WARNING),
             )
 
@@ -489,7 +597,7 @@ def _live_gui_class(gui):
             saved = self._scroll_yview(self._observer_page)
             if hasattr(self, "_observer_evidence_section") and self._observer_evidence_section.winfo_exists():
                 self._observer_evidence_section.destroy()
-            section = gui.Section(self._observer_page, "LIVE CORE EVIDENCE — READ ONLY")
+            section = gui.Section(self._observer_page, gui.i18n.t("overview.live_evidence.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
             design.style_section_title(section)
             palette = gui.ui_theme.get_palette()
@@ -514,32 +622,58 @@ def _live_gui_class(gui):
             page = self._new_page(parent, "devices.title", "devices.subtitle")
             design.ensure_fonts(self.root)
             palette = gui.ui_theme.get_palette()
-            section = gui.Section(page, "CORE DEVICE EVIDENCE")
-            section.pack(fill="x", padx=16, pady=(0, 16))
-            design.style_section_title(section)
+            t = gui.i18n.t
             values = evidence_values(self.latest)
-            for label, key in (("Broker connection", "broker"), ("ESP32 reported presence", "device"), ("Uplink reported state", "uplink")):
-                design.info_row(section.body, label, values[key], palette=palette, status=_status(gui, values[key]))
-            design.info_row(section.body, "RSSI", "NOT_AVAILABLE", palette=palette, status=gui.pres.STATUS_WARNING)
-            design.info_row(section.body, "Heap", "NOT_AVAILABLE", palette=palette, status=gui.pres.STATUS_WARNING)
+
+            summary = gui.Section(page, t("devices.summary.section"))
+            summary.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(summary)
+            for label_key, key in (("devices.field.broker", "broker"), ("devices.field.device", "device"),
+                                   ("devices.field.reported_uplink", "uplink")):
+                design.info_row(summary.body, t(label_key), values[key], palette=palette, status=_status(gui, values[key]))
+
+            columns = tk.Frame(page, bg=page.cget("bg"))
+            columns.pack(fill="x", padx=16, pady=(0, 20))
+            evidence = gui.Section(columns, t("devices.evidence.section"))
+            design.style_section_title(evidence)
+            for label_key, key in (("devices.field.heartbeat", "device"), ("devices.field.freshness", "freshness"),
+                                   ("devices.field.timestamp", "timestamp")):
+                design.info_row(evidence.body, t(label_key), values[key], palette=palette, status=_status(gui, values[key]))
+            design.info_row(evidence.body, t("devices.field.rssi"), "NOT_AVAILABLE", palette=palette,
+                            status=gui.pres.STATUS_WARNING)
+            design.info_row(evidence.body, t("devices.field.heap"), "NOT_AVAILABLE", palette=palette,
+                            status=gui.pres.STATUS_WARNING)
+
+            physical = gui.Section(columns, t("devices.physical_limit.section"), accent=gui.COLOR_WARN_HL)
+            design.style_section_title(physical)
+            design.info_row(physical.body, t("devices.field.reported_uplink"), values["uplink"], palette=palette,
+                            status=_status(gui, values["uplink"]))
+            design.info_row(physical.body, t("devices.field.physical_relay"), "NOT_VERIFIED", palette=palette,
+                            status=gui.pres.STATUS_WARNING)
+            design.section_note(physical.body, t("devices.physical.not_proven"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_SM, 0))
+            self._reflow_columns(columns, (evidence, physical))
 
         def _build_lockdown_page(self, parent):
             page = self._new_page(parent, "lockdown.title", "lockdown.subtitle", badge=True)
             design.ensure_fonts(self.root)
             palette = gui.ui_theme.get_palette()
-            section = gui.Section(page, "CORE LOCKDOWN EVIDENCE")
+            t = gui.i18n.t
+            section = gui.Section(page, t("lockdown.current.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
             design.style_section_title(section)
             values = evidence_values(self.latest)
             rows = [
                 (label, values[key], _status(gui, values[key]))
                 for label, key in (
-                    ("ARM/DISARM reported state", "armed"), ("Uplink reported state", "uplink"),
-                    ("Dispatch mode", "dispatch"), ("AUTO_CONTAIN reported mode", "auto_contain"),
-                    ("Evidence freshness", "freshness"),
+                    (t("lockdown.field.armed"), "armed"), (t("devices.field.reported_uplink"), "uplink"),
+                    (t("lockdown.field.dispatch"), "dispatch"), (t("lockdown.field.auto_contain"), "auto_contain"),
+                    (t("devices.field.freshness"), "freshness"),
                 )
             ]
-            rows.append(("Operational controls", "NOT_AVAILABLE — observer mode", gui.pres.STATUS_WARNING))
+            containment_state, _blocked = containment_status()
+            rows.append((t("lockdown.field.software_containment"), containment_state,
+                         gui.pres.STATUS_HEALTHY if containment_state == CONTAINMENT_HEALTHY else gui.pres.STATUS_WARNING))
             # Same rows, same order/values/colors as before -- two columns (the pinned _reflow_columns
             # fact-grid used on Recovery/Overview) instead of one tall stack, so this section is about
             # half as high. The page itself is already rebuilt whole on every evidence change and its
@@ -555,9 +689,12 @@ def _live_gui_class(gui):
                     design.info_row(column, label, value, palette=palette, status=status)
                 columns.append(column)
             self._reflow_columns(grid, columns)
-            controls = gui.Section(page, "READ-ONLY CONTROL AVAILABILITY", accent=gui.COLOR_WARN_HL)
+            controls = gui.Section(page, t("lockdown.controls.section"), accent=gui.COLOR_WARN_HL)
             controls.pack(fill="x", padx=16, pady=(0, 20))
             design.style_section_title(controls)
+            design.section_note(
+                controls.body, t("lockdown.controls.observer_note"), palette=palette,
+            ).pack(fill="x", pady=(0, design.SPACE_MD))
             tk.Button(
                 controls.body,
                 text="CUT NETWORK — DISABLED",
@@ -571,7 +708,7 @@ def _live_gui_class(gui):
             ).pack(fill="x", pady=(0, 6))
             design.info_row(
                 controls.body,
-                "CUT reason",
+                t("lockdown.control.cut_reason"),
                 "DISABLED — no authorized Core-owned manual CUT request interface",
                 palette=palette, status=gui.pres.STATUS_WARNING,
             )
@@ -588,7 +725,7 @@ def _live_gui_class(gui):
             ).pack(fill="x", pady=(8, 6))
             design.info_row(
                 controls.body,
-                "RESTORE reason",
+                t("lockdown.control.restore_reason"),
                 "DISABLED — owner-only D4 terminal Recovery; no live authorization",
                 palette=palette, status=gui.pres.STATUS_WARNING,
             )
@@ -615,6 +752,52 @@ def _live_gui_class(gui):
 
         def _build_audit_page(self, parent):
             self._build_unavailable_observer_page(parent, "audit.title", "audit.subtitle")
+
+        def _build_settings_page(self, parent):
+            """Presentation-only settings layout; selector callbacks and persistence remain the pinned ones."""
+            page = self._new_page(parent, "settings.title", "settings.subtitle")
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
+            t = gui.i18n.t
+            if self._settings_feedback_key is not None:
+                design.feedback_banner(
+                    page, t(self._settings_feedback_key), palette=palette, status=gui.pres.STATUS_HEALTHY,
+                ).pack(fill="x", padx=16, pady=(0, design.SPACE_MD))
+            grid = tk.Frame(page, bg=page.cget("bg"))
+            grid.pack(fill="x", padx=16, pady=(0, 20))
+
+            preferences = gui.Section(grid, t("settings.preferences_title"))
+            design.style_section_title(preferences)
+            language_row = tk.Frame(preferences.body, bg=preferences.body.cget("bg"))
+            language_row.pack(fill="x", pady=(0, design.SPACE_MD))
+            tk.Label(language_row, text=t("settings.language.label"), font=design.font("body"),
+                     fg=palette.text, bg=language_row.cget("bg")).pack(side="left", fill="x", expand=True)
+            language_control = tk.Frame(language_row, bg=language_row.cget("bg"))
+            language_control.pack(side="right")
+            self._build_language_selector(language_control)
+
+            theme_row = tk.Frame(preferences.body, bg=preferences.body.cget("bg"))
+            theme_row.pack(fill="x")
+            tk.Label(theme_row, text=t("settings.theme.label"), font=design.font("body"),
+                     fg=palette.text, bg=theme_row.cget("bg")).pack(side="left", fill="x", expand=True)
+            theme_control = tk.Frame(theme_row, bg=theme_row.cget("bg"))
+            theme_control.pack(side="right")
+            self._build_theme_selector(theme_control)
+            design.section_note(preferences.body, t("settings.autosave.note"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_MD, 0))
+
+            session = gui.Section(grid, t("settings.session_title"))
+            design.style_section_title(session)
+            design.info_row(session.body, t("settings.admin_id"), self.session.admin_id or "—", palette=palette)
+            signed_in = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.session.authenticated_at or 0))
+            design.info_row(session.body, t("settings.signed_in"), signed_in, palette=palette)
+
+            about = gui.Section(grid, t("settings.about_title"))
+            design.style_section_title(about)
+            design.info_row(about.body, t("settings.product"), "AEGIS IDEA3", palette=palette)
+            design.section_note(about.body, t("settings.about_text"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_SM, 0))
+            self._reflow_columns(grid, (preferences, session, about))
 
         def _diagnostics_audit_row(self):
             """(value, status) for the Diagnostics "Database / audit history" row. The pure observer has no audit
