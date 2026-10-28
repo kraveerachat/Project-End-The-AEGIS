@@ -1153,3 +1153,40 @@ def test_settings_theme_callback_keeps_theme_state_and_shows_feedback(app_factor
 
     assert theme_state.get_theme() == target
     assert "外观已成功更新。" in _texts(root)
+
+
+def _value_after(root, label):
+    texts = _texts(root)
+    after = texts[texts.index(label) + 1:]
+    return next(text for text in after if len(text) > 1 or text.isalnum())   # skip the one-glyph status marker
+
+
+@pytest.mark.parametrize("status, blocked, expected", [
+    ("HEALTHY", [], "0"),
+    ("HEALTHY", ["203.0.113.5", "203.0.113.6", "203.0.113.7"], "3"),
+    ("UNAVAILABLE — ContainmentUnavailable", [], "UNKNOWN"),
+    ("NOT_CONFIGURED", [], "UNKNOWN"),
+])
+def test_the_diagnostics_blocked_ip_count_is_never_a_fake_zero(app_factory, monkeypatch, status, blocked, expected):
+    monkeypatch.setattr(desktop.live, "containment_status", lambda: (status, blocked))
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app._show_page("diagnostics")
+    root.update()
+    assert _value_after(root, "Active software blocks") == expected
+    if expected == "UNKNOWN":
+        assert "This is not zero." in "\n".join(_texts(root))
+
+
+@pytest.mark.parametrize("status, blocked, expected", [
+    ("HEALTHY", [], "none"),
+    ("HEALTHY", ["203.0.113.5"], "1"),
+    ("UNAVAILABLE — ContainmentUnavailable", [], "UNKNOWN"),
+    ("NOT_CONFIGURED", [], "UNKNOWN"),
+])
+def test_the_recovery_blocked_ip_count_is_never_a_fake_none(app_factory, tmp_path, monkeypatch, status, blocked, expected):
+    monkeypatch.setattr(desktop.live, "containment_status", lambda: (status, blocked))
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery)
+    app._show_page("recovery")
+    root.update()
+    assert _value_after(root, "Active software blocks") == expected

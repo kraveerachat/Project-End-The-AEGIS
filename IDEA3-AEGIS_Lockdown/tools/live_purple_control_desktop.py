@@ -733,7 +733,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             detail_rows = tuple((label, value, level) for label, value, level in facts if label not in skip_labels)
 
             status_text, blocked_ips = live.containment_status()
-            blocked_rows = tuple(records.blocked_ip_facts(blocked_ips, t))
+            blocked_rows = tuple(records.blocked_ip_facts(blocked_ips, t, known=status_text == live.CONTAINMENT_HEALTHY))
             blocked_extra = (t("diagnostics.containment"), status_text) if status_text != live.CONTAINMENT_HEALTHY else None
             blocked_lines = tuple(blocked_ips) if status_text == live.CONTAINMENT_HEALTHY and blocked_ips else ()
 

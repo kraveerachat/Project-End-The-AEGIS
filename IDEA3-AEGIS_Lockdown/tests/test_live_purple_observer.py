@@ -460,7 +460,9 @@ def test_diagnostics_page_shows_containment_health_and_block_count(tmp_path, mon
         app._show_page("diagnostics")
         joined = "\n".join(_label_texts(app.root))
         assert "NOT_CONFIGURED" in joined
-        assert "0" in joined.splitlines()
+        # an unconfigured helper never answered op=list: the count is UNKNOWN, not a fake zero
+        assert "UNKNOWN" in joined.splitlines()
+        assert "0" not in joined.splitlines()
     finally:
         for after_id in root.tk.splitlist(root.tk.call("after", "info")):
             root.after_cancel(after_id)
@@ -522,3 +524,13 @@ def test_status_reader_is_the_only_live_data_source():
     assert "read_observer_status" in source
     assert "status.json" not in source
     assert "MQTT" in source
+
+
+@pytest.mark.parametrize("status, blocked, expected", [
+    (live.CONTAINMENT_HEALTHY, [], "0"),
+    (live.CONTAINMENT_HEALTHY, ["203.0.113.5", "203.0.113.6"], "2"),
+    ("UNAVAILABLE — ContainmentUnavailable", [], "UNKNOWN"),
+    (live.CONTAINMENT_NOT_CONFIGURED, [], "UNKNOWN"),
+])
+def test_blocked_count_text_is_a_number_only_when_the_helper_really_answered(status, blocked, expected):
+    assert live.blocked_count_text(status, blocked) == expected

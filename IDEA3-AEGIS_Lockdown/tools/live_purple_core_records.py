@@ -534,10 +534,13 @@ def lockdown_cause_facts(evidence, graduated, translate, *, now=None) -> list[tu
     return rows
 
 
-def blocked_ip_facts(blocked, translate) -> list[tuple[str, str, str | None]]:
+def blocked_ip_facts(blocked, translate, *, known=True) -> list[tuple[str, str, str | None]]:
     """The read-only containment-helper list (``live_purple_observer.containment_status``) as the Recovery page's
-    one fact row; the IPs themselves are printed as lines by the page, the same way attempts/decisions are."""
+    one fact row; the IPs themselves are printed as lines by the page, the same way attempts/decisions are.
+    ``known`` is False when the list operation did not genuinely succeed: the count is then UNKNOWN, never "none"."""
     t = translate
+    if not known:
+        return [(t("recovery.blocked_count"), "UNKNOWN", None)]
     if not blocked:
         return [(t("recovery.blocked_count"), t("recovery.blocked_none"), "LOW")]
     return [(t("recovery.blocked_count"), str(len(blocked)), "HIGH")]

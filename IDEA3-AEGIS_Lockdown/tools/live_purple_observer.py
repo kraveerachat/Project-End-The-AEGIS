@@ -220,6 +220,10 @@ OBSERVER_STRINGS = {
         "en": "How many IPs the containment helper is currently blocking by software right now.",
         "th": "จำนวน IP ที่ตัวช่วยกักกันกำลังบล็อกด้วยซอฟต์แวร์อยู่ ณ ขณะนี้",
         "zh": "遏制助手当前通过软件正在封锁的 IP 数量。"},
+    "diagnostics.field.containment_blocks_unknown": {
+        "en": "UNKNOWN: the containment helper did not answer, so the number of blocked IPs cannot be stated. This is not zero.",
+        "th": "ไม่ทราบ: ตัวช่วยกักกันไม่ตอบกลับ จึงยืนยันจำนวน IP ที่บล็อกอยู่ไม่ได้ — ไม่ได้หมายความว่าเป็นศูนย์",
+        "zh": "未知：遏制助手未应答，因此无法确认被封锁的 IP 数量。这并不表示为零。"},
     "diagnostics.field.audit": {"en": "Audit/database history", "th": "ประวัติการตรวจสอบ", "zh": "审计/数据库历史"},
     "diagnostics.field.audit_meaning": {
         "en": "The most recent records readable from the Core's own audit database (reasons and secrets are never shown).",
@@ -255,6 +259,12 @@ def containment_status():
     if not isinstance(blocked, list):
         return "UNAVAILABLE — MALFORMED_RESPONSE", []
     return CONTAINMENT_HEALTHY, [str(ip) for ip in blocked][:CONTAINMENT_BLOCKED_CAP]
+
+
+def blocked_count_text(status_text, blocked):
+    """The blocked-IP count for display: only a HEALTHY helper that really answered ``op=list`` has a count (an empty
+    list is then a true "0"); UNAVAILABLE / NOT_CONFIGURED / failed reads carry ``[]`` and must read UNKNOWN, not "0"."""
+    return str(len(blocked)) if status_text == CONTAINMENT_HEALTHY else "UNKNOWN"
 
 
 class LiveMQTT:
@@ -894,8 +904,10 @@ def _live_gui_class(gui):
             design.explained_row(containment_card.body, t("diagnostics.field.containment"), status_text,
                                  t("diagnostics.field.containment_meaning"), palette=palette,
                                  status=gui.pres.STATUS_HEALTHY if healthy_containment else gui.pres.STATUS_WARNING)
-            design.explained_row(containment_card.body, t("diagnostics.field.containment_blocks"), str(len(blocked)),
-                                 t("diagnostics.field.containment_blocks_meaning"), palette=palette,
+            design.explained_row(containment_card.body, t("diagnostics.field.containment_blocks"),
+                                 blocked_count_text(status_text, blocked),
+                                 t("diagnostics.field.containment_blocks_meaning" if healthy_containment
+                                   else "diagnostics.field.containment_blocks_unknown"), palette=palette,
                                  status=gui.pres.STATUS_NEUTRAL if healthy_containment else gui.pres.STATUS_UNKNOWN)
 
             audit_card = gui.Section(grid, t("diagnostics.group.audit"))

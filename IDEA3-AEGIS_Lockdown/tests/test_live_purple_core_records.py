@@ -406,3 +406,8 @@ def test_registration_never_replaces_an_existing_key():
     table = {"recovery.ready": {"en": "mine"}}
     rec.register_record_strings(type("I", (), {"STRINGS": table}))
     assert table["recovery.ready"] == {"en": "mine"} and "recovery.hint" in table
+
+
+def test_blocked_ip_facts_is_unknown_not_none_when_the_list_operation_did_not_succeed():
+    assert rec.blocked_ip_facts([], t, known=False) == [("Active software blocks", "UNKNOWN", None)]
+    assert rec.blocked_ip_facts([], t, known=True) == [("Active software blocks", "none", "LOW")]
