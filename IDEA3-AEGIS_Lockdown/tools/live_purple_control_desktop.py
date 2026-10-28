@@ -580,8 +580,10 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
         def _build_audit_page(self, parent):
             page = self._new_page(parent, "audit.title", "audit.subtitle")
+            design.ensure_fonts(self.root)
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(section)
             # snap_to_bottom: a console-style live feed, newest row last -- the operator watching it scroll
             # should follow new events automatically, the same as a terminal "tail -f", but only while they
             # are already at the bottom; scrolling up to read history must not get yanked back down.
@@ -605,8 +607,12 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _render_audit(self, snapshot, body):
             facts, lines = snapshot
             self._clear(body)
+            palette = gui.ui_theme.get_palette()
             for label, value, level in facts:
-                self._add_fact(body, label, value, status=_status(gui, level))
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
+            # The feed lines keep the pinned monospace font/size: the live console's column alignment
+            # (timestamp/kind/detail) depends on a fixed-width face, and widening it is a separate change
+            # from this typography pass -- "keep the Audit live-feed console behavior intact".
             if lines is not None:
                 for text, status in lines:
                     tk.Label(body, text=text, anchor="w", justify="left", font=gui.ui_theme.FONT_MONO_SMALL,
