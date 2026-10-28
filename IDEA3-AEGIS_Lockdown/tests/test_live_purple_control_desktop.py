@@ -902,12 +902,37 @@ def test_incidents_page_shows_the_cores_graduated_decisions(app_factory):
     assert "203.0.113.9 — decide with the CUT button" in joined
 
 
-def test_incidents_page_without_a_source_says_not_available_and_why(app_factory):
+def test_incidents_page_without_a_source_shows_a_plain_empty_state_not_the_raw_reason(app_factory):
     app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
     app._show_page("incidents")
     root.update()
     joined = "\n".join(_texts(root))
-    assert "NOT_AVAILABLE — NOT_FOUND" in joined and "graduated-status.json" in joined
+    assert "No events yet" in joined and "the system is watching" in joined
+    assert "Data source status: NOT_FOUND" in joined
+    assert "NOT_AVAILABLE" not in joined and "graduated-status.json" not in joined
+
+
+def test_incidents_page_always_shows_the_intro_and_level_legend(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "graduated response decisions" in joined
+    assert "RESPONSE LEVELS" in joined
+    for level, phrase in (("LOW", "Log / audit only"), ("MEDIUM", "Software IP block"),
+                          ("HIGH", "Recommends a physical CUT"), ("CRITICAL", "Automatic CUT")):
+        assert level in joined and phrase in joined
+
+
+def test_incidents_page_renders_a_card_per_decision_with_friendly_labels(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "Attacker IP" in joined and "Attack type" in joined and "Corroborated" in joined
+    assert "203.0.113.9" in joined and "HIGH" in joined and "MEDIUM" in joined
+    assert "recommend physical CUT" in joined  # RECOMMEND_CUT mapped to a friendly label
+    assert "PORT_SCAN" in joined and "MULTI_VECTOR" in joined  # unmapped test kinds still shown, raw, never hidden
 
 
 @pytest.mark.parametrize("language,marker", [("th", "การตัดสินใจ"), ("zh", "决策")])

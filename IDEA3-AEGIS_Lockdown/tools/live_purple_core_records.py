@@ -382,6 +382,84 @@ def incident_facts(graduated, reason, translate):
     return rows
 
 
+# The 4 graduated-response levels, in order, for the Incidents page's always-visible legend -- the exact level
+# codes the Core writes (aegis_soc/graduated_response.py), never translated; only the explanation is.
+INCIDENT_LEVEL_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+INCIDENT_LEVEL_EXPLAIN_KEYS = {
+    "LOW": "incidents.legend.low", "MEDIUM": "incidents.legend.medium",
+    "HIGH": "incidents.legend.high", "CRITICAL": "incidents.legend.critical",
+}
+
+# Raw kind/action strings the Core actually writes (aegis_soc/graduated_detector.py, aegis_soc/graduated_response.py)
+# mapped to a friendly, translated label. A kind or action this map does not recognise (e.g. a future detector
+# addition, or a test fixture's placeholder value) is shown as its own raw value, never hidden -- every
+# underlying value stays visible even when this page cannot explain it yet.
+INCIDENT_KIND_KEYS = {
+    "port_scan": "incidents.kind.port_scan", "ssh_brute_force": "incidents.kind.ssh_brute_force",
+    "syn_flood": "incidents.kind.syn_flood", "ssh_login_after_failures": "incidents.kind.ssh_login_after_failures",
+}
+INCIDENT_ACTION_KEYS = {
+    "NONE": "incidents.action.none", "SOFTWARE_BLOCK": "incidents.action.software_block",
+    "RECOMMEND_CUT": "incidents.action.recommend_cut", "AUTO_CUT": "incidents.action.auto_cut",
+}
+
+
+def incident_kind_label(kind, translate):
+    key = INCIDENT_KIND_KEYS.get(kind)
+    return translate(key) if key else kind
+
+
+def incident_action_label(action, translate):
+    key = INCIDENT_ACTION_KEYS.get(action)
+    return translate(key) if key else (action or "—")
+
+
+def incident_legend_rows(translate):
+    """The always-visible "what does each level mean" legend -- 4 rows, level code + friendly explanation,
+    using the same level codes/colors every other page already uses (no new color)."""
+    t = translate
+    return [(level, t(INCIDENT_LEVEL_EXPLAIN_KEYS[level]), level) for level in INCIDENT_LEVEL_ORDER]
+
+
+def incident_empty_state(graduated, reason, translate):
+    """A human sentence for "nothing to show" -- whether because graduated-status.json does not exist yet (the
+    Core only writes it once graduated response is on and a decision is made) or because it exists but no
+    decision has been recorded. Same friendly headline either way; the technical reason code (never the raw
+    file path) is kept as a secondary, muted line only when there IS a reason (a missing/unreadable file),
+    so the underlying state is still available, just not as the primary, confusing sentence."""
+    t = translate
+    if graduated is None:
+        return t("incidents.empty.title"), reason or UNREADABLE
+    return t("incidents.empty.title"), None
+
+
+def incident_decision_rows(item, translate):
+    """One decision -> the Incidents page's per-card (label, value, status) rows, friendly labels, every
+    underlying value kept (nothing dropped, nothing reworded in the data itself -- only how it's labelled)."""
+    t = translate
+    when = time.strftime("%H:%M:%S", time.localtime(item["at"])) if item.get("at") else "—"
+    mitre = ", ".join(item["mitre"]) if item["mitre"] else "—"
+    corroborated = item.get("corroborated")
+    return [
+        (t("incidents.field.time"), when, None),
+        (t("incidents.field.ip"), item["attacker_ip"] or "—", None),
+        (t("incidents.field.kind"), incident_kind_label(item["kind"], t), None),
+        (t("incidents.field.level"), item["level"], item["level"]),
+        (t("incidents.field.score"), str(item["score"]), None),
+        (t("incidents.field.action"), incident_action_label(item["action"], t), None),
+        (t("incidents.field.outcome"), item["outcome"] or "—", None),
+        (t("incidents.field.mitre"), mitre, None),
+        (t("incidents.field.corroborated"), t("incidents.field.yes") if corroborated else t("incidents.field.no"), None),
+    ]
+
+
+def incident_card_title(item):
+    """One decision card's title bar -- time, level code and attacker IP, state codes never translated."""
+    when = time.strftime("%H:%M:%S", time.localtime(item["at"])) if item.get("at") else "—"
+    ip = item["attacker_ip"] or "—"
+    return f"{when} · {item['level']} · {ip}"
+
+
 def _elapsed_since(at, *, now=None) -> str:
     current = time.time() if now is None else now
     seconds = max(0.0, current - at)
@@ -499,6 +577,42 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (Core เขียน graduated-status.json เมื่อเปิดการตอบสนองแบบไล่ระดับและมีการตัดสินใจเท่านั้น)",
         "zh": "NOT_AVAILABLE — {reason}（仅当分级响应开启且产生决策时，Core 才会写入 graduated-status.json）"},
     "incidents.view.none": {"en": "No decisions recorded yet.", "th": "ยังไม่มีการตัดสินใจที่บันทึก", "zh": "尚无决策记录。"},
+    "incidents.intro": {
+        "en": "This page shows detected security events and the Core's graduated response decisions, from LOW up to CRITICAL.",
+        "th": "หน้านี้แสดงเหตุการณ์ความปลอดภัยที่ตรวจพบ และการตัดสินใจตอบสนองแบบไล่ระดับของ Core ตั้งแต่ LOW จนถึง CRITICAL",
+        "zh": "本页显示检测到的安全事件，以及 Core 从 LOW 到 CRITICAL 的分级响应决策。"},
+    "incidents.legend.title": {"en": "RESPONSE LEVELS", "th": "ระดับการตอบสนอง", "zh": "响应级别"},
+    "incidents.legend.low": {"en": "Log / audit only", "th": "บันทึก/ตรวจสอบเท่านั้น", "zh": "仅记录 / 审计"},
+    "incidents.legend.medium": {"en": "Software IP block", "th": "บล็อก IP ด้วยซอฟต์แวร์", "zh": "软件封锁该 IP"},
+    "incidents.legend.high": {"en": "Recommends a physical CUT (an operator decides)",
+                              "th": "แนะนำให้ตัดสายกายภาพ (ผู้ปฏิบัติงานเป็นผู้ตัดสินใจ)", "zh": "建议执行物理 CUT（由操作员决定）"},
+    "incidents.legend.critical": {"en": "Automatic CUT (once corroborated)",
+                                  "th": "ตัดสายอัตโนมัติ (เมื่อมีการยืนยันซ้ำ)", "zh": "自动执行 CUT（经多重佐证后）"},
+    "incidents.empty.title": {
+        "en": "No events yet -- the system is watching. No attack has been detected so far (or graduated response has not been turned on).",
+        "th": "ยังไม่มีเหตุการณ์ — ระบบกำลังเฝ้าระวัง ยังไม่พบการโจมตี (หรือยังไม่ได้เปิดการตอบสนองแบบไล่ระดับ)",
+        "zh": "暂无事件 — 系统正在监控中。尚未检测到攻击（或尚未开启分级响应）。"},
+    "incidents.empty.reason": {"en": "Data source status: {reason}", "th": "สถานะแหล่งข้อมูล: {reason}", "zh": "数据来源状态：{reason}"},
+    "incidents.field.time": {"en": "Time", "th": "เวลา", "zh": "时间"},
+    "incidents.field.ip": {"en": "Attacker IP", "th": "IP ผู้โจมตี", "zh": "攻击者 IP"},
+    "incidents.field.kind": {"en": "Attack type", "th": "ชนิดการโจมตี", "zh": "攻击类型"},
+    "incidents.field.level": {"en": "Level", "th": "ระดับ", "zh": "级别"},
+    "incidents.field.score": {"en": "Score", "th": "คะแนน", "zh": "分数"},
+    "incidents.field.action": {"en": "Action", "th": "การกระทำ", "zh": "处置动作"},
+    "incidents.field.outcome": {"en": "Outcome", "th": "ผล", "zh": "结果"},
+    "incidents.field.mitre": {"en": "MITRE ATT&CK", "th": "MITRE ATT&CK", "zh": "MITRE ATT&CK"},
+    "incidents.field.corroborated": {"en": "Corroborated", "th": "ยืนยันซ้ำ (corroboration)", "zh": "是否已佐证"},
+    "incidents.field.yes": {"en": "YES", "th": "ใช่", "zh": "是"},
+    "incidents.field.no": {"en": "no", "th": "ไม่", "zh": "否"},
+    "incidents.kind.port_scan": {"en": "Port scan", "th": "การสแกนพอร์ต", "zh": "端口扫描"},
+    "incidents.kind.ssh_brute_force": {"en": "SSH brute force", "th": "การสุ่มรหัสผ่าน SSH", "zh": "SSH 暴力破解"},
+    "incidents.kind.syn_flood": {"en": "SYN flood", "th": "SYN flood", "zh": "SYN 洪泛攻击"},
+    "incidents.kind.ssh_login_after_failures": {"en": "SSH login after repeated failures",
+                                                "th": "เข้า SSH สำเร็จหลังพยายามผิดซ้ำ ๆ", "zh": "多次失败后成功登录 SSH"},
+    "incidents.action.none": {"en": "none (log/audit only)", "th": "ไม่มี (บันทึก/ตรวจสอบเท่านั้น)", "zh": "无（仅记录/审计）"},
+    "incidents.action.software_block": {"en": "software IP block", "th": "บล็อก IP ด้วยซอฟต์แวร์", "zh": "软件封锁 IP"},
+    "incidents.action.recommend_cut": {"en": "recommend physical CUT", "th": "แนะนำให้ตัดสายกายภาพ", "zh": "建议执行物理 CUT"},
+    "incidents.action.auto_cut": {"en": "automatic CUT", "th": "ตัดสายอัตโนมัติ", "zh": "自动 CUT"},
     "audit.view.section": {"en": "CORE AUDIT — CUT AND RESTORE REQUESTS AND RESULTS (READ ONLY)",
                            "th": "การตรวจสอบของ Core — คำขอและผลของ CUT และ RESTORE (อ่านอย่างเดียว)",
                            "zh": "Core 审计 — CUT 与 RESTORE 请求及结果（只读）"},

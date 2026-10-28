@@ -170,6 +170,7 @@ def read_graduated(path) -> dict | None:
             "score": item.get("score") if isinstance(item.get("score"), int) else 0,
             "reasons": [str(r)[:48] for r in item.get("reasons", [])][:8] if isinstance(item.get("reasons"), list) else [],
             "mitre": [str(m)[:12] for m in item.get("mitre", [])][:6] if isinstance(item.get("mitre"), list) else [],
+            "corroborated": item.get("corroborated") is True,
         })
     highest = data.get("highest_level") if data.get("highest_level") in LEVELS else "LOW"
     recommended = data.get("cut_recommended_for")
@@ -468,8 +469,24 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             if incident_source is not None:   # the incident Desktop's own register is wired: keep it
                 return super()._build_incidents_page(parent)
             page = self._new_page(parent, "incidents.title", "incidents.subtitle")
-            section = gui.Section(page, gui.i18n.t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
-            section.pack(fill="x", padx=16, pady=(0, 16))
+            t = gui.i18n.t
+
+            # Static, never rebuilt: what this page is for, and what each response level means -- the page used
+            # to say neither, so an empty page showed only a cryptic NOT_AVAILABLE row with no explanation.
+            gui.make_hint(page, t("incidents.intro")).pack(anchor="w", padx=16, pady=(0, 16))
+            legend = gui.Section(page, t("incidents.legend.title"))
+            legend.pack(fill="x", padx=16, pady=(0, 16))
+            legend_grid = tk.Frame(legend.body, bg=legend.body.cget("bg"))
+            legend_grid.pack(fill="x")
+            legend_cards = []
+            for level, text, status_level in records.incident_legend_rows(t):
+                card = tk.Frame(legend_grid, bg=legend.body.cget("bg"))
+                self._add_fact(card, level, text, status=_status(gui, status_level))
+                legend_cards.append(card)
+            self._reflow_columns(legend_grid, legend_cards)
+
+            section = gui.Section(page, t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
+            section.pack(fill="x", padx=16, pady=(0, 20))
             self._start_live_page("incidents", self._incidents_snapshot,
                                   lambda snapshot: self._render_incidents(snapshot, section.body),
                                   scroll_anchor=section.body)
@@ -480,18 +497,48 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             t = gui.i18n.t
             data = read_graduated(graduated_path)
             reason = "" if data is not None else records.file_reason(graduated_path)
-            facts = tuple(records.incident_facts(data, reason, t))
-            lines = tuple([describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")]) \
-                if data is not None else None
-            return facts, lines
+            has_decisions = data is not None and len(data["decisions"]) > 0
+            # When there is no source at all, incident_facts()'s only row is the cryptic raw
+            # "NOT_AVAILABLE -- {reason} (... graduated-status.json ...)" line -- replaced below by the
+            # friendly empty state, not shown alongside it. Once a source exists (even with zero decisions
+            # yet), its header facts (highest level, decisions recorded, ...) are plain and useful, so they
+            # stay.
+            facts = tuple(records.incident_facts(data, reason, t)) if data is not None else ()
+            if not has_decisions:
+                title, empty_reason = records.incident_empty_state(data, reason, t)
+                empty = (title, t("incidents.empty.reason", reason=empty_reason) if empty_reason else None)
+                return facts, (), empty
+            decisions = tuple(
+                (records.incident_card_title(item), tuple(records.incident_decision_rows(item, t)))
+                for item in reversed(data["decisions"])
+            )
+            return facts, decisions, None
 
         def _render_incidents(self, snapshot, body):
-            facts, lines = snapshot
+            facts, decisions, empty = snapshot
             self._clear(body)
             for label, value, level in facts:
                 self._add_fact(body, label, value, status=_status(gui, level))
-            if lines is not None:
-                self._lines(body, list(lines))
+            if empty is not None:
+                title, detail = empty
+                tk.Label(body, text=title, anchor="w", justify="left", wraplength=900,
+                         font=gui.ui_theme.FONT_BODY, bg=body.cget("bg"), fg=gui.ui_theme.COLOR_TEXT,
+                         ).pack(fill="x", pady=(10, 0))
+                if detail:
+                    tk.Label(body, text=detail, anchor="w", justify="left", font=gui.ui_theme.FONT_HINT,
+                             bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x", pady=(4, 0))
+                return
+            grid = tk.Frame(body, bg=body.cget("bg"))
+            grid.pack(fill="x", pady=(8, 0))
+            cards = []
+            accent = {"CRITICAL": gui.COLOR_DANGER_HL, "HIGH": gui.COLOR_WARN_HL, "MEDIUM": gui.COLOR_WARN_HL}
+            for title, rows in decisions:
+                level = next((value for label, value, lvl in rows if lvl in LEVELS), None)
+                card = gui.Section(grid, title, accent=accent.get(level))
+                for label, value, lvl in rows:
+                    self._add_fact(card.body, label, value, status=_status(gui, lvl))
+                cards.append(card)
+            self._reflow_columns(grid, cards)
 
         def _diagnostics_audit_row(self):
             """The Diagnostics page's audit row, read the same way the Recovery/Audit pages already read it
