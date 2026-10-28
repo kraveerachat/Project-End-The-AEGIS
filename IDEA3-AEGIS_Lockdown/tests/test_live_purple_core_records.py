@@ -250,6 +250,32 @@ def test_graduated_row_and_header_facts():
     assert rec.audit_facts([], "", t)[0][1].startswith("0 newest")
 
 
+def test_incident_summary_tiles_never_hide_an_unavailable_source_behind_a_fake_zero():
+    highest, latest, source = rec.incident_summary_tiles(None, "NOT_FOUND", t)
+    assert source[1] == "NOT_FOUND" and source[2] is False   # the TRUE reason, never "0 events"
+    assert highest[1] == "UNKNOWN" and latest[1] == "none yet"
+
+    empty = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    highest, latest, source = rec.incident_summary_tiles(empty, "", t)
+    assert highest == ("Highest level right now", "LOW", "LOW")
+    assert latest[1] == "none yet" and source == ("Data source status", "AVAILABLE", True)
+
+    item = {"at": None, "attacker_ip": "203.0.113.9", "kind": "port_scan", "level": "HIGH", "action": "RECOMMEND_CUT",
+           "outcome": "", "score": 70, "reasons": [], "mitre": [], "corroborated": False}
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": "203.0.113.9", "auto_cut_latched": False, "decisions": [item]}
+    highest, latest, source = rec.incident_summary_tiles(graduated, "", t)
+    assert latest == ("Latest event", "Port scan", "HIGH")   # the raw kind mapped to its friendly label
+    assert source == ("Data source status", "AVAILABLE", True)
+
+
+def test_incident_kind_and_action_labels_fall_back_to_the_raw_value_when_unmapped():
+    assert rec.incident_kind_label("port_scan", t) == "Port scan"
+    assert rec.incident_kind_label("some_future_kind", t) == "some_future_kind"
+    assert rec.incident_action_label("AUTO_CUT", t) == "automatic CUT"
+    assert rec.incident_action_label("UNEXPECTED", t) == "UNEXPECTED"
+    assert rec.incident_action_label("", t) == "—"
+
+
 def test_recovery_tile_facts_mirror_the_same_values_and_conditions_as_recovery_facts(tmp_path):
     view = make_view(tmp_path)
     graduated = {"highest_level": "HIGH", "cut_recommended_for": "203.0.113.9", "auto_cut_latched": True, "decisions": [{}]}

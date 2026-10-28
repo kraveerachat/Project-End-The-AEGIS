@@ -460,6 +460,32 @@ def incident_card_title(item):
     return f"{when} · {item['level']} · {ip}"
 
 
+def incident_summary_tiles(graduated, reason, translate):
+    """The Incidents page's 3 top summary cards: (highest_level, latest_event, data_source), each as
+    (label, value, level_or_None). ``data_source`` is a 4th item on its own -- a plain bool, never folded
+    into a fake level -- so the caller decides its color explicitly (HEALTHY/WARNING) instead of this
+    unavailable state being routed through the LOW..CRITICAL level palette it has nothing to do with.
+
+    CRITICAL: when the source is unavailable, its value is always the TRUE raw reason code (e.g.
+    NOT_FOUND) -- never silently shown as "0 events" or any other value that would read as "nothing
+    happened" when the real state is "this page cannot see the Core's decisions at all"."""
+    t = translate
+    if graduated is None:
+        highest = (t("incidents.summary.highest"), t("incidents.summary.unknown"), None)
+        latest = (t("incidents.summary.latest"), t("incidents.summary.none"), None)
+        source = (t("incidents.summary.source"), reason or UNREADABLE, False)
+        return highest, latest, source
+    decisions = graduated["decisions"]
+    highest = (t("incidents.summary.highest"), graduated["highest_level"], graduated["highest_level"])
+    if decisions:
+        latest_item = decisions[-1]
+        latest = (t("incidents.summary.latest"), incident_kind_label(latest_item["kind"], t), latest_item["level"])
+    else:
+        latest = (t("incidents.summary.latest"), t("incidents.summary.none"), None)
+    source = (t("incidents.summary.source"), t("incidents.summary.available"), True)
+    return highest, latest, source
+
+
 def _elapsed_since(at, *, now=None) -> str:
     current = time.time() if now is None else now
     seconds = max(0.0, current - at)
@@ -613,6 +639,12 @@ RECORD_STRINGS = {
     "incidents.action.software_block": {"en": "software IP block", "th": "บล็อก IP ด้วยซอฟต์แวร์", "zh": "软件封锁 IP"},
     "incidents.action.recommend_cut": {"en": "recommend physical CUT", "th": "แนะนำให้ตัดสายกายภาพ", "zh": "建议执行物理 CUT"},
     "incidents.action.auto_cut": {"en": "automatic CUT", "th": "ตัดสายอัตโนมัติ", "zh": "自动 CUT"},
+    "incidents.summary.highest": {"en": "Highest level right now", "th": "ระดับภัยสูงสุดปัจจุบัน", "zh": "当前最高级别"},
+    "incidents.summary.latest": {"en": "Latest event", "th": "เหตุการณ์ล่าสุด", "zh": "最新事件"},
+    "incidents.summary.source": {"en": "Data source status", "th": "สถานะแหล่งข้อมูล", "zh": "数据来源状态"},
+    "incidents.summary.unknown": {"en": "UNKNOWN", "th": "ไม่ทราบ", "zh": "未知"},
+    "incidents.summary.none": {"en": "none yet", "th": "ยังไม่มี", "zh": "尚无"},
+    "incidents.summary.available": {"en": "AVAILABLE", "th": "พร้อมใช้งาน", "zh": "可用"},
     "audit.view.section": {"en": "CORE AUDIT — CUT AND RESTORE REQUESTS AND RESULTS (READ ONLY)",
                            "th": "การตรวจสอบของ Core — คำขอและผลของ CUT และ RESTORE (อ่านอย่างเดียว)",
                            "zh": "Core 审计 — CUT 与 RESTORE 请求及结果（只读）"},

@@ -31,6 +31,7 @@ from tools import live_purple_control_strings as strings
 from tools import live_purple_core_records as records
 from tools import live_purple_cut_desktop as cut_desktop
 from tools import live_purple_observer as live
+from tools import purple_design as design
 
 RESTORE_ENABLE_ENV = "AEGIS_DESKTOP_RESTORE_ENABLED"
 RESTORE_SOCKET_ENV = "AEGIS_LOCAL_RESTORE_SOCKET"
@@ -470,23 +471,47 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 return super()._build_incidents_page(parent)
             page = self._new_page(parent, "incidents.title", "incidents.subtitle")
             t = gui.i18n.t
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
 
-            # Static, never rebuilt: what this page is for, and what each response level means -- the page used
-            # to say neither, so an empty page showed only a cryptic NOT_AVAILABLE row with no explanation.
-            gui.make_hint(page, t("incidents.intro")).pack(anchor="w", padx=16, pady=(0, 16))
+            # Static, never rebuilt: what this page is for, at the new design system's body scale (bigger
+            # and clearer than the pinned theme.make_hint's caption-sized hint) -- the page used to say
+            # neither this nor what each response level means, so an empty page showed only a cryptic
+            # NOT_AVAILABLE row with no explanation.
+            design.intro_text(page, t("incidents.intro"), palette=palette, bg=page.cget("bg")).pack(
+                anchor="w", padx=16, pady=(0, 16))
+
+            # 1. Summary cards (reuses the pinned gui.MetricCard/_reflow_cards exactly as Overview/Recovery
+            # already do): current highest level, the latest event, and the TRUE data-source state. Built
+            # once; only .update()'d in place on each refresh (see _render_incidents), never rebuilt, so
+            # this alone can never cause flicker or disturb scroll.
+            tile_grid = tk.Frame(page, bg=page.cget("bg"))
+            tile_grid.pack(fill="x", padx=16, pady=(0, 16))
+            self._incidents_tiles = {
+                "highest": gui.MetricCard(tile_grid, t("incidents.summary.highest"), status=gui.pres.STATUS_UNKNOWN),
+                "latest": gui.MetricCard(tile_grid, t("incidents.summary.latest"), status=gui.pres.STATUS_UNKNOWN),
+                "source": gui.MetricCard(tile_grid, t("incidents.summary.source"), status=gui.pres.STATUS_UNKNOWN),
+            }
+            self._reflow_cards(tile_grid, list(self._incidents_tiles.values()), choices=(3, 2, 1))
+
+            # 2. The "ระดับการตอบสนอง" legend, kept, restyled to the new scale: the existing gui.Section
+            # chrome (border/divider/accent), its title Label's font bumped in place, 4 rows via this
+            # design system's info_row (same glyph/color logic as the pinned _add_fact, bigger fonts).
             legend = gui.Section(page, t("incidents.legend.title"))
             legend.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(legend)
             legend_grid = tk.Frame(legend.body, bg=legend.body.cget("bg"))
             legend_grid.pack(fill="x")
             legend_cards = []
             for level, text, status_level in records.incident_legend_rows(t):
                 card = tk.Frame(legend_grid, bg=legend.body.cget("bg"))
-                self._add_fact(card, level, text, status=_status(gui, status_level))
+                design.info_row(card, level, text, palette=palette, status=_status(gui, status_level))
                 legend_cards.append(card)
             self._reflow_columns(legend_grid, legend_cards)
 
             section = gui.Section(page, t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 20))
+            design.style_section_title(section)
             self._start_live_page("incidents", self._incidents_snapshot,
                                   lambda snapshot: self._render_incidents(snapshot, section.body),
                                   scroll_anchor=section.body)
@@ -498,45 +523,51 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             data = read_graduated(graduated_path)
             reason = "" if data is not None else records.file_reason(graduated_path)
             has_decisions = data is not None and len(data["decisions"]) > 0
+            tiles = records.incident_summary_tiles(data, reason, t)
             # When there is no source at all, incident_facts()'s only row is the cryptic raw
             # "NOT_AVAILABLE -- {reason} (... graduated-status.json ...)" line -- replaced below by the
             # friendly empty state, not shown alongside it. Once a source exists (even with zero decisions
-            # yet), its header facts (highest level, decisions recorded, ...) are plain and useful, so they
-            # stay.
+            # yet), its header facts (decisions recorded, CUT recommended, auto-CUT latched) are plain,
+            # useful and not covered by the 3 summary cards above, so they stay.
             facts = tuple(records.incident_facts(data, reason, t)) if data is not None else ()
             if not has_decisions:
                 title, empty_reason = records.incident_empty_state(data, reason, t)
                 empty = (title, t("incidents.empty.reason", reason=empty_reason) if empty_reason else None)
-                return facts, (), empty
+                return tiles, facts, (), empty
             decisions = tuple(
                 (records.incident_card_title(item), tuple(records.incident_decision_rows(item, t)))
                 for item in reversed(data["decisions"])
             )
-            return facts, decisions, None
+            return tiles, facts, decisions, None
 
         def _render_incidents(self, snapshot, body):
-            facts, decisions, empty = snapshot
+            tiles, facts, decisions, empty = snapshot
+            highest, latest, source = tiles
+            self._incidents_tiles["highest"].update(highest[1], _status(gui, highest[2]))
+            self._incidents_tiles["latest"].update(latest[1], _status(gui, latest[2]))
+            # source[2] is a plain bool (truly available or not) -- never routed through the LOW..CRITICAL
+            # level palette, which has nothing to do with "can this page reach the Core's decisions".
+            self._incidents_tiles["source"].update(
+                source[1], gui.pres.STATUS_HEALTHY if source[2] else gui.pres.STATUS_WARNING)
+
+            palette = gui.ui_theme.get_palette()
             self._clear(body)
             for label, value, level in facts:
-                self._add_fact(body, label, value, status=_status(gui, level))
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
             if empty is not None:
                 title, detail = empty
-                tk.Label(body, text=title, anchor="w", justify="left", wraplength=900,
-                         font=gui.ui_theme.FONT_BODY, bg=body.cget("bg"), fg=gui.ui_theme.COLOR_TEXT,
-                         ).pack(fill="x", pady=(10, 0))
-                if detail:
-                    tk.Label(body, text=detail, anchor="w", justify="left", font=gui.ui_theme.FONT_HINT,
-                             bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x", pady=(4, 0))
+                design.empty_state(body, title=title, detail=detail, palette=palette, bg=body.cget("bg"))
                 return
             grid = tk.Frame(body, bg=body.cget("bg"))
-            grid.pack(fill="x", pady=(8, 0))
+            grid.pack(fill="x", pady=(design.SPACE_SM, 0))
             cards = []
             accent = {"CRITICAL": gui.COLOR_DANGER_HL, "HIGH": gui.COLOR_WARN_HL, "MEDIUM": gui.COLOR_WARN_HL}
             for title, rows in decisions:
                 level = next((value for label, value, lvl in rows if lvl in LEVELS), None)
                 card = gui.Section(grid, title, accent=accent.get(level))
+                design.style_section_title(card, role="card_title")
                 for label, value, lvl in rows:
-                    self._add_fact(card.body, label, value, status=_status(gui, lvl))
+                    design.info_row(card.body, label, value, palette=palette, status=_status(gui, lvl))
                 cards.append(card)
             self._reflow_columns(grid, cards)
 
