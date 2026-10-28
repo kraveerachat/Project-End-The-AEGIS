@@ -1,0 +1,5 @@
+# Extra runtime requirement for the remote alert channel (the Beelink detection agent AND the Core's remote alert ingress).
+# Not added to requirements.txt on purpose: that file is pinned by the release/governance tests. The ingress is inert unless
+# AEGIS_REMOTE_ALERTS=YES and fails CLOSED (CRYPTO_UNAVAILABLE) if this package is missing.
+cryptography==50.0.2
+paho-mqtt==2.1.0

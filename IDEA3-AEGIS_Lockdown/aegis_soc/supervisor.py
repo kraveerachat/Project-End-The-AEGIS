@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import ipaddress
 import json
 import logging
@@ -187,6 +188,24 @@ STATE_DETAIL = {
 }
 
 
+#: The remote alert ingress is an OPTIONAL component that is deliberately NOT a static import of this module. The governed
+#: release builder derives the Core runtime closure and the pinned third-party set from static imports, and ``cryptography`` is
+#: not part of that reviewed set. Loading these modules by name keeps the governed closure unchanged: a release that does not
+#: ship them simply has no remote ingress (it reports REMOTE_ALERTS_COMPONENT_MISSING and goes on). Adding them to a governed
+#: release, with ``cryptography`` pinned, is an owner decision made through the normal release process.
+REMOTE_ALERT_MODULES = ("remote_alert", "remote_alert_subscriber", "remote_response")
+
+
+def _load_remote_alert_components():
+    """``(remote_alert, remote_alert_subscriber, remote_response)`` or ``None`` when this release does not ship them."""
+    import importlib
+
+    try:
+        return tuple(importlib.import_module(f"{__package__}.{name}") for name in REMOTE_ALERT_MODULES)
+    except ImportError:
+        return None
+
+
 GRADUATED_HISTORY = 10
 
 
@@ -253,6 +272,11 @@ class AegisSupervisor:
         self.graduated = gr.GraduatedResponse(clock=monotonic) if config.graduated_response_enabled() else None
         self._graduated_history: deque = deque(maxlen=GRADUATED_HISTORY)
         self._graduated_write_lock = threading.Lock()
+        # Remote alerts (a protected host reporting over mutual-TLS MQTT): None (inert) unless AEGIS_REMOTE_ALERTS=YES.
+        self.remote_response = None
+        self.remote_subscriber = None
+        self._remote_refusal_log = None  # a token bucket, created with the ingress: a forged-alert flood must not flood the audit table
+        self._remote_refusals_suppressed = 0
         self.started_at = monotonic()
         self._recovery_view_failed = False
         self._device_seen = False   # becomes True with the first authenticated device status
@@ -972,17 +996,23 @@ class AegisSupervisor:
         configured = config.GRADUATED_STATUS_PATH
         return Path(configured) if configured else self.settings.runtime_dir / "graduated-status.json"
 
-    def _graduated_record(self, decision: gr.Decision, outcome: str | None) -> None:
+    def _graduated_record(self, decision: gr.Decision, outcome: str | None, source: str | None = None) -> None:
         """Bounded, read-only projection for the Desktop: the last decisions and whether a CUT is recommended or latched.
 
-        Display data only (no secret, no command, nothing the Core reads back). Atomic replace, mode 0640; best effort."""
-        self._graduated_history.append({
+        Display data only (no secret, no command, nothing the Core reads back). Atomic replace, mode 0640; best effort.
+        ``source`` is set only for a remote host's decision: such an item carries a ``source`` key (a local item is unchanged)
+        and never drives ``cut_recommended_for``, because the Desktop's CUT acts on THIS Core's relay, not the remote host's."""
+        item = {
             "at": time.time(), "attacker_ip": decision.address, "kind": decision.kind, "level": decision.level,
             "action": decision.action, "outcome": outcome or "", "score": decision.score,
             "corroborated": decision.corroborated, "reasons": list(decision.reasons), "mitre": list(decision.mitre),
-        })
+        }
+        if source is not None:
+            item["source"] = source
+        self._graduated_history.append(item)
         history = list(self._graduated_history)
-        recommended = next((item for item in reversed(history) if item["action"] == gr.RECOMMEND_CUT), None)
+        recommended = next((item for item in reversed(history)
+                            if item["action"] == gr.RECOMMEND_CUT and "source" not in item), None)
         payload = {
             "v": 1,
             "updated_at": time.time(),
@@ -1018,6 +1048,98 @@ class AegisSupervisor:
             )
         except Exception:
             self.log_event("WARNING", "graduated_notify_failed")
+
+    # -- remote alerts (inert unless AEGIS_REMOTE_ALERTS=YES) ---------------------------------------------------------------
+    def _remote_audit(self, event_type: str, details: str, level: str) -> None:
+        mapped = {"INFO": db.INFO, "WARN": db.WARN, "ERROR": db.WARN, "CRITICAL": db.CRITICAL}.get(level, db.WARN)
+        try:
+            db.log_event(event_type, details, mapped)
+        except Exception as error:
+            self.log_event("ERROR", "remote_alert_audit_failed", error=type(error).__name__)
+
+    def _remote_notify(self, source: str, decision: gr.Decision, outcome: str | None) -> None:
+        """Telegram text for a remote decision, worded for what really happens: this Core never blocks the remote host's
+        attacker and never cuts automatically for a remote source, so neither action is presented as done."""
+        shown, shown_outcome = decision, outcome
+        if decision.action == gr.AUTO_CUT:
+            shown, shown_outcome = dataclasses.replace(decision, action=gr.RECOMMEND_CUT), "RECOMMENDED"
+        elif decision.action == gr.SOFTWARE_BLOCK:
+            shown, shown_outcome = dataclasses.replace(decision, action=gr.NONE), None
+        shown = dataclasses.replace(shown, reasons=shown.reasons + (f"source:{source}",))
+        self._graduated_notify(shown, shown_outcome)
+
+    def on_remote_alert(self, alert) -> None:
+        """A VERIFIED remote alert (the verifier already proved who sent it). Scored per source; never acts on the host."""
+        if self.remote_response is None:
+            return
+        self.remote_response.handle(alert)
+
+    def on_remote_refusal(self, source_hint: str, code: str) -> None:
+        """A remote alert that was not accepted. Audited with stable tokens only (never sender text) and rate limited."""
+        if self._remote_refusal_log is not None and not self._remote_refusal_log.take():
+            self._remote_refusals_suppressed += 1
+            return
+        suppressed, self._remote_refusals_suppressed = self._remote_refusals_suppressed, 0
+        self._remote_audit("ALERT_REFUSED", f"remote source={source_hint} code={code}" + (
+            f" suppressed_since_last={suppressed}" if suppressed else ""), "WARN")
+
+    def start_remote_alerts(self) -> None:
+        """Start the mutual-TLS MQTT remote alert ingress. Optional and fail closed: any problem is reported and the Core goes on."""
+        if self.remote_subscriber is not None or os.environ.get("AEGIS_REMOTE_ALERTS", "") != "YES":
+            return
+        components = _load_remote_alert_components()
+        if components is None:
+            self.log_event("ERROR", "remote_alerts_failed", error="REMOTE_ALERTS_COMPONENT_MISSING")
+            return
+        ra, ras, rr = components
+        if self.graduated is None or self.settings.profile not in ("lab", "production"):
+            self.log_event("ERROR", "remote_alerts_failed", error="GRADUATED_RESPONSE_REQUIRED")
+            return
+        try:
+            settings = ras.load_settings(os.environ, profile=self.settings.profile)
+        except ras.SettingsError as error:
+            self.log_event("ERROR", "remote_alerts_failed", error=error.code)
+            return
+        if settings is None:
+            return
+        try:
+            chunks = [Path(settings.client_ca_file).read_bytes()]
+            verifier = ra.RemoteAlertVerifier(
+                ca_pem_chunks=chunks, sources=settings.sources, clock=time.time, clock_trusted=lambda: self.protocol_time_trusted(),
+            )
+            if ra._crypto() is None:
+                raise ras.SettingsError("CRYPTO_UNAVAILABLE")
+            self._remote_refusal_log = ra.TokenBucket(30.0, 0.2)
+            targets = {}
+            for name, mode in settings.relays.items():
+                if mode == rr.RELAY_DRYRUN:
+                    targets[name] = rr.DryRunRelayTarget()
+                elif mode == rr.RELAY_LAB:
+                    targets[name] = rr.CoreRelayTarget(self.issue_command, name)
+            self.remote_response = rr.RemoteResponse(
+                sources=settings.sources, clock=self.monotonic, targets=targets, audit=self._remote_audit,
+                log=self.log_event, record=lambda source, decision, outcome: self._graduated_record(decision, outcome, source),
+                notify=self._remote_notify,
+            )
+            subscriber = ras.RemoteAlertSubscriber(
+                settings, verifier, on_alert=self.on_remote_alert, on_refusal=self.on_remote_refusal,
+            )
+            subscriber.start()
+        except ras.SettingsError as error:
+            self.remote_response = None
+            self.log_event("ERROR", "remote_alerts_failed", error=error.code)
+            return
+        except Exception as error:
+            self.remote_response = None
+            self.log_event("ERROR", "remote_alerts_failed", error=type(error).__name__)
+            return
+        self.remote_subscriber = subscriber
+        self.log_event("INFO", "remote_alerts_started", sources=",".join(sorted(settings.sources)))
+
+    def stop_remote_alerts(self) -> None:
+        subscriber, self.remote_subscriber = self.remote_subscriber, None
+        if subscriber is not None:
+            subscriber.stop()
 
     def start_alert_ingress(self) -> None:
         """Start the Core-local alert ingress (the production R1 source). Optional: it never blocks or fails the Core."""
@@ -1165,6 +1287,7 @@ class AegisSupervisor:
             self.start_local_cut()
             self.start_recovery()
             self.start_alert_ingress()
+            self.start_remote_alerts()
             self.start_historical_disposition()
             if self.dispatch_worker is not None:
                 self.dispatch_worker.start()
@@ -1200,6 +1323,7 @@ class AegisSupervisor:
         finally:
             self.stop_requested = True
             self.stop_historical_disposition()
+            self.stop_remote_alerts()
             self.stop_alert_ingress()
             self.stop_recovery()
             self.stop_local_cut()
