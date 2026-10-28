@@ -375,10 +375,17 @@ def recovery_tile_facts(evidence, view, graduated, freshness, translate) -> list
         (t("recovery.time"), evidence.get("trusted_time", "UNKNOWN"), "HIGH" if evidence.get("trusted_time") != "SYNCED" else "LOW"),
     ]
     if graduated is None:
-        tiles.append((t("recovery.graduated"), t("severity.unavailable"), None))
+        tiles.append((t("recovery.graduated"), "NOT_AVAILABLE", None))   # the state code only; its meaning is the tile helper
     else:
         tiles.append((t("recovery.graduated"), graduated["highest_level"], graduated["highest_level"]))
     return tiles
+
+
+def recovery_tile_helpers(graduated, translate) -> list[str]:
+    """One short supporting line per Recovery tile, in ``RECOVERY_TILE_LABEL_KEYS`` order ("" = none). READY is
+    Core-side eligibility only (see ``readiness_blockers``): it never says the cable or relay was verified."""
+    t = translate
+    return [t("recovery.ready_note"), "", "", "", "", t("recovery.graduated_unavailable_note") if graduated is None else ""]
 
 
 def incident_facts(graduated, reason, translate):
@@ -570,9 +577,17 @@ def audit_facts(rows, reason, translate):
 
 RECORD_STRINGS = {
     "recovery.ready": {"en": "Ready for a RESTORE", "th": "พร้อมสำหรับ RESTORE", "zh": "可执行 RESTORE"},
-    "recovery.ready_yes": {"en": "READY — every check below is met (the Core still decides)",
-                           "th": "READY — ผ่านทุกข้อด้านล่าง (Core เป็นผู้ตัดสินขั้นสุดท้าย)",
-                           "zh": "READY — 以下各项均已满足（最终由 Core 决定）"},
+    "recovery.ready_yes": {"en": "READY — every Core-side check below is met (the Core still decides; the physical cable is not verified)",
+                           "th": "READY — ผ่านทุกข้อฝั่ง Core ด้านล่าง (Core เป็นผู้ตัดสินขั้นสุดท้าย; ยังไม่ได้ตรวจสายกายภาพ)",
+                           "zh": "READY — 以下 Core 侧各项检查均已满足（最终由 Core 决定；物理线缆未经验证）"},
+    "recovery.ready_note": {
+        "en": "Core-side RESTORE eligibility only. It does not prove the cable or relay is reconnected — verify pin 2 physically.",
+        "th": "หมายถึงความพร้อมของ RESTORE ฝั่ง Core เท่านั้น ไม่ได้ยืนยันว่าสายหรือรีเลย์เชื่อมต่อแล้ว — ต้องตรวจพิน 2 ทางกายภาพแยกต่างหาก",
+        "zh": "仅表示 Core 侧具备 RESTORE 条件，并不证明线缆或继电器已重新连接 — 须另行物理核实第 2 针。"},
+    "recovery.graduated_unavailable_note": {
+        "en": "No graduated-response summary from Core",
+        "th": "ไม่มีข้อมูลสรุปการตอบสนองแบบไล่ระดับจาก Core",
+        "zh": "Core 未提供分级响应摘要"},
     "recovery.ready_no": {"en": "NOT READY", "th": "NOT READY — ยังไม่พร้อม", "zh": "NOT READY — 尚未就绪"},
     "recovery.ready_yes_short": {"en": "READY", "th": "READY", "zh": "READY"},
     "recovery.ready_no_short": {"en": "NOT READY", "th": "NOT READY", "zh": "NOT READY"},

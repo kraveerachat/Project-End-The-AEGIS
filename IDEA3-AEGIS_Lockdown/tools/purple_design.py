@@ -127,7 +127,16 @@ def style_section_title(section, *, role="section_title"):
     not on any attribute gui.Section does not already expose."""
     head = section.winfo_children()[0]
     title_label = head.winfo_children()[-1]
-    title_label.configure(font=font(role))
+    title_label.configure(font=font(role), justify="left", anchor="w")
+    title_label.pack_configure(fill="x", expand=True)
+
+    def rewrap(event, label=title_label, header=head):
+        # A long title (e.g. "ACTIVE SOFTWARE BLOCKS — CONTAINMENT HELPER (READ ONLY)") wraps inside its card
+        # instead of being cut off at the card edge; the accent dot, if any, keeps its own width.
+        used = sum(child.winfo_reqwidth() for child in header.winfo_children() if child is not label)
+        label.configure(wraplength=max(120, event.width - used - SPACE_MD))
+
+    head.bind("<Configure>", rewrap, add="+")
     return section
 
 

@@ -1202,3 +1202,27 @@ def test_incidents_page_with_a_verified_empty_source_says_none_found_without_cla
     assert "No events found in the available data source" in joined
     assert "does not prove that no attack occurred" in joined
     assert "not found" not in joined and "unavailable" not in joined.lower().replace("not_available", "")
+
+
+def test_recovery_status_tiles_separate_the_state_code_from_its_explanation_and_clarify_ready(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5, recovery=recovery)
+    app._show_page("recovery")
+    root.update()
+    texts = _texts(root)
+    assert "NOT_AVAILABLE" in texts                                   # the real state code, alone, in the big value
+    assert not any(t.startswith("NOT_AVAILABLE — No graduated") for t in texts)
+    assert "No graduated-response summary from Core" in texts          # its meaning, as a wrapping helper line
+    ready_note = next(t for t in texts if t.startswith("Core-side RESTORE eligibility only"))
+    assert "does not prove the cable or relay is reconnected" in ready_note and "pin 2" in ready_note
+
+
+def test_a_long_section_title_wraps_inside_its_card_instead_of_being_clipped(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5, recovery=recovery)
+    root.geometry("1440x900")
+    app._show_page("recovery")
+    root.update()
+    title = next(w for w in _widgets(root, "Label") if str(w.cget("text")).startswith("ACTIVE SOFTWARE BLOCKS"))
+    assert int(title.cget("wraplength")) > 0
+    assert title.winfo_reqwidth() <= title.master.winfo_width()

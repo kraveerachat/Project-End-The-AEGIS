@@ -722,7 +722,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             t = gui.i18n.t
             freshness = self._evidence_freshness()
 
-            tiles = tuple(records.recovery_tile_facts(evidence, view, graduated, freshness, t))
+            helpers = records.recovery_tile_helpers(graduated, t)
+            tiles = tuple((label, value, level, helper) for (label, value, level), helper
+                          in zip(records.recovery_tile_facts(evidence, view, graduated, freshness, t), helpers))
             cause_rows = tuple(records.lockdown_cause_facts(evidence, graduated, t))
             # The detail list repeats recovery_facts() exactly, minus the rows shown elsewhere already: the
             # tiles above (records.RECOVERY_TILE_ONLY_LABEL_KEYS) and the "Last RESTORE attempts" summary row,
@@ -748,9 +750,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines = snapshot
             palette = gui.ui_theme.get_palette()
 
-            for tile, (_label, value, level) in zip(self._recovery_tiles, tiles):
+            for tile, (_label, value, level, helper) in zip(self._recovery_tiles, tiles):
                 if tile.winfo_exists():
-                    tile.update(value, _status(gui, level))
+                    tile.update(value, _status(gui, level), helper)
 
             self._clear(cause_body)
             for label, value, level in cause_rows:

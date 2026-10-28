@@ -316,7 +316,7 @@ def test_recovery_tile_facts_not_ready_and_no_graduated_projection():
     bad = {"uplink": "NORMAL", "device": "OFFLINE", "broker": "DISCONNECTED", "trusted_time": "UNTRUSTED"}
     tiles = dict((label, (value, level)) for label, value, level in rec.recovery_tile_facts(bad, None, None, "FRESH", t))
     assert tiles["Ready for a RESTORE"] == ("NOT READY", "HIGH")
-    assert tiles["Graduated response"] == ("NOT_AVAILABLE — no Core projection", None)
+    assert tiles["Graduated response"] == ("NOT_AVAILABLE", None)   # the code alone; the meaning is the tile helper
 
 
 def test_recovery_tile_only_label_keys_excludes_ready_and_matches_real_labels():
@@ -428,3 +428,12 @@ def test_incident_empty_state_separates_unavailable_sources_from_a_verified_empt
     assert title.startswith(title_start) and got_detail == detail
     if graduated is None:   # an unreadable source must never read as an all-clear
         assert "No events" not in title and "watching" not in title
+
+
+def test_recovery_tile_helpers_explain_ready_as_core_side_only_and_name_the_missing_summary():
+    helpers = rec.recovery_tile_helpers(None, t)
+    assert len(helpers) == len(rec.RECOVERY_TILE_LABEL_KEYS)
+    assert "Core-side" in helpers[0] and "pin 2" in helpers[0] and "does not prove" in helpers[0]
+    assert helpers[-1] == "No graduated-response summary from Core"
+    graduated = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    assert rec.recovery_tile_helpers(graduated, t)[-1] == ""
