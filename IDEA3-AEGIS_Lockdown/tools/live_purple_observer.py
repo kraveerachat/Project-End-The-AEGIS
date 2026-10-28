@@ -16,6 +16,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 from tools import graceful_exit
+from tools import purple_design as design
 from tools.preview_purple_desktop import PYTHONUI_ROOT as ACCEPTED_PURPLE_SOURCE
 from tools.preview_purple_desktop import _install_import_isolation, _preview_gui_class
 
@@ -379,6 +380,11 @@ def _live_gui_class(gui):
             super()._build_overview_page(parent)
             scroll = next(child for child in parent.winfo_children() if hasattr(child, "inner"))
             self._observer_page = scroll.inner
+            # The pinned "Operational Summary"/"Recent Activity" sections have no override point to build
+            # with design.style_section_title() directly; restyle their already-built title Labels in
+            # place instead (border/divider/body/every fact row inside them untouched).
+            design.ensure_fonts(self.root)
+            design.restyle_section_titles(self._observer_page, gui=gui)
             # A fresh page (first show, or a reshow after navigating away and back) has no evidence section
             # of its own yet, regardless of what the last rendered snapshot was for the previous instance of
             # this page -- so that stale value must not make the render below skip building this one's.
@@ -421,6 +427,8 @@ def _live_gui_class(gui):
                 self._observer_evidence_section.destroy()
             section = gui.Section(self._observer_page, "LIVE CORE EVIDENCE — READ ONLY")
             section.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(section)
+            palette = gui.ui_theme.get_palette()
             # Same rows, same order, same values/colors as before -- just in two columns
             # (the pinned _reflow_columns fact-grid, the same responsive mechanism the
             # Recovery page's cause/attempts cards use) instead of one tall stack, so this
@@ -432,7 +440,7 @@ def _live_gui_class(gui):
             for rows in (snapshot[:half], snapshot[half:]):
                 column = tk.Frame(grid, bg=grid.cget("bg"))
                 for label, value, status in rows:
-                    self._add_fact(column, label, value, status=status)
+                    design.info_row(column, label, value, palette=palette, status=status)
                 columns.append(column)
             self._reflow_columns(grid, columns)
             self._observer_evidence_section = section
@@ -440,18 +448,24 @@ def _live_gui_class(gui):
 
         def _build_devices_page(self, parent):
             page = self._new_page(parent, "devices.title", "devices.subtitle")
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
             section = gui.Section(page, "CORE DEVICE EVIDENCE")
             section.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(section)
             values = evidence_values(self.latest)
             for label, key in (("Broker connection", "broker"), ("ESP32 reported presence", "device"), ("Uplink reported state", "uplink")):
-                self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
-            self._add_fact(section.body, "RSSI", "NOT_AVAILABLE", status=gui.pres.STATUS_WARNING)
-            self._add_fact(section.body, "Heap", "NOT_AVAILABLE", status=gui.pres.STATUS_WARNING)
+                design.info_row(section.body, label, values[key], palette=palette, status=_status(gui, values[key]))
+            design.info_row(section.body, "RSSI", "NOT_AVAILABLE", palette=palette, status=gui.pres.STATUS_WARNING)
+            design.info_row(section.body, "Heap", "NOT_AVAILABLE", palette=palette, status=gui.pres.STATUS_WARNING)
 
         def _build_lockdown_page(self, parent):
             page = self._new_page(parent, "lockdown.title", "lockdown.subtitle", badge=True)
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
             section = gui.Section(page, "CORE LOCKDOWN EVIDENCE")
             section.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(section)
             values = evidence_values(self.latest)
             rows = [
                 (label, values[key], _status(gui, values[key]))
@@ -474,11 +488,12 @@ def _live_gui_class(gui):
             for chunk in (rows[:half], rows[half:]):
                 column = tk.Frame(grid, bg=grid.cget("bg"))
                 for label, value, status in chunk:
-                    self._add_fact(column, label, value, status=status)
+                    design.info_row(column, label, value, palette=palette, status=status)
                 columns.append(column)
             self._reflow_columns(grid, columns)
             controls = gui.Section(page, "READ-ONLY CONTROL AVAILABILITY", accent=gui.COLOR_WARN_HL)
             controls.pack(fill="x", padx=16, pady=(0, 20))
+            design.style_section_title(controls)
             tk.Button(
                 controls.body,
                 text="CUT NETWORK — DISABLED",
@@ -490,11 +505,11 @@ def _live_gui_class(gui):
                 bd=0,
                 height=2,
             ).pack(fill="x", pady=(0, 6))
-            self._add_fact(
+            design.info_row(
                 controls.body,
                 "CUT reason",
                 "DISABLED — no authorized Core-owned manual CUT request interface",
-                status=gui.pres.STATUS_WARNING,
+                palette=palette, status=gui.pres.STATUS_WARNING,
             )
             tk.Button(
                 controls.body,
@@ -507,11 +522,11 @@ def _live_gui_class(gui):
                 bd=0,
                 height=2,
             ).pack(fill="x", pady=(8, 6))
-            self._add_fact(
+            design.info_row(
                 controls.body,
                 "RESTORE reason",
                 "DISABLED — owner-only D4 terminal Recovery; no live authorization",
-                status=gui.pres.STATUS_WARNING,
+                palette=palette, status=gui.pres.STATUS_WARNING,
             )
 
         def _build_unavailable_observer_page(self, parent, title_key, subtitle_key):

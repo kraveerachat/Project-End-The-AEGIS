@@ -104,6 +104,22 @@ def intro_text(parent, text, *, palette, bg=None, wraplength=1100):
                     wraplength=wraplength)
 
 
+def restyle_section_titles(container, *, gui):
+    """Walk an already-built page's widget tree and bump every gui.Section's own title Label to this
+    design system's section_title font, in place -- for the two pages (Diagnostics, Settings) built
+    entirely inside the pinned gui.py with no override point to build their sections with
+    style_section_title() directly in the first place. Only each Section's title font changes; its
+    border/divider/body/accent dot and every fact row inside it (built by the pinned theme._add_fact,
+    which keeps no reference to what it builds) stay exactly as the pinned code drew them."""
+    def walk(widget):
+        if isinstance(widget, gui.Section):
+            style_section_title(widget)
+        for child in widget.winfo_children():
+            walk(child)
+
+    walk(container)
+
+
 def style_section_title(section, *, role="section_title"):
     """Restyle an existing, already-built gui.Section's own title Label to this design system's font --
     the Section itself (border, divider, body, accent dot) is untouched; only the title Label's font grows.

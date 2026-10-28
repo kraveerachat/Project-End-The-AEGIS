@@ -746,8 +746,10 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = getattr(self, "_lockdown_page", None)
             if page is None or not page.winfo_exists():
                 return
+            design.ensure_fonts(self.root)
             section = gui.Section(page, gui.i18n.t("severity.title"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 20))
+            design.style_section_title(section)
             self._severity_body = section.body
             self._severity_snapshot_value = self._severity_snapshot()
             self._render_severity(self._severity_snapshot_value)
@@ -790,12 +792,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _render_severity(self, snapshot):
             facts, lines = snapshot
             body = self._severity_body
+            palette = gui.ui_theme.get_palette()
             for child in body.winfo_children():
                 child.destroy()
             for label, value, level in facts:
-                self._add_fact(body, label, value, status=_status(gui, level))
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
             for line in lines:
-                tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+                tk.Label(body, text=line, anchor="w", justify="left", font=design.font("note"),
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
     return LivePurpleControlDesktopGUI
