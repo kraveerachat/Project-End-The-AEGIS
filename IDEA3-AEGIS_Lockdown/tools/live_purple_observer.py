@@ -127,6 +127,52 @@ OBSERVER_STRINGS = {
         "th": "ยังไม่พิสูจน์ — หลักฐานซอฟต์แวร์ไม่ยืนยันรีเลย์หรือเส้นทางเครือข่ายจริง",
         "zh": "尚未证明 — 软件证据不能验证继电器或实际网络路径。",
     },
+    "devices.summary.note": {
+        "en": "These values are what the Core reports. Reported is not the same as physically verified.",
+        "th": "ค่าเหล่านี้คือสิ่งที่ Core รายงาน — สิ่งที่รายงานไม่เท่ากับการตรวจสอบทางกายภาพ",
+        "zh": "这些数值是 Core 上报的内容。上报并不等同于经过物理验证。",
+    },
+    "devices.metrics.note": {
+        "en": "NOT_AVAILABLE means the device did not report this value to this Desktop. It does not mean the device is faulty.",
+        "th": "NOT_AVAILABLE หมายถึงอุปกรณ์ไม่ได้รายงานค่านี้มายัง Desktop — ไม่ได้หมายความว่าอุปกรณ์ขัดข้อง",
+        "zh": "NOT_AVAILABLE 表示设备未向本 Desktop 上报该数值，并不表示设备故障。",
+    },
+    "devices.physical.ack_note": {
+        "en": "A software ACK from the ESP32 shows it acknowledged a command. It is not proof of physical cable continuity.",
+        "th": "ACK ทางซอฟต์แวร์จาก ESP32 แสดงว่าอุปกรณ์ตอบรับคำสั่งแล้วเท่านั้น — ไม่ใช่หลักฐานว่าสายเคเบิลเชื่อมต่อทางกายภาพ",
+        "zh": "ESP32 的软件 ACK 只表示设备已确认收到命令，并不证明线缆在物理上保持连通。",
+    },
+    "overview.metric.deadman_note": {
+        "en": "Not provided by the Core status document", "th": "Core ไม่ได้ให้ข้อมูลนี้ในเอกสารสถานะ",
+        "zh": "Core 状态文档未提供此项",
+    },
+    "overview.metric.incidents_note": {
+        "en": "No open-incident count here — see the Incidents page", "th": "ไม่มีจำนวนเหตุการณ์ที่เปิดอยู่ที่นี่ — ดูที่หน้าเหตุการณ์",
+        "zh": "此处无未结事件数量 — 请查看“事件”页面",
+    },
+    "overview.metric.today_note": {
+        "en": "No daily event count is provided to this Desktop", "th": "Desktop ไม่ได้รับจำนวนเหตุการณ์รายวัน",
+        "zh": "本 Desktop 未获得每日事件数量",
+    },
+    "overview.banner_unavailable_title": {
+        "en": "Incident Status Unavailable", "th": "ไม่ทราบสถานะเหตุการณ์", "zh": "事件状态不可用",
+    },
+    "overview.banner_unavailable_message": {
+        "en": "No readable incident data source — the current incident status cannot be determined. This does not mean there are no incidents.",
+        "th": "ไม่มีแหล่งข้อมูลเหตุการณ์ที่อ่านได้ — ยังสรุปสถานะเหตุการณ์ปัจจุบันไม่ได้ ไม่ได้หมายความว่าไม่มีเหตุการณ์",
+        "zh": "没有可读取的事件数据源 — 暂时无法判断当前事件状态。这并不表示没有事件。",
+    },
+    "overview.banner_none_found_title": {
+        "en": "No Events Found", "th": "ไม่พบเหตุการณ์ในแหล่งข้อมูล", "zh": "未发现事件",
+    },
+    "overview.banner_decisions_title": {
+        "en": "Core Decisions Recorded", "th": "มีการตัดสินใจของ Core ที่บันทึกไว้", "zh": "Core 已记录决策",
+    },
+    "overview.banner_decisions_message": {
+        "en": "Highest level: {level}. Open the Incidents page for details.",
+        "th": "ระดับสูงสุด: {level} — ดูรายละเอียดที่หน้าเหตุการณ์",
+        "zh": "最高级别：{level}。详情请查看“事件”页面。",
+    },
     "devices.field.broker": {"en": "MQTT broker", "th": "โบรกเกอร์ MQTT", "zh": "MQTT 代理"},
     "devices.field.device": {"en": "ESP32 presence", "th": "การเชื่อมต่อ ESP32", "zh": "ESP32 在线状态"},
     "devices.field.freshness": {"en": "Evidence freshness", "th": "ความสดของหลักฐาน", "zh": "证据新鲜度"},
@@ -552,10 +598,44 @@ def _live_gui_class(gui):
                 "incidents": "NOT_AVAILABLE",
                 "today": "NOT_AVAILABLE",
             }
+            t = gui.i18n.t
+            # These three are never supplied to this Desktop, so each says what is missing; the shared
+            # "evidence is fresh and consistent" reason describes the Core document, not these metrics.
+            own_notes = {"deadman": t("overview.metric.deadman_note"), "incidents": t("overview.metric.incidents_note"),
+                         "today": t("overview.metric.today_note")}
             for key, value in metrics.items():
                 card = self.metric_cards.get(key)
                 if card is not None and card.winfo_exists():
-                    card.update(value, _status(gui, value), self.latest.reason if value in {reader.UNKNOWN, "NOT_AVAILABLE"} else "Core-reported evidence")
+                    helper = own_notes.get(key) or (self.latest.reason if value in {reader.UNKNOWN, "NOT_AVAILABLE"} else "Core-reported evidence")
+                    card.update(value, _status(gui, value), helper)
+
+        def _incident_banner_state(self):
+            """``(state, highest_level)`` for the Overview banner. The pinned banner reads the open-incident table,
+            which this Desktop isolates (always None), so "No Active Incidents" would be shown whatever the truth is.
+            Without a readable incident source the honest state is "unavailable"; the control Desktop overrides this
+            with the Core's graduated projection."""
+            return "unavailable", None
+
+        def _refresh_incident_banner_widget(self):
+            if not hasattr(self, "incident_banner_slot") or not self.incident_banner_slot.winfo_exists():
+                return
+            t = gui.i18n.t
+            state, level = self._incident_banner_state()
+            snapshot = (state, level, gui.i18n.get_language())
+            if snapshot == getattr(self.incident_banner_slot, "_aegis_banner_snapshot", None) and self.incident_banner_slot.winfo_children():
+                return   # unchanged: no destroy/rebuild per refresh tick
+            self.incident_banner_slot._aegis_banner_snapshot = snapshot
+            for child in self.incident_banner_slot.winfo_children():
+                child.destroy()
+            if state == "decisions":
+                title, message = t("overview.banner_decisions_title"), t("overview.banner_decisions_message", level=level)
+            elif state == "none_found":
+                title, message = t("overview.banner_none_found_title"), f"{t('incidents.empty.title')} {t('incidents.empty.valid_note')}"
+            else:
+                title, message = t("overview.banner_unavailable_title"), t("overview.banner_unavailable_message")
+            section = gui.Section(self.incident_banner_slot, title)
+            section.pack(fill="x")
+            gui.EmptyState(section.body, "", message, compact=True).pack(anchor="w")
 
         def _build_overview_page(self, parent):
             super()._build_overview_page(parent)
@@ -641,6 +721,8 @@ def _live_gui_class(gui):
             for label_key, key in (("devices.field.broker", "broker"), ("devices.field.device", "device"),
                                    ("devices.field.reported_uplink", "uplink")):
                 design.info_row(summary.body, t(label_key), values[key], palette=palette, status=_status(gui, values[key]))
+            design.section_note(summary.body, t("devices.summary.note"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_SM, 0))
 
             columns = tk.Frame(page, bg=page.cget("bg"))
             columns.pack(fill="x", padx=16, pady=(0, 20))
@@ -653,6 +735,8 @@ def _live_gui_class(gui):
                             status=gui.pres.STATUS_WARNING)
             design.info_row(evidence.body, t("devices.field.heap"), "NOT_AVAILABLE", palette=palette,
                             status=gui.pres.STATUS_WARNING)
+            design.section_note(evidence.body, t("devices.metrics.note"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_SM, 0))
 
             physical = gui.Section(columns, t("devices.physical_limit.section"), accent=gui.COLOR_WARN_HL)
             design.style_section_title(physical)
@@ -661,6 +745,8 @@ def _live_gui_class(gui):
             design.info_row(physical.body, t("devices.field.physical_relay"), "NOT_VERIFIED", palette=palette,
                             status=gui.pres.STATUS_WARNING)
             design.section_note(physical.body, t("devices.physical.not_proven"), palette=palette).pack(
+                fill="x", pady=(design.SPACE_SM, 0))
+            design.section_note(physical.body, t("devices.physical.ack_note"), palette=palette).pack(
                 fill="x", pady=(design.SPACE_SM, 0))
             self._reflow_columns(columns, (evidence, physical))
 

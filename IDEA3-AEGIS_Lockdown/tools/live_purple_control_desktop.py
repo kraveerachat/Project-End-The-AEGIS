@@ -586,9 +586,18 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             value, level = records.audit_facts(rows, reason, gui.i18n.t)[0][1:]
             return value, _status(gui, level)
 
+        def _incident_banner_state(self):
+            data = read_graduated(graduated_path)
+            if data is None:
+                return "unavailable", None
+            return ("decisions", data["highest_level"]) if data["decisions"] else ("none_found", None)
+
         def _build_audit_page(self, parent):
             page = self._new_page(parent, "audit.title", "audit.subtitle")
             design.ensure_fonts(self.root)
+            # Static, built once (not per refresh): the command/ACK tokens below are evidence, not physical proof.
+            design.section_note(page, gui.i18n.t("audit.view.evidence_note"), palette=gui.ui_theme.get_palette(),
+                                bg=page.cget("bg")).pack(fill="x", padx=16, pady=(0, 8))
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
             design.style_section_title(section)

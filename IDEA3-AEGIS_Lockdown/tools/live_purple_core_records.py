@@ -712,6 +712,10 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (ตั้งค่า AEGIS_DESKTOP_AUDIT_DB เป็นฐานข้อมูลตรวจสอบของ Core ที่ผู้ใช้ Desktop อ่านได้)",
         "zh": "NOT_AVAILABLE — {reason}（请将 AEGIS_DESKTOP_AUDIT_DB 设置为 Desktop 用户可读的 Core 审计数据库）"},
     "audit.view.none": {"en": "No CUT or RESTORE records.", "th": "ไม่มีบันทึก CUT หรือ RESTORE", "zh": "没有 CUT 或 RESTORE 记录。"},
+    "audit.view.evidence_note": {
+        "en": "COMMAND_SENT and ACK_RECEIVED are command and acknowledgement evidence recorded by the Core. They are not physical verification of the cable, relay or network path.",
+        "th": "COMMAND_SENT และ ACK_RECEIVED คือหลักฐานการส่งคำสั่งและการตอบรับที่ Core บันทึกไว้ — ไม่ใช่การยืนยันสายเคเบิล รีเลย์ หรือเส้นทางเครือข่ายทางกายภาพ",
+        "zh": "COMMAND_SENT 与 ACK_RECEIVED 是 Core 记录的命令与确认证据，并不代表已对线缆、继电器或网络路径做物理验证。"},
     "audit.table.time": {"en": "TIME", "th": "เวลา", "zh": "时间"},
     "audit.table.event": {"en": "EVENT", "th": "เหตุการณ์", "zh": "事件"},
     "audit.table.details": {"en": "DETAILS", "th": "รายละเอียด", "zh": "详情"},

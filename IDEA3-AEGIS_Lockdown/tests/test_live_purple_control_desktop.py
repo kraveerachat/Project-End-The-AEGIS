@@ -1226,3 +1226,57 @@ def test_a_long_section_title_wraps_inside_its_card_instead_of_being_clipped(app
     title = next(w for w in _widgets(root, "Label") if str(w.cget("text")).startswith("ACTIVE SOFTWARE BLOCKS"))
     assert int(title.cget("wraplength")) > 0
     assert title.winfo_reqwidth() <= title.master.winfo_width()
+
+
+_EMPTY_SOURCE = {"v": 1, "updated_at": 1.0, "auto_cut_latched": False, "highest_level": "LOW", "cut_recommended_for": None, "decisions": []}
+
+
+def _overview_texts(app_factory, graduated):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), graduated, status_age=5)
+    app._show_page("overview")
+    root.update()
+    return "\n".join(_texts(root)), root
+
+
+def test_overview_banner_never_says_no_incidents_without_a_readable_incident_source(app_factory):
+    joined, _root = _overview_texts(app_factory, None)
+    assert "Incident Status Unavailable" in joined and "cannot be determined" in joined
+    assert "No Active Incidents" not in joined and "No open security incident" not in joined
+
+
+def test_overview_banner_for_a_verified_empty_source_says_none_found_without_claiming_safety(app_factory):
+    joined, _root = _overview_texts(app_factory, _EMPTY_SOURCE)
+    assert "No Events Found" in joined and "does not prove that no attack occurred" in joined
+    assert "No Active Incidents" not in joined
+
+
+def test_overview_banner_reports_recorded_decisions(app_factory):
+    joined, _root = _overview_texts(app_factory, DECISIONS)
+    assert "Core Decisions Recorded" in joined and "Highest level: HIGH" in joined
+
+
+def test_overview_not_available_cards_each_say_what_is_missing_instead_of_repeating_one_reason(app_factory):
+    joined, _root = _overview_texts(app_factory, None)
+    for note in ("Not provided by the Core status document", "No open-incident count here",
+                 "No daily event count is provided to this Desktop"):
+        assert note in joined
+    assert joined.count("fresh and internally consistent") == 0
+
+
+def test_devices_page_explains_missing_device_metrics_and_that_a_software_ack_is_not_physical_proof(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("devices")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "did not report this value to this Desktop" in joined and "does not mean the device is faulty" in joined
+    assert "Reported is not the same as physically verified" in joined
+    assert "software ACK" in joined and "not proof of physical cable continuity" in joined
+
+
+def test_audit_page_notes_that_command_and_ack_tokens_are_not_physical_verification_and_keeps_its_tokens(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("audit")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "COMMAND_SENT and ACK_RECEIVED are command and acknowledgement evidence" in joined
+    assert "not physical verification" in joined
