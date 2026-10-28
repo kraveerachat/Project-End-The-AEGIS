@@ -246,9 +246,11 @@ def _feed_status(gui, kind):
         return _status(gui, kind[len("GRADUATED_"):])
     if kind == "CUT_PRE_DISPATCH":
         return gui.pres.STATUS_CRITICAL
-    if kind.startswith("RESTORE"):
-        return gui.pres.STATUS_HEALTHY
-    return gui.pres.STATUS_NEUTRAL  # COMMAND_SENT, ACK_RECEIVED, ALERT_ACCEPTED, ALERT_REFUSED
+    if kind in ("RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT", "ALERT_REFUSED"):
+        return gui.pres.STATUS_WARNING   # a refusal or lockout is an unsuccessful outcome: never green
+    # RESTORE_REQUESTED is only a request, and the audit feed has no "restore completed" kind, so nothing here is
+    # green: a request must never read as a finished recovery (that needs the device's own evidence elsewhere).
+    return gui.pres.STATUS_NEUTRAL  # RESTORE_REQUESTED, COMMAND_SENT, ACK_RECEIVED, ALERT_ACCEPTED
 
 
 def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path, *, incident_source=None,

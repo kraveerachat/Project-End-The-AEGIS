@@ -45,6 +45,7 @@ _TYPE_SCALE = {
     "body": (-14, "normal"),
     "label": (-13, "normal"),
     "note": (-12, "normal"),
+    "metric_compact": (-20, "bold"),   # a long state code (NOT_AVAILABLE) on a narrow metric card at 1366 px
 }
 
 _initialized_roots: set[str] = set()

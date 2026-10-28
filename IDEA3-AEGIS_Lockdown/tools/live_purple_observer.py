@@ -512,13 +512,58 @@ def _live_gui_class(gui):
         def _on_authenticated(self):
             self._refresh_live_evidence()
             super()._on_authenticated()
+            self._refresh_header_evidence()   # the pinned shell just built its chips from local state, not from the evidence
             self.root.title(LIVE_TITLE)
             self._schedule_evidence_poll()
+
+        def _rebuild_ui(self):
+            result = super()._rebuild_ui()   # a language/theme change rebuilds the shell and resets the chips again
+            if self.session.authenticated:
+                self._refresh_header_evidence()
+            return result
 
         def _show_page(self, key):
             if key != "settings":
                 self._settings_feedback_key = None
-            return super()._show_page(key)
+            result = super()._show_page(key)
+            self._apply_environment_badge()
+            return result
+
+        def _environment_badge_state(self):
+            """``(text, status, show_dry_run_note)`` for the page-header environment badge, from the Core's own
+            reported ``profile`` and ``dry_run``. The pinned badge reads this Desktop process's local AEGIS_DRY_RUN
+            flag and otherwise says LIVE (green), which would claim live/production operation whatever the Core
+            reports. Live *data* is not production *readiness*: the profile code is shown as reported, never green."""
+            values = evidence_values(self.latest)
+            profile = values["profile"]
+            if profile == reader.UNKNOWN:
+                return reader.UNKNOWN, gui.pres.STATUS_UNKNOWN, False
+            if values["dry_run"] == "TRUE":
+                return f"{profile.upper()} · {gui.i18n.t('status.dry_run')}", gui.pres.STATUS_WARNING, True
+            return profile.upper(), gui.pres.STATUS_NEUTRAL, False
+
+        def _apply_environment_badge(self):
+            """Correct the built PageHeader badge(s) in place; only touches a badge whose text differs, so a refresh
+            tick never rebuilds or flickers anything."""
+            workspace = getattr(self, "workspace", None)
+            if workspace is None or not workspace.winfo_exists():
+                return
+            text, status, show_note = self._environment_badge_state()
+            note_text = gui.i18n.t("overview.dry_run_note")
+
+            def walk(widget):
+                for child in widget.winfo_children():
+                    yield child
+                    yield from walk(child)
+
+            for header in [w for w in walk(workspace) if isinstance(w, gui.ui_theme.PageHeader)]:
+                for part in list(walk(header)):   # materialised first: a note may be destroyed while we go
+                    if not part.winfo_exists():
+                        continue
+                    if isinstance(part, gui.ui_theme.StatusBadge) and part._label.cget("text") != text:
+                        part.update_status(text, status)
+                    elif part.winfo_class() == "Label" and part.cget("text") == note_text and not show_note:
+                        part.destroy()   # the pinned note is tied to the local flag, not to what the Core reports
 
         def _set_language(self, code):
             # The pinned callback still owns persistence and the full UI rebuild. This flag merely lets the
@@ -587,6 +632,7 @@ def _live_gui_class(gui):
         def _refresh_overview_metrics(self):
             if not self.session.authenticated:
                 return
+            design.ensure_fonts(self.root)
             values = evidence_values(self.latest)
             metrics = {
                 "health": values["runtime"],
@@ -608,6 +654,12 @@ def _live_gui_class(gui):
                 if card is not None and card.winfo_exists():
                     helper = own_notes.get(key) or (self.latest.reason if value in {reader.UNKNOWN, "NOT_AVAILABLE"} else "Core-reported evidence")
                     card.update(value, _status(gui, value), helper)
+                    # A long state code at the full metric size is cut off on a 4-across card at 1366 px
+                    # ("NOT_AVAILABL"): use the compact size for it, only when the font actually differs.
+                    wanted = design.font("metric_compact") if len(value) > 10 else gui.ui_theme.FONT_METRIC_VALUE
+                    if str(card._value_label.cget("font")) != str(wanted):
+                        card._value_label.config(font=wanted)
+            self._apply_environment_badge()
 
         def _incident_banner_state(self):
             """``(state, highest_level)`` for the Overview banner. The pinned banner reads the open-incident table,

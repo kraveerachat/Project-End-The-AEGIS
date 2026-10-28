@@ -1289,3 +1289,105 @@ def test_settings_preference_labels_are_left_aligned_like_every_other_row(app_fa
     labels = {w.cget("text"): w for w in _widgets(root, "Label")}
     for text in ("Interface language", "Appearance"):
         assert str(labels[text].cget("anchor")) == "w"
+
+
+# ---- audit outcome colours and the environment badge (display-only truthfulness) ----
+
+def _status_names():
+    return SimpleNamespace(pres=SimpleNamespace(STATUS_HEALTHY="healthy", STATUS_WARNING="warning", STATUS_CRITICAL="critical",
+                                                 STATUS_NEUTRAL="neutral", STATUS_UNKNOWN="unknown"))
+
+
+@pytest.mark.parametrize("kind, expected", [
+    ("RESTORE_REFUSED", "warning"), ("RESTORE_AUTH_LOCKOUT", "warning"), ("ALERT_REFUSED", "warning"),
+    ("RESTORE_REQUESTED", "neutral"), ("COMMAND_SENT", "neutral"), ("ACK_RECEIVED", "neutral"),
+    ("ALERT_ACCEPTED", "neutral"), ("CUT_PRE_DISPATCH", "critical"),
+])
+def test_a_refused_or_locked_out_audit_outcome_is_never_shown_green(kind, expected):
+    assert desktop._feed_status(_status_names(), kind) == expected
+
+
+def _badge_texts(root):
+    from aegis_soc import theme as ui_theme
+    found = []
+
+    def walk(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ui_theme.PageHeader):
+                found.extend(w._label.cget("text") for w in _descendants(child) if isinstance(w, ui_theme.StatusBadge))
+            walk(child)
+    walk(root)
+    return found
+
+
+def _descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _descendants(child)
+
+
+@pytest.mark.parametrize("page", ["overview", "lockdown"])
+def test_the_page_badge_reports_the_cores_profile_not_a_green_live_claim(app_factory, page):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)   # the Core reports profile=lab, dry_run=false
+    app._show_page(page)
+    root.update()
+    assert _badge_texts(root) == ["LAB"]
+    assert "LIVE" not in _texts(root) and "ใช้งานจริง" not in _texts(root)
+
+
+def test_the_page_badge_is_unknown_without_readable_core_evidence(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts())
+    app._show_page("overview")
+    root.update()
+    assert _badge_texts(root) == ["UNKNOWN"]
+
+
+def test_the_page_badge_adds_dry_run_only_when_the_core_reports_it(app_factory):
+    import dataclasses
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app.latest = dataclasses.replace(app.latest, dry_run="TRUE")
+    app._show_page("overview")
+    root.update()
+    assert _badge_texts(root) == ["LAB · DRY RUN"]
+
+
+def test_a_long_state_code_on_an_overview_card_fits_its_card_at_1366_wide(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    root.geometry("1366x768")
+    app._show_page("overview")
+    root.update()
+    app._refresh_overview_metrics()
+    root.update()
+    cards = [w for w in _widgets(root, "Label") if w.cget("text") == "NOT_AVAILABLE"]
+    assert len(cards) == 3
+    for label in cards:
+        assert label.winfo_width() >= label.winfo_reqwidth(), "the state code is cut off by its card"
+
+
+def test_no_restore_audit_kind_is_ever_shown_as_a_green_success():
+    from tools import live_purple_core_records as records
+    gui = _status_names()
+    restore_kinds = [kind for kind in records.FEED_KINDS if kind.startswith("RESTORE")]
+    assert set(restore_kinds) == {"RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT"}   # no "completed" kind exists
+    assert {kind: desktop._feed_status(gui, kind) for kind in restore_kinds} == {
+        "RESTORE_REQUESTED": "neutral", "RESTORE_REFUSED": "warning", "RESTORE_AUTH_LOCKOUT": "warning"}
+    assert all(desktop._feed_status(gui, kind) != "healthy" for kind in records.FEED_KINDS if not kind.startswith("GRADUATED_"))
+
+
+def _header_chips(app):
+    return [badge._label.cget("text") for badge in (app.badge_mode, app.badge_broker, app.badge_esp32)]
+
+
+def test_the_header_chips_say_unknown_not_disarmed_before_any_trustworthy_evidence(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts())   # no readable Core status
+    assert app.latest.valid is False
+    assert _header_chips(app) == ["UNKNOWN", "MQTT: UNKNOWN", "ESP32: UNKNOWN"]   # no poll has run yet
+    app._rebuild_ui()   # what a language/theme change does
+    root.update()
+    assert _header_chips(app) == ["UNKNOWN", "MQTT: UNKNOWN", "ESP32: UNKNOWN"]
+
+
+def test_the_header_chips_follow_the_cores_evidence_immediately_when_it_is_valid(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    assert app.latest.valid is True
+    assert _header_chips(app) == ["ARMED", "MQTT: CONNECTED", "ESP32: ONLINE"]
