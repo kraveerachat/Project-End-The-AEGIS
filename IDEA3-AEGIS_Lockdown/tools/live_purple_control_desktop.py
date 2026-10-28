@@ -283,10 +283,12 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 self._translate_controls()
             elif key == "recovery":
                 self._enable_navigation_button()   # the preview base disables every Button after a page is built
-            elif key in ("diagnostics", "settings"):
-                # Built entirely inside the pinned gui.py with no override point to build their sections
+            elif key == "settings":
+                # Built entirely inside the pinned gui.py with no override point to build its sections
                 # with style_section_title() directly; restyle the already-built title Labels in place
-                # instead (border/divider/body/every fact row inside them untouched).
+                # instead (border/divider/body/every fact row inside them untouched). Diagnostics no
+                # longer needs this: it has its own override (_build_diagnostics_page) that applies the
+                # design system directly while building.
                 design.ensure_fonts(self.root)
                 design.restyle_section_titles(self.workspace, gui=gui)
 

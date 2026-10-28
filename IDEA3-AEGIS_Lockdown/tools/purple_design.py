@@ -180,6 +180,26 @@ def severity_badge(parent, text, *, palette, status):
     return row
 
 
+def explained_row(parent, label, value, meaning, *, palette, status=None):
+    """An info_row (label/value, colored exactly as the caller's own verified status logic says) plus a
+    short muted one-line plain-language meaning directly underneath it -- for a health-dashboard style
+    page where a raw code (e.g. "HOLDOVER") means nothing to an operator without technical background.
+    The meaning text is supplied entirely by the caller; this component never invents or judges it --
+    callers are responsible for verifying each meaning against the real field semantics first."""
+    row = info_row(parent, label, value, palette=palette, status=status)
+    note = tk.Label(parent, text=meaning, anchor="w", justify="left", font=font("note"), fg=palette.muted,
+                    bg=palette.panel, wraplength=900)
+    note.pack(fill="x", pady=(0, SPACE_SM))
+    # Wraplength is fixed at creation and the enclosing card is often much narrower than 900px once laid
+    # out (e.g. one of several columns), so without this the line runs past the card's own edge instead
+    # of wrapping -- the same <Configure> responsive-rewrap technique the pinned theme._add_fact already
+    # uses for its value column (bound on `row`, the one full-width sibling info_row just built, which
+    # tracks the card's content width exactly as the note label's own eventual width will).
+    row.bind("<Configure>", lambda e, w=note: w.winfo_exists() and w.config(wraplength=max(200, e.width - 4)),
+             add="+")
+    return row
+
+
 def empty_state(parent, *, title, detail=None, palette, bg=None, icon="○"):
     """A designed, centered empty-state block that uses the available vertical space with generous,
     balanced padding (rather than one small muted line hugging the top), for a page's "nothing to show yet"

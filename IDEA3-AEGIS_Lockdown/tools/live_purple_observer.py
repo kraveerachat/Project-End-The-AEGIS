@@ -71,6 +71,70 @@ OBSERVER_STRINGS = {
     "diagnostics.containment_blocks": {
         "en": "Active software blocks", "th": "การบล็อกทางซอฟต์แวร์ที่ใช้งานอยู่", "zh": "当前生效的软件封锁数",
     },
+    # Diagnostics redesign (health-dashboard groups, field labels and verified-accurate one-line meanings).
+    # Every meaning below is checked against aegis_soc/observer.py's actual state sets and the pinned
+    # gui.py's own documented status logic before being written -- see the task's requirement to verify,
+    # never guess. State codes (RUNNING, SYNCED, FRESH, TRUE/FALSE, HEALTHY, ...) are never translated.
+    "diagnostics.health.title": {"en": "OVERALL HEALTH", "th": "สรุปสุขภาพโดยรวม", "zh": "整体健康状态"},
+    "diagnostics.health.normal": {"en": "NORMAL", "th": "ปกติ", "zh": "正常"},
+    "diagnostics.health.normal_detail": {
+        "en": "Every checked item below is in its expected state.",
+        "th": "ทุกรายการที่ตรวจสอบด้านล่างอยู่ในสถานะปกติ", "zh": "下方每一项检查均处于预期状态。"},
+    "diagnostics.health.attention": {"en": "NEEDS ATTENTION", "th": "ต้องดู", "zh": "需要关注"},
+    "diagnostics.group.core": {"en": "CORE", "th": "ระบบหลัก (Core)", "zh": "核心系统"},
+    "diagnostics.group.time_evidence": {"en": "TIME & EVIDENCE", "th": "เวลา & หลักฐาน", "zh": "时间与证据"},
+    "diagnostics.group.containment": {"en": "CONTAINMENT", "th": "การกักกัน (Containment)", "zh": "遏制"},
+    "diagnostics.group.audit": {"en": "AUDIT HISTORY", "th": "ประวัติการตรวจสอบ", "zh": "审计历史"},
+    "diagnostics.field.runtime": {"en": "Runtime state", "th": "สถานะการทำงาน", "zh": "运行状态"},
+    "diagnostics.field.runtime_meaning": {
+        "en": "The Core's current state -- normal is RUNNING; anything else means starting up, degraded, or locked down.",
+        "th": "สถานะปัจจุบันของ Core — ปกติคือ RUNNING ค่าอื่นหมายถึงกำลังเริ่มระบบ ทำงานบกพร่อง หรืออยู่ในโหมดล็อกดาวน์",
+        "zh": "Core 当前的状态——正常为 RUNNING，其他值表示正在启动、运行异常或处于锁定状态。"},
+    "diagnostics.field.profile": {"en": "Profile", "th": "โปรไฟล์", "zh": "配置"},
+    "diagnostics.field.profile_meaning": {
+        "en": "Which environment the Core is running as (lab/production/development) -- informational, not a health check.",
+        "th": "สภาพแวดล้อมที่ Core กำลังรันอยู่ (lab/production/development) เป็นข้อมูลบอกบริบท ไม่ใช่ค่าสุขภาพ",
+        "zh": "Core 所运行的环境（lab/production/development）——仅供参考，不是健康检查项。"},
+    "diagnostics.field.dry_run": {"en": "Dry-run", "th": "โหมดทดสอบ (Dry-run)", "zh": "演练模式"},
+    "diagnostics.field.dry_run_meaning": {
+        "en": "TRUE: commands are only simulated, nothing is really cut. The expected value in live use is FALSE.",
+        "th": "TRUE = คำสั่งจะถูกจำลองเท่านั้น ไม่มีการตัดสายจริง — ค่าที่ควรเป็นเมื่อใช้งานจริงคือ FALSE",
+        "zh": "TRUE 表示命令仅为模拟，不会真正执行切断；实际使用时应为 FALSE。"},
+    "diagnostics.field.auto_contain": {"en": "AUTO_CONTAIN mode", "th": "บล็อก IP อัตโนมัติ (AUTO_CONTAIN)", "zh": "自动遏制（AUTO_CONTAIN）"},
+    "diagnostics.field.auto_contain_meaning": {
+        "en": "TRUE: the Core auto-blocks a high-severity attacker's IP by software. Recommended to stay on (TRUE).",
+        "th": "TRUE = ระบบจะบล็อก IP ของผู้โจมตีด้วยซอฟต์แวร์โดยอัตโนมัติเมื่อภัยคุกคามสูง — แนะนำให้เปิดไว้ (TRUE)",
+        "zh": "TRUE 表示当威胁等级较高时，Core 会通过软件自动封锁攻击者 IP；建议保持开启（TRUE）。"},
+    "diagnostics.field.trusted_time": {"en": "Trusted time", "th": "เวลาที่เชื่อถือได้", "zh": "可信时间"},
+    "diagnostics.field.trusted_time_meaning": {
+        "en": "The Core clock's sync state -- normal is SYNCED; HOLDOVER/UNTRUSTED means it cannot currently be trusted.",
+        "th": "สถานะการซิงก์นาฬิกาของ Core — ปกติคือ SYNCED ส่วน HOLDOVER/UNTRUSTED หมายถึงเวลาปัจจุบันเชื่อถือไม่ได้เต็มที่",
+        "zh": "Core 时钟的同步状态——正常为 SYNCED；HOLDOVER/UNTRUSTED 表示当前时间不完全可信。"},
+    "diagnostics.field.freshness": {"en": "Evidence freshness", "th": "ความสดของหลักฐาน", "zh": "证据新鲜度"},
+    "diagnostics.field.freshness_meaning": {
+        "en": "How current this read evidence is -- normal is FRESH; anything else means the Core's status could not be read cleanly just now.",
+        "th": "ความใหม่ของข้อมูลที่อ่านได้ตอนนี้ — ปกติคือ FRESH ค่าอื่นหมายถึงอ่านสถานะของ Core ไม่ได้อย่างสมบูรณ์ในขณะนี้",
+        "zh": "本次读取证据的新鲜程度——正常为 FRESH，其他值表示当前无法完整读取 Core 的状态。"},
+    "diagnostics.field.timestamp": {"en": "Evidence timestamp", "th": "เวลาบันทึกล่าสุด", "zh": "证据时间戳"},
+    "diagnostics.field.timestamp_meaning": {
+        "en": "When the Core last wrote this status document, shown in local Desktop time.",
+        "th": "เวลาที่ Core เขียนสถานะชุดนี้ล่าสุด แสดงตามเวลาท้องถิ่นของเครื่อง Desktop",
+        "zh": "Core 最近一次写入此状态文档的时间，按 Desktop 本地时间显示。"},
+    "diagnostics.field.containment": {"en": "Containment helper", "th": "ตัวช่วยกักกัน", "zh": "遏制助手"},
+    "diagnostics.field.containment_meaning": {
+        "en": "The automatic IP-blocking helper's own status -- HEALTHY means it answered normally; NOT_CONFIGURED means this host has no socket set up; UNAVAILABLE means it failed to answer.",
+        "th": "สถานะของบริการบล็อก IP อัตโนมัติเอง — HEALTHY คือตอบกลับปกติ, NOT_CONFIGURED คือเครื่องนี้ยังไม่ได้ตั้งค่า, UNAVAILABLE คือเรียกใช้งานไม่สำเร็จ",
+        "zh": "自动封锁 IP 助手自身的状态——HEALTHY 表示应答正常，NOT_CONFIGURED 表示本机尚未配置，UNAVAILABLE 表示调用失败。"},
+    "diagnostics.field.containment_blocks": {"en": "Active software blocks", "th": "จำนวน IP ที่บล็อกอยู่", "zh": "当前封锁的 IP 数"},
+    "diagnostics.field.containment_blocks_meaning": {
+        "en": "How many IPs the containment helper is currently blocking by software right now.",
+        "th": "จำนวน IP ที่ตัวช่วยกักกันกำลังบล็อกด้วยซอฟต์แวร์อยู่ ณ ขณะนี้",
+        "zh": "遏制助手当前通过软件正在封锁的 IP 数量。"},
+    "diagnostics.field.audit": {"en": "Audit/database history", "th": "ประวัติการตรวจสอบ", "zh": "审计/数据库历史"},
+    "diagnostics.field.audit_meaning": {
+        "en": "The most recent records readable from the Core's own audit database (reasons and secrets are never shown).",
+        "th": "จำนวนรายการล่าสุดที่อ่านได้จากฐานข้อมูลตรวจสอบ (audit) ของ Core เอง (ไม่แสดงเหตุผลหรือรหัสลับ)",
+        "zh": "从 Core 自身审计数据库中可读取到的最新记录（从不显示原因或密钥）。"},
 }
 
 
@@ -558,21 +622,105 @@ def _live_gui_class(gui):
             Recovery/Audit pages already do, instead of a second, inconsistent hardcoded placeholder."""
             return "NOT_AVAILABLE — observer mode", gui.pres.STATUS_WARNING
 
+        def _diagnostics_health(self, values, audit_value):
+            """(is_normal, issues) for the health-summary card -- every rule verified against the real
+            field semantics (aegis_soc/observer.py's state sets; the pinned gui.py's own documented
+            DRY_RUN/AUTO_CONTAIN status logic; containment_status()'s own docstring) before being written,
+            never guessed. When the evidence itself could not be read (freshness != FRESH), runtime/
+            dry_run/auto_contain/trusted_time are all UNKNOWN placeholders too (see evidence_values), so
+            only the one freshness issue is listed instead of repeating UNKNOWN five times."""
+            t = gui.i18n.t
+            issues = []
+            if values["freshness"] != "FRESH":
+                issues.append(f"{t('diagnostics.field.freshness')}: {values['freshness']}")
+            else:
+                if values["runtime"] != "RUNNING":
+                    issues.append(f"{t('diagnostics.field.runtime')}: {values['runtime']}")
+                if values["dry_run"] == "TRUE":
+                    issues.append(t("diagnostics.field.dry_run"))
+                if values["auto_contain"] == "FALSE":
+                    issues.append(t("diagnostics.field.auto_contain"))
+                if values["trusted_time"] != "SYNCED":
+                    issues.append(f"{t('diagnostics.field.trusted_time')}: {values['trusted_time']}")
+            status_text, _blocked = containment_status()
+            if status_text != CONTAINMENT_HEALTHY:
+                issues.append(f"{t('diagnostics.field.containment')}: {status_text}")
+            if audit_value.startswith("NOT_AVAILABLE"):   # a genuinely unreadable source, not merely "0 records"
+                issues.append(t("diagnostics.field.audit"))
+            return not issues, issues
+
         def _build_diagnostics_page(self, parent):
             page = self._new_page(parent, "diagnostics.title", "diagnostics.subtitle")
-            section = gui.Section(page, "LIVE CORE EVIDENCE")
-            section.pack(fill="x", padx=16, pady=(0, 16))
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
+            t = gui.i18n.t
             values = evidence_values(self.latest)
-            for label, key in (("Runtime state", "runtime"), ("Profile", "profile"), ("Dry-run", "dry_run"), ("AUTO_CONTAIN reported mode", "auto_contain"), ("Trusted time", "trusted_time"), ("Evidence freshness", "freshness"), ("Evidence timestamp", "timestamp")):
-                self._add_fact(section.body, label, values[key], status=_status(gui, values[key]))
             audit_value, audit_status = self._diagnostics_audit_row()
-            self._add_fact(section.body, "Database / audit history", audit_value, status=audit_status)
             status_text, blocked = containment_status()
-            healthy = status_text == CONTAINMENT_HEALTHY
-            self._add_fact(section.body, gui.i18n.t("diagnostics.containment"), status_text,
-                           status=gui.pres.STATUS_HEALTHY if healthy else gui.pres.STATUS_WARNING)
-            self._add_fact(section.body, gui.i18n.t("diagnostics.containment_blocks"), str(len(blocked)),
-                           status=gui.pres.STATUS_NEUTRAL if healthy else gui.pres.STATUS_UNKNOWN)
+            healthy_containment = status_text == CONTAINMENT_HEALTHY
+            is_normal, issues = self._diagnostics_health(values, audit_value)
+
+            # 1. Overall health summary -- derived truthfully from the real states checked below; never
+            # says normal when something is not (and always names what, by reusing the exact same labels
+            # as the field rows further down).
+            summary = gui.Section(page, t("diagnostics.health.title"), accent=None if is_normal else gui.COLOR_WARN_HL)
+            summary.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(summary)
+            design.severity_badge(
+                summary.body, t("diagnostics.health.normal") if is_normal else t("diagnostics.health.attention"),
+                palette=palette, status=gui.pres.STATUS_HEALTHY if is_normal else gui.pres.STATUS_WARNING,
+            ).pack(anchor="w")
+            if is_normal:
+                tk.Label(summary.body, text=t("diagnostics.health.normal_detail"), anchor="w", justify="left",
+                        font=design.font("note"), fg=palette.muted, bg=summary.body.cget("bg"),
+                        ).pack(anchor="w", pady=(design.SPACE_SM, 0))
+            else:
+                for issue in issues:
+                    tk.Label(summary.body, text="• " + issue, anchor="w", justify="left", wraplength=1100,
+                            font=design.font("body"), fg=palette.text, bg=summary.body.cget("bg"),
+                            ).pack(anchor="w", pady=(2, 0))
+
+            # 2. The same fields, grouped into plain-Thai health cards with a verified one-line meaning
+            # per field -- same values, same colors as the summary above was computed from; nothing
+            # hidden, nothing reworded in the data itself.
+            grid = tk.Frame(page, bg=page.cget("bg"))
+            grid.pack(fill="x", padx=16, pady=(0, 20))
+
+            core = gui.Section(grid, t("diagnostics.group.core"))
+            design.style_section_title(core)
+            design.explained_row(core.body, t("diagnostics.field.runtime"), values["runtime"],
+                                 t("diagnostics.field.runtime_meaning"), palette=palette, status=_status(gui, values["runtime"]))
+            design.explained_row(core.body, t("diagnostics.field.profile"), values["profile"],
+                                 t("diagnostics.field.profile_meaning"), palette=palette, status=_status(gui, values["profile"]))
+            design.explained_row(core.body, t("diagnostics.field.dry_run"), values["dry_run"],
+                                 t("diagnostics.field.dry_run_meaning"), palette=palette, status=_status(gui, values["dry_run"]))
+            design.explained_row(core.body, t("diagnostics.field.auto_contain"), values["auto_contain"],
+                                 t("diagnostics.field.auto_contain_meaning"), palette=palette, status=_status(gui, values["auto_contain"]))
+
+            time_card = gui.Section(grid, t("diagnostics.group.time_evidence"))
+            design.style_section_title(time_card)
+            design.explained_row(time_card.body, t("diagnostics.field.trusted_time"), values["trusted_time"],
+                                 t("diagnostics.field.trusted_time_meaning"), palette=palette, status=_status(gui, values["trusted_time"]))
+            design.explained_row(time_card.body, t("diagnostics.field.freshness"), values["freshness"],
+                                 t("diagnostics.field.freshness_meaning"), palette=palette, status=_status(gui, values["freshness"]))
+            design.explained_row(time_card.body, t("diagnostics.field.timestamp"), values["timestamp"],
+                                 t("diagnostics.field.timestamp_meaning"), palette=palette, status=_status(gui, values["timestamp"]))
+
+            containment_card = gui.Section(grid, t("diagnostics.group.containment"))
+            design.style_section_title(containment_card)
+            design.explained_row(containment_card.body, t("diagnostics.field.containment"), status_text,
+                                 t("diagnostics.field.containment_meaning"), palette=palette,
+                                 status=gui.pres.STATUS_HEALTHY if healthy_containment else gui.pres.STATUS_WARNING)
+            design.explained_row(containment_card.body, t("diagnostics.field.containment_blocks"), str(len(blocked)),
+                                 t("diagnostics.field.containment_blocks_meaning"), palette=palette,
+                                 status=gui.pres.STATUS_NEUTRAL if healthy_containment else gui.pres.STATUS_UNKNOWN)
+
+            audit_card = gui.Section(grid, t("diagnostics.group.audit"))
+            design.style_section_title(audit_card)
+            design.explained_row(audit_card.body, t("diagnostics.field.audit"), audit_value,
+                                 t("diagnostics.field.audit_meaning"), palette=palette, status=audit_status)
+
+            self._reflow_columns(grid, (core, time_card, containment_card, audit_card))
 
         def _sync_arm_controls(self):
             return None
