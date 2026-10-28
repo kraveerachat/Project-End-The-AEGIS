@@ -867,7 +867,7 @@ def _live_gui_class(gui):
             language_row = tk.Frame(preferences.body, bg=preferences.body.cget("bg"))
             language_row.pack(fill="x", pady=(0, design.SPACE_MD))
             tk.Label(language_row, text=t("settings.language.label"), font=design.font("body"),
-                     fg=palette.text, bg=language_row.cget("bg")).pack(side="left", fill="x", expand=True)
+                     fg=palette.text, bg=language_row.cget("bg"), anchor="w", justify="left").pack(side="left", fill="x", expand=True)
             language_control = tk.Frame(language_row, bg=language_row.cget("bg"))
             language_control.pack(side="right")
             self._build_language_selector(language_control)
@@ -875,7 +875,7 @@ def _live_gui_class(gui):
             theme_row = tk.Frame(preferences.body, bg=preferences.body.cget("bg"))
             theme_row.pack(fill="x")
             tk.Label(theme_row, text=t("settings.theme.label"), font=design.font("body"),
-                     fg=palette.text, bg=theme_row.cget("bg")).pack(side="left", fill="x", expand=True)
+                     fg=palette.text, bg=theme_row.cget("bg"), anchor="w", justify="left").pack(side="left", fill="x", expand=True)
             theme_control = tk.Frame(theme_row, bg=theme_row.cget("bg"))
             theme_control.pack(side="right")
             self._build_theme_selector(theme_control)

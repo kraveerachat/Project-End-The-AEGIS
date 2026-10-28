@@ -1280,3 +1280,12 @@ def test_audit_page_notes_that_command_and_ack_tokens_are_not_physical_verificat
     joined = "\n".join(_texts(root))
     assert "COMMAND_SENT and ACK_RECEIVED are command and acknowledgement evidence" in joined
     assert "not physical verification" in joined
+
+
+def test_settings_preference_labels_are_left_aligned_like_every_other_row(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("settings")
+    root.update()
+    labels = {w.cget("text"): w for w in _widgets(root, "Label")}
+    for text in ("Interface language", "Appearance"):
+        assert str(labels[text].cget("anchor")) == "w"
