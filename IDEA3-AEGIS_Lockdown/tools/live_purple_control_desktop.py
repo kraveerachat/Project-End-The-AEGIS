@@ -463,7 +463,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
         def _lines(self, body, lines):
             for line in lines:
-                tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+                tk.Label(body, text=line, anchor="w", justify="left", font=design.font("note"),
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
         def _build_incidents_page(self, parent):
@@ -624,6 +624,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _build_recovery_page(self, parent):
             t = gui.i18n.t
             page = self._new_page(parent, "recovery.page_title", "recovery.page_subtitle")
+            design.ensure_fonts(self.root)
 
             # 1. A top row of quick-glance status tiles (reuses the accepted MetricCard/_reflow_cards from the
             # Overview page -- same widget, same responsive 3/2/1-column behaviour, no new styling). Built once;
@@ -644,17 +645,24 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             left = tk.Frame(columns, bg=gui.COLOR_BG)
             cause = gui.Section(left, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
             cause.pack(fill="x", pady=(0, 16))
+            design.style_section_title(cause)
             blocked = gui.Section(left, t("recovery.blocked_section"))
             blocked.pack(fill="x")
+            design.style_section_title(blocked)
             attempts = gui.Section(columns, t("recovery.attempts_section"))
+            design.style_section_title(attempts)
             self._reflow_columns(columns, (left, attempts))
 
             # 3. Full width: the 8-step runbook (step 6 / pin-2 keeps its existing red emphasis), the pin-2
             # safety hint, and the one navigation button.
             runbook = gui.Section(page, t("recovery.runbook_section"))
             runbook.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(runbook)
             self._build_runbook(runbook.body)
-            gui.make_hint(page, t("recovery.hint")).pack(anchor="w", padx=16, pady=(0, 8))
+            palette = gui.ui_theme.get_palette()
+            tk.Label(page, text=t("recovery.hint"), anchor="w", justify="left", wraplength=1100,
+                     font=design.font("note"), bg=page.cget("bg"), fg=palette.muted,
+                     ).pack(anchor="w", padx=16, pady=(0, 8))
             # Navigation only: the RESTORE control exists on the Lockdown page and nowhere else.
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
@@ -671,8 +679,8 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for key in records.RUNBOOK_STEPS:
                 prominent = key == "recovery.runbook.6"   # "verify pin 2 physically": the system cannot prove this itself
                 tk.Label(
-                    body, text=t(key), anchor="w", justify="left", wraplength=640,
-                    font=gui.ui_theme.FONT_BTN if prominent else gui.ui_theme.FONT_BODY,
+                    body, text=t(key), anchor="w", justify="left", wraplength=1000,
+                    font=design.font("card_title") if prominent else design.font("body"),
                     bg=body.cget("bg"), fg=gui.ui_theme.COLOR_DANGER if prominent else gui.ui_theme.COLOR_MUTED,
                 ).pack(fill="x", pady=(4, 4) if prominent else (0, 0))
 
@@ -713,6 +721,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
         def _render_recovery(self, snapshot, cause_body, blocked_body, attempts_body):
             tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines = snapshot
+            palette = gui.ui_theme.get_palette()
 
             for tile, (_label, value, level) in zip(self._recovery_tiles, tiles):
                 if tile.winfo_exists():
@@ -720,15 +729,15 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
             self._clear(cause_body)
             for label, value, level in cause_rows:
-                self._add_fact(cause_body, label, value, status=_status(gui, level))
+                design.info_row(cause_body, label, value, palette=palette, status=_status(gui, level))
             for label, value, level in detail_rows:
-                self._add_fact(cause_body, label, value, status=_status(gui, level))
+                design.info_row(cause_body, label, value, palette=palette, status=_status(gui, level))
 
             self._clear(blocked_body)
             for label, value, level in blocked_rows:
-                self._add_fact(blocked_body, label, value, status=_status(gui, level))
+                design.info_row(blocked_body, label, value, palette=palette, status=_status(gui, level))
             if blocked_extra is not None:
-                self._add_fact(blocked_body, blocked_extra[0], blocked_extra[1], status=gui.pres.STATUS_WARNING)
+                design.info_row(blocked_body, blocked_extra[0], blocked_extra[1], palette=palette, status=gui.pres.STATUS_WARNING)
             elif blocked_lines:
                 self._lines(blocked_body, list(blocked_lines))
 
