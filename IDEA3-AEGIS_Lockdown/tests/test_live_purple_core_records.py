@@ -276,7 +276,7 @@ def test_graduated_row_and_header_facts():
 def test_incident_summary_tiles_never_hide_an_unavailable_source_behind_a_fake_zero():
     highest, latest, source = rec.incident_summary_tiles(None, "NOT_FOUND", t)
     assert source[1] == "NOT_FOUND" and source[2] is False   # the TRUE reason, never "0 events"
-    assert highest[1] == "UNKNOWN" and latest[1] == "none yet"
+    assert highest[1] == "UNKNOWN" and latest[1] == "UNKNOWN"   # an unreadable source is never "none yet"
 
     empty = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
     highest, latest, source = rec.incident_summary_tiles(empty, "", t)
@@ -411,3 +411,20 @@ def test_registration_never_replaces_an_existing_key():
 def test_blocked_ip_facts_is_unknown_not_none_when_the_list_operation_did_not_succeed():
     assert rec.blocked_ip_facts([], t, known=False) == [("Active software blocks", "UNKNOWN", None)]
     assert rec.blocked_ip_facts([], t, known=True) == [("Active software blocks", "none", "LOW")]
+
+
+_EMPTY_VALID = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+
+
+@pytest.mark.parametrize("graduated, reason, title_start, detail", [
+    (_EMPTY_VALID, "", "No events found in the available data source", None),
+    (None, "NOT_FOUND", "Incident data source not found", "NOT_FOUND"),
+    (None, "NOT_CONFIGURED", "Incident data source unavailable", "NOT_CONFIGURED"),
+    (None, "PERMISSION_DENIED", "Incident data source unavailable", "PERMISSION_DENIED"),
+    (None, "STALE", "Incident data is stale", "STALE"),
+])
+def test_incident_empty_state_separates_unavailable_sources_from_a_verified_empty_list(graduated, reason, title_start, detail):
+    title, got_detail = rec.incident_empty_state(graduated, reason, t)
+    assert title.startswith(title_start) and got_detail == detail
+    if graduated is None:   # an unreadable source must never read as an all-clear
+        assert "No events" not in title and "watching" not in title

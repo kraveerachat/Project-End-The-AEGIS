@@ -540,7 +540,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             facts = tuple(records.incident_facts(data, reason, t)) if data is not None else ()
             if not has_decisions:
                 title, empty_reason = records.incident_empty_state(data, reason, t)
-                empty = (title, t("incidents.empty.reason", reason=empty_reason) if empty_reason else None)
+                empty = (title, t("incidents.empty.reason", reason=empty_reason) if empty_reason else t("incidents.empty.valid_note"))
                 return tiles, facts, (), empty
             decisions = tuple(
                 (records.incident_card_title(item), tuple(records.incident_decision_rows(item, t)))

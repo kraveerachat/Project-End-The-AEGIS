@@ -908,7 +908,8 @@ def test_incidents_page_without_a_source_shows_a_plain_empty_state_not_the_raw_r
     app._show_page("incidents")
     root.update()
     joined = "\n".join(_texts(root))
-    assert "No events yet" in joined and "the system is watching" in joined
+    assert "Incident data source not found" in joined and "cannot be determined" in joined
+    assert "No events found" not in joined and "the system is watching" not in joined
     assert "Data source status: NOT_FOUND" in joined
     assert "NOT_AVAILABLE" not in joined and "graduated-status.json" not in joined
 
@@ -1190,3 +1191,14 @@ def test_the_recovery_blocked_ip_count_is_never_a_fake_none(app_factory, tmp_pat
     app._show_page("recovery")
     root.update()
     assert _value_after(root, "Active software blocks") == expected
+
+
+def test_incidents_page_with_a_verified_empty_source_says_none_found_without_claiming_safety(app_factory):
+    empty = {"v": 1, "highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), empty, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "No events found in the available data source" in joined
+    assert "does not prove that no attack occurred" in joined
+    assert "not found" not in joined and "unavailable" not in joined.lower().replace("not_available", "")

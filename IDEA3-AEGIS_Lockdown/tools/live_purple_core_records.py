@@ -435,15 +435,24 @@ def incident_legend_rows(translate):
 
 
 def incident_empty_state(graduated, reason, translate):
-    """A human sentence for "nothing to show" -- whether because graduated-status.json does not exist yet (the
-    Core only writes it once graduated response is on and a decision is made) or because it exists but no
-    decision has been recorded. Same friendly headline either way; the technical reason code (never the raw
-    file path) is kept as a secondary, muted line only when there IS a reason (a missing/unreadable file),
-    so the underlying state is still available, just not as the primary, confusing sentence."""
+    """The Incidents page's "nothing to list" headline plus its muted detail, by what is actually known:
+
+    * a valid projection with zero decisions -> a verified empty list, worded as "none found in this source" and
+      explicitly NOT as proof that no attack happened (the source only lists decisions the Core recorded);
+    * NOT_FOUND / STALE -> their own sentences;
+    * any other unreadable source -> "source unavailable".
+    An unreadable source never says "no events / the system is watching": that would read as an all-clear when
+    the page simply cannot see the Core's decisions. The technical reason code (never the file path) stays as the
+    secondary line, returned as ``(title, reason_code)``; a valid-empty list returns ``(title, None)``."""
     t = translate
-    if graduated is None:
-        return t("incidents.empty.title"), reason or UNREADABLE
-    return t("incidents.empty.title"), None
+    if graduated is not None:
+        return t("incidents.empty.title"), None
+    code = reason or UNREADABLE
+    if code == NOT_FOUND:
+        return t("incidents.empty.not_found"), code
+    if code == STALE:
+        return t("incidents.empty.stale"), code
+    return t("incidents.empty.unavailable"), code
 
 
 def incident_decision_rows(item, translate):
@@ -485,7 +494,7 @@ def incident_summary_tiles(graduated, reason, translate):
     t = translate
     if graduated is None:
         highest = (t("incidents.summary.highest"), t("incidents.summary.unknown"), None)
-        latest = (t("incidents.summary.latest"), t("incidents.summary.none"), None)
+        latest = (t("incidents.summary.latest"), t("incidents.summary.unknown"), None)   # unknown, never "none yet"
         source = (t("incidents.summary.source"), reason or UNREADABLE, False)
         return highest, latest, source
     decisions = graduated["decisions"]
@@ -631,9 +640,25 @@ RECORD_STRINGS = {
     "incidents.legend.critical": {"en": "Automatic CUT (once corroborated)",
                                   "th": "ตัดสายอัตโนมัติ (เมื่อมีการยืนยันซ้ำ)", "zh": "自动执行 CUT（经多重佐证后）"},
     "incidents.empty.title": {
-        "en": "No events yet -- the system is watching. No attack has been detected so far (or graduated response has not been turned on).",
-        "th": "ยังไม่มีเหตุการณ์ — ระบบกำลังเฝ้าระวัง ยังไม่พบการโจมตี (หรือยังไม่ได้เปิดการตอบสนองแบบไล่ระดับ)",
-        "zh": "暂无事件 — 系统正在监控中。尚未检测到攻击（或尚未开启分级响应）。"},
+        "en": "No events found in the available data source right now.",
+        "th": "ไม่พบเหตุการณ์จากแหล่งข้อมูลที่ใช้ได้ในขณะนี้",
+        "zh": "当前可用数据源中未发现事件。"},
+    "incidents.empty.valid_note": {
+        "en": "This does not prove that no attack occurred: the source lists only the decisions the Core has recorded.",
+        "th": "ไม่ได้พิสูจน์ว่าไม่มีการโจมตี — แหล่งข้อมูลนี้แสดงเฉพาะการตัดสินใจที่ Core บันทึกไว้",
+        "zh": "这并不证明没有发生攻击：该数据源仅列出 Core 已记录的决策。"},
+    "incidents.empty.not_found": {
+        "en": "Incident data source not found — the current incident status cannot be determined.",
+        "th": "ไม่พบแหล่งข้อมูลเหตุการณ์ — ยังสรุปสถานะเหตุการณ์ปัจจุบันไม่ได้",
+        "zh": "未找到事件数据源 — 暂时无法判断当前事件状态。"},
+    "incidents.empty.unavailable": {
+        "en": "Incident data source unavailable — the current incident status cannot be determined.",
+        "th": "แหล่งข้อมูลเหตุการณ์ใช้งานไม่ได้ — ยังสรุปสถานะเหตุการณ์ปัจจุบันไม่ได้",
+        "zh": "事件数据源不可用 — 暂时无法判断当前事件状态。"},
+    "incidents.empty.stale": {
+        "en": "Incident data is stale — it may not show current events.",
+        "th": "ข้อมูลเหตุการณ์เก่าเกินไป — อาจไม่สะท้อนเหตุการณ์ปัจจุบัน",
+        "zh": "事件数据已过期 — 可能未反映当前事件。"},
     "incidents.empty.reason": {"en": "Data source status: {reason}", "th": "สถานะแหล่งข้อมูล: {reason}", "zh": "数据来源状态：{reason}"},
     "incidents.field.time": {"en": "Time", "th": "เวลา", "zh": "时间"},
     "incidents.field.ip": {"en": "Attacker IP", "th": "IP ผู้โจมตี", "zh": "攻击者 IP"},
