@@ -478,3 +478,80 @@ def test_phase3_pending_cut_full_socket_roundtrip(
     assert replay.state != "DRY_RUN_CONFIRMED"
     assert len(target.would_cut) == 1
     assert core.commands() == []
+
+
+@pytest.mark.parametrize(
+    "failure, expected_state",
+    [
+        ("wrong_secret", "REFUSED_AUTH"),
+        ("wrong_request_id", "REFUSED_INPUT"),
+        ("expired", "REFUSED_OTHER"),
+        ("spoofed_target", "REFUSED_OTHER"),
+    ],
+)
+def test_phase3_security_failure_over_core_socket(
+    core, monkeypatch, tmp_path, failure, expected_state
+):
+    """Core must fail closed without any real CUT dispatch."""
+    from aegis_soc import remote_response as rr
+
+    class SpoofedDryRun(rr.DryRunRelayTarget):
+        def cut(self, description):
+            raise AssertionError("Spoofed target must never actuate")
+
+    target = (
+        SpoofedDryRun()
+        if failure == "spoofed_target"
+        else rr.DryRunRelayTarget()
+    )
+
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    core.supervisor.start_local_cut()
+
+    snapshot = cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    )
+
+    assert snapshot is not None
+    assert snapshot["request_id"] == pending.request_id
+    assert core.commands() == []
+
+    secret = SECRET
+
+    if failure == "wrong_secret":
+        secret = "incorrect-secret-for-acceptance"
+
+    elif failure == "wrong_request_id":
+        snapshot["request_id"] = "0" * 32
+
+    elif failure == "expired":
+        core.clock_now[0] += 121.0
+
+    result = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        secret,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert result.state == expected_state
+    assert result.state != "DRY_RUN_CONFIRMED"
+    assert target.would_cut == []
+    assert core.commands() == []
