@@ -211,6 +211,7 @@ class RemoteResponse:
         *,
         operator: str,
         request_id: str | None = None,
+        dry_run_only: bool = False,
     ) -> RelayResult:
         """Confirm exactly one current, unexpired pending CUT."""
         with self._lock:
@@ -238,6 +239,9 @@ class RemoteResponse:
                 or self._targets.get(source) is not target
             ):
                 return RelayResult(False, "NO_PENDING_CUT")
+
+            if dry_run_only and type(target) is not DryRunRelayTarget:
+                return RelayResult(False, "CONFIRM_NOT_ENABLED")
 
             if not isinstance(request_id, str) or not request_id:
                 return RelayResult(False, "REQUEST_ID_REQUIRED")

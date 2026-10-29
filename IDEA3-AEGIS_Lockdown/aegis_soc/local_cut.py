@@ -57,6 +57,7 @@ CUT_ORIGIN = "core-local-cut"
 CONFIRMATION = "CUT UPLINK"
 ENABLED_VALUE = "YES"
 EVIDENCE_OP = "CUT_EVIDENCE"
+PENDING_CONFIRM_OP = "CONFIRM_PENDING_CUT"
 SOCKET_GROUP_MODE = 0o660
 # Domain separation: the credential file stores scrypt(DOMAIN + secret), so a D4 RESTORE credential can never verify here.
 CREDENTIAL_DOMAIN = "aegis-idea3-local-cut-credential-v1\x00"
@@ -65,6 +66,9 @@ READ_DEADLINE_SEC = 3.0
 MAX_HANDLERS = 4
 REFUSAL_AUDIT_INTERVAL_SEC = 10.0
 _REQUEST_KEYS = frozenset({"v", "op", "origin", "confirmation", "reason", "secret"})
+_PENDING_CONFIRM_KEYS = _REQUEST_KEYS | frozenset({
+    "source", "address", "request_id", "target",
+})
 _EVIDENCE_KEYS = frozenset({"v", "op", "msg_id"})
 
 
@@ -211,11 +215,102 @@ class LocalCutGate:
         self._auth_failures.pop(peer.uid, None)
         return None
 
+
+
+    def _handle_pending_confirmation(self, body, peer):
+        """Core-authenticated pending confirmation; lab dry-run only."""
+        if (
+            not isinstance(body, dict)
+            or set(body) != _PENDING_CONFIRM_KEYS
+            or body.get("v") != 1
+            or body.get("op") != PENDING_CONFIRM_OP
+        ):
+            return self._refuse(
+                "MALFORMED_REQUEST", "invalid pending confirmation", peer
+            )
+
+        if body.get("origin") != CUT_ORIGIN:
+            return self._refuse(
+                "ORIGIN_REFUSED", "invalid origin", peer
+            )
+
+        if body.get("confirmation") != CONFIRMATION:
+            return self._refuse(
+                "CONFIRMATION_REQUIRED", "confirmation required", peer
+            )
+
+        problem = lr.reason_problem(body.get("reason"))
+        if problem:
+            return self._refuse(problem, "invalid reason", peer)
+
+        for field in ("source", "address", "request_id", "target"):
+            value = body.get(field)
+            if not isinstance(value, str) or not value:
+                return self._refuse(
+                    "MALFORMED_REQUEST", "invalid pending fields", peer
+                )
+
+        refused = self._authenticate(body, peer)
+        if refused is not None:
+            return refused
+
+        response = getattr(self.supervisor, "remote_response", None)
+        if response is None:
+            return self._refuse(
+                "NO_PENDING_CUT", "no confirmation gate", peer
+            )
+
+        source = body["source"]
+        pending = response.pending(source)
+        if pending is None:
+            return self._refuse(
+                "NO_PENDING_CUT", "no pending request", peer
+            )
+
+        if pending.target_name != body["target"]:
+            return self._refuse(
+                "TARGET_MISMATCH", "target mismatch", peer
+            )
+
+        # Phase 1C: refuse all physical relay targets.
+        # Production dispatch requires a separate security review.
+        if body["target"] != "DRYRUN":
+            return self._refuse(
+                "CONFIRM_NOT_ENABLED", "dry-run only", peer
+            )
+
+        result = response.confirm_cut(
+            source,
+            body["address"],
+            operator=f"uid:{peer.uid}",
+            request_id=body["request_id"],
+            dry_run_only=True,
+        )
+
+        if result.ok and result.code == "WOULD_CUT":
+            return lr._response(
+                True,
+                "PENDING_CUT_DRY_RUN",
+                "Confirmation accepted in dry-run; no physical CUT",
+                evidence=_evidence(requested="ACCEPTED"),
+            )
+
+        return self._refuse(
+            result.code,
+            "pending confirmation refused",
+            peer,
+        )
+
+
     def _handle(self, body: Any, peer: lr.Peer):
         if peer.uid != self.allowed_uid:
             return self._refuse("PEER_REFUSED", "request is not from the configured operator account", peer)
         if isinstance(body, dict) and body.get("op") == EVIDENCE_OP:
             return self._evidence_for(body, peer)
+
+        if isinstance(body, dict) and body.get("op") == PENDING_CONFIRM_OP:
+            return self._handle_pending_confirmation(body, peer)
+
         if (
             not isinstance(body, dict)
             or set(body) != _REQUEST_KEYS

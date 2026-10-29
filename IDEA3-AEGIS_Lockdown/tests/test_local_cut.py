@@ -104,7 +104,7 @@ def provider(secret=SECRET, calls=None):
         ({"reason": ""}, "REASON_REQUIRED"),
         ({"reason": "short"}, "REASON_INVALID"),
         ({"reason": "x" * 500}, "REASON_INVALID"),
-        ({"reason": "bidi ‮ override attack"}, "REASON_INVALID"),
+        ({"reason": "bidi \u202e override attack"}, "REASON_INVALID"),
         ({"reason": "surrogate \ud800 attack text"}, "REASON_INVALID"),
         ({"op": RESTORE_UPLINK}, "MALFORMED_REQUEST"),
         ({"v": 2}, "MALFORMED_REQUEST"),
@@ -737,3 +737,79 @@ def test_the_existing_restore_evidence_ladder_is_unchanged_for_restore(core):
     published = cut(core)
     assert lr.restore_evidence_ladder(core.supervisor, published["msg_id"]) is None
     assert lr.restore_evidence_ladder(core.supervisor, published["msg_id"], action=CUT_UPLINK) is not None
+
+
+def test_pending_confirmation_requires_core_authorization(core):
+    """Pending confirmation must use Core auth, not GUI login."""
+    from aegis_soc import remote_response as rr
+
+    target = rr.DryRunRelayTarget()
+    response = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = response
+
+    pending = response.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    request = {
+        "v": 1,
+        "op": "CONFIRM_PENDING_CUT",
+        "origin": local_cut.CUT_ORIGIN,
+        "confirmation": local_cut.CONFIRMATION,
+        "reason": REASON,
+        "secret": SECRET,
+        "source": "beelink",
+        "address": pending.address,
+        "request_id": pending.request_id,
+        "target": pending.target_name,
+    }
+
+    wrong_uid = core.cut_gate.handle(
+        request, lr.Peer(uid=MY_UID + 1, pid=1234)
+    )
+    assert wrong_uid["code"] == "PEER_REFUSED"
+    assert target.would_cut == []
+
+    wrong_secret = core.cut_gate.handle(
+        {**request, "secret": "invalid-operator-secret"},
+        core.peer,
+    )
+    assert wrong_secret["code"] == "AUTH_FAILED"
+    assert target.would_cut == []
+
+    wrong_request = core.cut_gate.handle(
+        {**request, "request_id": "0" * 32},
+        core.peer,
+    )
+    assert wrong_request["ok"] is False
+    assert target.would_cut == []
+
+    accepted = core.cut_gate.handle(request, core.peer)
+    assert accepted["code"] == "PENDING_CUT_DRY_RUN"
+    assert len(target.would_cut) == 1
+
+    replay = core.cut_gate.handle(request, core.peer)
+    assert replay["ok"] is False
+    assert len(target.would_cut) == 1
+
+    class SpoofedDryRun(rr.DryRunRelayTarget):
+        def cut(self, description):
+            raise AssertionError("spoofed target must never actuate")
+
+    response._targets["beelink"] = SpoofedDryRun()
+    spoofed = response.request_cut(
+        "beelink", pending.address, 140, ("critical",)
+    )
+    refused = core.cut_gate.handle(
+        {**request, "request_id": spoofed.request_id},
+        core.peer,
+    )
+    assert refused["code"] == "CONFIRM_NOT_ENABLED"
