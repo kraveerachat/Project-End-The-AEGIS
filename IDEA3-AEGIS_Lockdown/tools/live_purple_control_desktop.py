@@ -216,6 +216,25 @@ class ControlPrompts(cut_desktop.Prompts):
         shown_title, shown_text = strings.notice(title, text, self.language())
         messagebox.showwarning(shown_title, shown_text)
 
+    def ask_pending_reason(self):
+        return simpledialog.askstring(
+            "Pending CUT — DRY-RUN ONLY",
+            "Reason for this simulated confirmation (12-240 characters):",
+        )
+
+    def ask_pending_confirmation(self):
+        return simpledialog.askstring(
+            "Pending CUT — DRY-RUN ONLY",
+            f"Type {cut_desktop.client.CONFIRMATION} to confirm:",
+        )
+
+    def ask_pending_secret(self):
+        return simpledialog.askstring(
+            "Pending CUT — DRY-RUN ONLY",
+            "CUT secret (verified by Core):",
+            show="*",
+        )
+
     def ask_restore_reason(self):
         return simpledialog.askstring(self._t("dialog.restore_title"), self._t("dialog.restore_reason"))
 
@@ -253,6 +272,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._pending_refresh_button = None
             self._pending_refreshing = False
             self._pending_epoch = 0
+            self._pending_snapshot = None
+            self._pending_confirming = False
+            self._pending_confirm_button = None
             self._pending_socket_path = getattr(cut_flow, "socket_path", None)
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
@@ -277,6 +299,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _install_pending_panel(self):
             """Separate read-only panel; never rewires Manual CUT."""
             self._pending_epoch += 1
+            self._pending_snapshot = None
             self._pending_refreshing = False
 
             if self._cut_button is None:
@@ -312,11 +335,27 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             )
             self._pending_refresh_button.pack(anchor="w", pady=(0, 8))
 
+            self._pending_confirm_button = tk.Button(
+                parent,
+                text="CONFIRM PENDING CUT (DRY-RUN ONLY)",
+                font=gui.ui_theme.FONT_BODY,
+                state=tk.DISABLED,
+                command=self._on_pending_confirm,
+            )
+            self._pending_confirm_button.pack(anchor="w", pady=(0, 8))
+
         def _on_pending_refresh(self):
-            if not self._pending_socket_path or self._pending_refreshing:
+            if (
+                not self._pending_socket_path
+                or self._pending_refreshing
+                or self._pending_confirming
+            ):
                 return
 
             self._pending_refreshing = True
+            self._pending_snapshot = None
+            if self._pending_confirm_button is not None:
+                self._pending_confirm_button.configure(state=tk.DISABLED)
             self._pending_refresh_button.configure(state=tk.DISABLED)
             self._pending_status.configure(
                 text="PENDING CUT — Querying Core (read only)..."
@@ -359,20 +398,36 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                     lines.append("No CUT sent by this panel.")
                     text = "\n".join(lines)
             except Exception:
+                items = []
                 text = (
                     "NOT_AVAILABLE — Core pending status could not "
                     "be verified.\nNo CUT sent by this panel."
                 )
 
             self._call_later(
-                0, self._pending_refresh_finished, epoch, text
+                0, self._pending_refresh_finished, epoch, text, items
             )
 
-        def _pending_refresh_finished(self, epoch, text):
+        def _pending_refresh_finished(self, epoch, text, items):
             if epoch != self._pending_epoch:
                 return
 
             self._pending_refreshing = False
+            self._pending_snapshot = (
+                dict(items[0])
+                if len(items) == 1
+                and items[0].get("target_name") == "DRYRUN"
+                and not self._pending_confirming
+                else None
+            )
+            confirm = self._pending_confirm_button
+            if confirm is not None and confirm.winfo_exists():
+                confirm.configure(
+                    state=(
+                        tk.NORMAL if self._pending_snapshot
+                        else tk.DISABLED
+                    )
+                )
             button = self._pending_refresh_button
             label = self._pending_status
 
@@ -380,6 +435,103 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 button.configure(state=tk.NORMAL)
             if label is not None and label.winfo_exists():
                 label.configure(text=text)
+
+        def _on_pending_confirm(self):
+            pending = self._pending_snapshot
+            if (
+                self._pending_confirming
+                or self._pending_refreshing
+                or cut_flow.busy
+                or not self._pending_socket_path
+                or not isinstance(pending, dict)
+                or pending.get("target_name") != "DRYRUN"
+            ):
+                return
+
+            # A fresh read is mandatory before another confirmation.
+            self._pending_snapshot = None
+            self._pending_confirm_button.configure(state=tk.DISABLED)
+
+            reason = prompts.ask_pending_reason()
+            if reason is None:
+                return
+            problem = cut_desktop.client.reason_problem(reason)
+            if problem:
+                prompts.notify("Pending CUT", problem)
+                return
+
+            confirmation = prompts.ask_pending_confirmation()
+            if confirmation != cut_desktop.client.CONFIRMATION:
+                prompts.notify(
+                    "Pending CUT",
+                    "Confirmation mismatch. Nothing was sent.",
+                )
+                return
+
+            secret = prompts.ask_pending_secret()
+            if not secret:
+                prompts.notify(
+                    "Pending CUT",
+                    "CUT secret required. Nothing was sent.",
+                )
+                return
+
+            self._pending_confirming = True
+            self._pending_refresh_button.configure(state=tk.DISABLED)
+            self._pending_status.configure(
+                text="CONFIRMING — Core authentication in progress..."
+            )
+            run_async(
+                self._pending_confirm_worker,
+                self._pending_epoch,
+                dict(pending),
+                reason,
+                secret,
+                confirmation,
+            )
+
+        def _pending_confirm_worker(
+            self, epoch, pending, reason, secret, confirmation
+        ):
+            try:
+                view = cut_desktop.client.confirm_pending_cut(
+                    self._pending_socket_path,
+                    pending,
+                    reason,
+                    secret,
+                    confirmation,
+                )
+            except Exception:
+                view = cut_desktop.client.View(
+                    "OUTCOME_UNKNOWN",
+                    "Core result could not be verified. "
+                    "Check Core status. Do not retry automatically.",
+                    cut_desktop.client.CRITICAL,
+                    True,
+                )
+            finally:
+                secret = None
+
+            self._call_later(
+                0, self._pending_confirm_finished, epoch, view
+            )
+
+        def _pending_confirm_finished(self, epoch, view):
+            self._pending_confirming = False
+            if epoch != self._pending_epoch:
+                return
+
+            button = self._pending_refresh_button
+            label = self._pending_status
+            if button is not None and button.winfo_exists():
+                button.configure(state=tk.NORMAL)
+            if label is not None and label.winfo_exists():
+                label.configure(
+                    text=(
+                        f"{view.state}: {view.text}\n"
+                        "Refresh to read current pending status."
+                    )
+                )
 
         def _install_restore_control(self):
             button = next((w for w in self._walk(self.workspace) if isinstance(w, tk.Button)

@@ -300,3 +300,113 @@ def test_pending_status_client_rejects_invalid_snapshot():
             expected_uid=1, send=send,
         )
     assert len(send.calls) == 1
+
+
+def test_phase_2d_client_confirms_dry_run():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_DRY_RUN",
+    })
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "DRY_RUN_CONFIRMED"
+    assert "No physical CUT" in view.text
+
+    assert len(send.calls) == 1
+    body = send.calls[0]
+
+    assert body["op"] == "CONFIRM_PENDING_CUT"
+    assert body["request_id"] == "a" * 32
+    assert body["source"] == "beelink"
+    assert body["target"] == "DRYRUN"
+    assert body["secret"] == SECRET
+    assert body["confirmation"] == cc.CONFIRMATION
+    assert body["op"] != "CUT_UPLINK"
+
+
+def test_phase_2d_client_refuses_real_targets():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "LOCAL_CORE_RELAY",
+    }
+
+    send = scripted()
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "REFUSED_INPUT"
+    assert send.calls == []
+
+
+def test_phase_2d_client_refuses_missing_secret():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted()
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        "",
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "REFUSED_AUTH"
+    assert send.calls == []
+
+
+def test_phase_2d_client_never_retries_unknown_outcome():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted(cc.OutcomeUnknown("lost"))
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "OUTCOME_UNKNOWN"
+    assert len(send.calls) == 1

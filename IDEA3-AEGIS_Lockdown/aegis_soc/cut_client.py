@@ -366,3 +366,132 @@ class ManualCutFlow:
             self._tracking = None
         self.view = view
         return view
+PENDING_CONFIRM_OP = "CONFIRM_PENDING_CUT"
+
+
+def confirm_pending_cut(
+    path,
+    pending: dict,
+    reason: str,
+    secret: str,
+    confirmation: str,
+    *,
+    expected_uid: int | None = None,
+    send=send_request,
+) -> View:
+    """Confirm one pending dry-run request via the authenticated Core."""
+    refused = View(
+        "REFUSED_INPUT",
+        "Invalid pending confirmation. Nothing was sent.",
+        WARN,
+        True,
+    )
+
+    if not isinstance(pending, dict):
+        return refused
+
+    source = pending.get("source")
+    address = pending.get("address")
+    request_id = pending.get("request_id")
+    target = pending.get("target_name")
+
+    try:
+        pending_status_request(source)
+    except ValueError:
+        return refused
+
+    if (
+        target != "DRYRUN"
+        or not isinstance(address, str)
+        or not 1 <= len(address) <= 45
+        or not isinstance(request_id, str)
+        or len(request_id) != 32
+        or any(c not in "0123456789abcdef" for c in request_id)
+    ):
+        return refused
+
+    if reason_problem(reason):
+        return refused
+
+    if confirmation != CONFIRMATION:
+        return refused
+
+    if not isinstance(secret, str) or not secret:
+        return View(
+            "REFUSED_AUTH",
+            "The CUT secret is required. Nothing was sent.",
+            WARN,
+            True,
+        )
+
+    body = {
+        "v": 1,
+        "op": PENDING_CONFIRM_OP,
+        "origin": CUT_ORIGIN,
+        "confirmation": confirmation,
+        "reason": reason.strip(),
+        "secret": secret,
+        "source": source,
+        "address": address,
+        "request_id": request_id,
+        "target": target,
+    }
+
+    try:
+        uid = core_uid() if expected_uid is None else expected_uid
+        response = send(path, body, expected_uid=uid)
+    except ChannelUnavailable:
+        return View(
+            "CHANNEL_UNAVAILABLE",
+            "Core unavailable. Nothing was sent.",
+            CRITICAL,
+            True,
+        )
+    except OutcomeUnknown:
+        return View(
+            "OUTCOME_UNKNOWN",
+            "Core response lost. Check Core status. "
+            "No automatic retry was performed.",
+            CRITICAL,
+            True,
+        )
+    finally:
+        secret = None
+
+    if not isinstance(response, dict):
+        return View(
+            "OUTCOME_UNKNOWN",
+            "Invalid Core response. Check Core status.",
+            CRITICAL,
+            True,
+        )
+
+    code = response.get("code")
+    ok = response.get("ok")
+
+    if ok is True and code == "PENDING_CUT_DRY_RUN":
+        return View(
+            "DRY_RUN_CONFIRMED",
+            "The Core accepted a simulated Pending CUT. "
+            "No physical CUT was performed.",
+            OK,
+            True,
+        )
+
+    if ok is False and isinstance(code, str):
+        if code == "PENDING_CUT_DRY_RUN":
+            return View(
+                "OUTCOME_UNKNOWN",
+                "Conflicting Core response. Verify Core status.",
+                CRITICAL,
+                True,
+            )
+        return describe_code(code, False)
+
+    return View(
+        "OUTCOME_UNKNOWN",
+        "Unexpected Core response. Verify Core status. "
+        "Do not automatically retry.",
+        CRITICAL,
+        True,
+    )
