@@ -102,6 +102,21 @@ NOT_SENT_PENDING = CommandResult(
 )
 
 
+
+def _authorize_test_dispatch_once(worker, action_id):
+    """TEST ONLY: grant one action-bound simulated approval."""
+    allowed = {action_id}
+
+    def verify(action):
+        identity = getattr(action, "action_id", None)
+        if identity not in allowed:
+            return False
+        allowed.remove(identity)
+        return True
+
+    worker._operator_approval_verified = verify
+
+
 def _run_worker(tmp_path, name, *, command=SENT, claim=None, claim_offset=100.0, after=None):
     clock = Clock()
     ledger = DispatchLedger(tmp_path / f"{name}.sqlite3", wall_clock=clock)
@@ -112,6 +127,7 @@ def _run_worker(tmp_path, name, *, command=SENT, claim=None, claim_offset=100.0,
         FakeClient(action, ClaimResult("CLAIMED", clock.now + claim_offset) if claim is None else claim),
         wall_clock=clock,
     )
+    _authorize_test_dispatch_once(worker, action.action_id)
     try:
         worker.tick()
         if after is not None:
@@ -263,6 +279,7 @@ def test_dispatch_rechecks_the_single_command_owner_before_claiming(tmp_path):
 
     supervisor.command_guard = command_guard
     worker = DispatchWorker(supervisor, ledger, client, wall_clock=clock)
+    _authorize_test_dispatch_once(worker, action.action_id)
     command_lock.acquire()
     thread = threading.Thread(target=worker.tick)
     thread.start()

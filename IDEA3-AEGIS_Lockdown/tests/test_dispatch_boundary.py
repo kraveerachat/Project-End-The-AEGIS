@@ -110,7 +110,7 @@ def ledger(tmp_path, clock):
     instance.close()
 
 
-def test_c1_c3_c6_c9_records_claim_intent_before_claim_then_uses_issue_command_once(tmp_path, clock):
+def test_c1_c3_c6_c9_records_claim_intent_before_claim_then_uses_issue_command_once(tmp_path, clock, monkeypatch):
     events = []
     ledger = RecordingLedger(tmp_path / "core-dispatch.sqlite3", wall_clock=clock, events=events)
     client = FakeClient(actions=[pending()])
@@ -129,6 +129,22 @@ def test_c1_c3_c6_c9_records_claim_intent_before_claim_then_uses_issue_command_o
         return original_issue(*args, **kwargs)
 
     supervisor.issue_command = issue
+    # TEST ONLY: model one previously authorized operator action.
+    # Production remains fail-closed and has no approval override.
+    approved = {ACTION_ID}
+
+    def approved_test_action(_worker, action):
+        if action.action_id not in approved:
+            return False
+        approved.remove(action.action_id)
+        return True
+
+    monkeypatch.setattr(
+        DispatchWorker,
+        "_operator_approval_verified",
+        approved_test_action,
+    )
+
     worker = DispatchWorker(supervisor, ledger, client, wall_clock=clock)
 
     try:
@@ -185,6 +201,7 @@ def test_c2_skips_an_action_already_expired_on_the_core_clock(ledger, clock):
     assert supervisor.calls == []
 
 
+@pytest.mark.usefixtures("authorized_dispatch_test")
 def test_c2_rechecks_expiry_after_claim_and_before_publish(ledger, clock):
     client = FakeClient(actions=[pending()])
     client.on_claim = lambda: setattr(clock, "now", EXPIRES_AT)
@@ -214,6 +231,7 @@ def test_c3_replayed_action_is_never_claimed_or_published_again(ledger, clock):
 
 
 @pytest.mark.parametrize("action", ["RESTORE_UPLINK", "cut_uplink", ""])
+@pytest.mark.usefixtures("authorized_dispatch_test")
 def test_c6_a_non_cut_uplink_pending_action_is_refused_without_claim_or_publish(ledger, clock, action):
     client = FakeClient(actions=[pending(OTHER_ACTION_ID, action=action), pending()])
     supervisor = FakeSupervisor()
@@ -229,6 +247,7 @@ def test_c6_a_non_cut_uplink_pending_action_is_refused_without_claim_or_publish(
 
 
 @pytest.mark.parametrize("claim_status", ["NOT_FOUND", "EXPIRED", "ALREADY_CLAIMED", "NOT_DISPATCHABLE"])
+@pytest.mark.usefixtures("authorized_dispatch_test")
 def test_rejected_claim_is_terminal_and_never_published(ledger, clock, claim_status):
     client = FakeClient(actions=[pending()], claim=ClaimResult(claim_status))
     supervisor = FakeSupervisor()
@@ -241,6 +260,7 @@ def test_rejected_claim_is_terminal_and_never_published(ledger, clock, claim_sta
     assert supervisor.calls == []
 
 
+@pytest.mark.usefixtures("authorized_dispatch_test")
 def test_lost_claim_response_becomes_unknown_without_publish_or_retry(ledger, clock):
     client = FakeClient(actions=[pending()], claim=DispatchUnavailable("NETWORK"))
     supervisor = FakeSupervisor()
@@ -370,6 +390,7 @@ def test_c5_local_timeout_still_runs_when_outbox_delivery_is_unavailable(ledger,
         (CommandResult("CUT_UPLINK", False, False, False, NONCE, "unavailable"), "FAILED", "FAILED"),
     ],
 )
+@pytest.mark.usefixtures("authorized_dispatch_test")
 def test_publish_outcomes_are_terminal_and_not_retried(ledger, clock, result, expected_state, expected_stage):
     supervisor = FakeSupervisor(result)
     worker = DispatchWorker(supervisor, ledger, FakeClient(actions=[pending()]), wall_clock=clock)
@@ -567,3 +588,56 @@ def test_p3_c2_disabled_dispatch_is_reported_without_degrading(tmp_path):
 
     assert supervisor.status.dispatch == "DISABLED"
     assert supervisor.evaluate_state() == RuntimeState.RUNNING
+def test_server_dispatch_refuses_without_core_operator_approval(
+    ledger, clock
+):
+    """Unapproved server actions must never be claimed or published."""
+    supervisor = FakeSupervisor()
+    client = FakeClient(actions=[pending()])
+
+    claimed = []
+    original_claim = client.claim
+
+    def tracked_claim(action_id):
+        claimed.append(action_id)
+        return original_claim(action_id)
+
+    client.claim = tracked_claim
+
+    worker = DispatchWorker(
+        supervisor,
+        ledger,
+        client,
+        wall_clock=clock,
+    )
+
+    worker.start()
+    worker.tick()
+
+    # No trusted Core-side operator approval was provided.
+    assert claimed == []
+    assert supervisor.calls == []
+    assert ledger.get(ACTION_ID) is None
+
+
+@pytest.fixture
+def authorized_dispatch_test(monkeypatch):
+    """TEST ONLY: one-shot, action-bound fake operator approval.
+
+    This fixture is deliberately opt-in. Security tests without
+    the fixture must continue to exercise the fail-closed path.
+    """
+    approved = {ACTION_ID, OTHER_ACTION_ID}
+
+    def approve_once(_worker, action):
+        action_id = getattr(action, "action_id", None)
+        if action_id not in approved:
+            return False
+        approved.remove(action_id)
+        return True
+
+    monkeypatch.setattr(
+        DispatchWorker,
+        "_operator_approval_verified",
+        approve_once,
+    )

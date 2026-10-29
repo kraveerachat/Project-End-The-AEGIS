@@ -93,6 +93,19 @@ class Harness:
         )
         self.supervisor.bind_callbacks()
         self.worker = DispatchWorker(self.supervisor, self.ledger, self.dispatch, wall_clock=lambda: NOW)
+
+        # TEST ONLY: one-shot approval for this isolated harness.
+        # No approval capability is added to production.
+        authorized_actions = {ACTION_ID}
+
+        def authorize_once(action):
+            action_id = getattr(action, "action_id", None)
+            if action_id not in authorized_actions:
+                return False
+            authorized_actions.remove(action_id)
+            return True
+
+        self.worker._operator_approval_verified = authorize_once
         self.supervisor.dispatch_worker = self.worker
 
     def frames(self, kind):
