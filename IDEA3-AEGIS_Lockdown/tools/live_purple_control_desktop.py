@@ -249,6 +249,11 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._severity_after = None
             self._page_tick = None
             self._page_after = None
+            self._pending_status = None
+            self._pending_refresh_button = None
+            self._pending_refreshing = False
+            self._pending_epoch = 0
+            self._pending_socket_path = getattr(cut_flow, "socket_path", None)
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
 
@@ -263,10 +268,119 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 self._install_restore_control()
                 self._install_severity_panel()
                 self._translate_controls()
+                self._install_pending_panel()
             elif key == "recovery":
                 self._enable_navigation_button()   # the preview base disables every Button after a page is built
 
         # -- RESTORE ----------------------------------------------------------------------------------------------------
+
+        def _install_pending_panel(self):
+            """Separate read-only panel; never rewires Manual CUT."""
+            self._pending_epoch += 1
+            self._pending_refreshing = False
+
+            if self._cut_button is None:
+                return
+
+            parent = self._cut_button.master
+            self._pending_status = tk.Label(
+                parent,
+                text=(
+                    "PENDING CUT — READ ONLY\n"
+                    "Not loaded. Refresh to query the Core.\n"
+                    "No CUT is sent by this panel."
+                ),
+                anchor="w",
+                justify="left",
+                wraplength=640,
+                font=gui.ui_theme.FONT_BODY,
+                bg=parent.cget("bg"),
+                fg=gui.ui_theme.COLOR_MUTED,
+            )
+            self._pending_status.pack(fill="x", pady=(8, 4))
+
+            self._pending_refresh_button = tk.Button(
+                parent,
+                text="REFRESH PENDING CUT (READ ONLY)",
+                font=gui.ui_theme.FONT_BODY,
+                state=(
+                    tk.NORMAL
+                    if self._pending_socket_path
+                    else tk.DISABLED
+                ),
+                command=self._on_pending_refresh,
+            )
+            self._pending_refresh_button.pack(anchor="w", pady=(0, 8))
+
+        def _on_pending_refresh(self):
+            if not self._pending_socket_path or self._pending_refreshing:
+                return
+
+            self._pending_refreshing = True
+            self._pending_refresh_button.configure(state=tk.DISABLED)
+            self._pending_status.configure(
+                text="PENDING CUT — Querying Core (read only)..."
+            )
+            run_async(self._pending_refresh_worker, self._pending_epoch)
+
+        def _pending_refresh_worker(self, epoch):
+            """One read-only query per source, off the Tk thread."""
+            try:
+                items = []
+                for source in ("__local__", "beelink"):
+                    item = cut_desktop.client.fetch_pending_cut(
+                        self._pending_socket_path, source
+                    )
+                    if item is not None:
+                        items.append(item)
+
+                if not items:
+                    text = (
+                        "NO_PENDING_CUT — No pending request reported.\n"
+                        "Read-only snapshot; no CUT sent."
+                    )
+                else:
+                    lines = [
+                        "PENDING CUT — READ-ONLY CORE SNAPSHOT",
+                        "Confirmation is not available in this panel.",
+                    ]
+                    for item in items:
+                        lines.extend((
+                            "",
+                            f"Source: {item['source']}",
+                            f"Attacker IP: {item['address']}",
+                            f"Request ID: {item['request_id']}",
+                            f"Target: {item['target_name']}",
+                            f"Score: {item['score']}",
+                        ))
+                    lines.append(
+                        "\nCore must revalidate identity and expiry."
+                    )
+                    lines.append("No CUT sent by this panel.")
+                    text = "\n".join(lines)
+            except Exception:
+                text = (
+                    "NOT_AVAILABLE — Core pending status could not "
+                    "be verified.\nNo CUT sent by this panel."
+                )
+
+            self._call_later(
+                0, self._pending_refresh_finished, epoch, text
+            )
+
+        def _pending_refresh_finished(self, epoch, text):
+            if epoch != self._pending_epoch:
+                return
+
+            self._pending_refreshing = False
+            button = self._pending_refresh_button
+            label = self._pending_status
+
+            if button is not None and button.winfo_exists():
+                button.configure(state=tk.NORMAL)
+            if label is not None and label.winfo_exists():
+                label.configure(text=text)
+
         def _install_restore_control(self):
             button = next((w for w in self._walk(self.workspace) if isinstance(w, tk.Button)
                            and w.cget("text") == RESTORE_DISABLED_TEXT), None)

@@ -932,3 +932,43 @@ def test_switching_the_language_relabels_the_controls_and_back(app_factory, tmp_
     app._show_page("lockdown")
     root.update()
     assert desktop.RESTORE_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
+
+
+def test_pending_cut_panel_is_read_only(app_factory, monkeypatch):
+    seen = []
+
+    def fake_fetch(path, source):
+        seen.append((path, source))
+        if source == "beelink":
+            return {
+                "source": "beelink",
+                "address": "198.51.100.25",
+                "request_id": "a" * 32,
+                "target_name": "DRYRUN",
+                "created_at": 123.0,
+                "score": 140,
+            }
+        return None
+
+    monkeypatch.setattr(
+        desktop.cut_desktop.client,
+        "fetch_pending_cut",
+        fake_fetch,
+    )
+
+    app, root = app_factory(None, FakePrompts())
+    app._pending_socket_path = "/run/test-only.sock"
+    app._pending_refresh_button.configure(state=tk.NORMAL)
+    app._pending_refresh_button.invoke()
+    root.update()
+
+    text = app._pending_status.cget("text")
+    assert "198.51.100.25" in text
+    assert "a" * 32 in text
+    assert "DRYRUN" in text
+    assert "No CUT sent by this panel" in text
+
+    assert seen == [
+        ("/run/test-only.sock", "__local__"),
+        ("/run/test-only.sock", "beelink"),
+    ]
