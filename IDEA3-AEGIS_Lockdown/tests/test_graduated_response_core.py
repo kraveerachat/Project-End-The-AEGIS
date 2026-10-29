@@ -153,7 +153,8 @@ def test_an_authorized_local_confirmation_reaches_would_cut_only_in_dry_run(tmp_
         tick(instance)
         send(instance, v2("ssh_login_after_failures"))
         response = instance.core.supervisor.remote_response
-        assert response.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op") == rr.RelayResult(True, "WOULD_CUT")
+        pending_id = response.pending(rr.LOCAL_SOURCE).request_id
+        assert response.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id) == rr.RelayResult(True, "WOULD_CUT")
         assert instance.rec.commands == []
     finally:
         instance.core.close()
@@ -172,10 +173,11 @@ def test_local_confirmation_rejects_missing_wrong_unauthorized_and_duplicate_req
     assert gate.confirm_cut(rr.LOCAL_SOURCE, OTHER_IP, operator="authorized-op").code == "NO_PENDING_CUT"
     assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="").code == "UNAUTHORIZED"
     assert env.rec.commands == [] and gate.pending(rr.LOCAL_SOURCE) is not None
+    pending_id = gate.pending(rr.LOCAL_SOURCE).request_id
 
-    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op").code == "CUT_SENT"
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "CUT_SENT"
     assert len(env.rec.commands) == 1
-    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
     assert len(env.rec.commands) == 1
 
 
@@ -194,9 +196,10 @@ def test_the_existing_remote_pending_and_confirmation_path_is_unchanged():
     response.handle(ra.RemoteAlert(kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES, **common))
 
     assert response.pending("beelink").address == IP and target.would_cut == []
+    pending_id = response.pending("beelink").request_id
     assert response.confirm_cut("beelink", OTHER_IP, operator="authorized-op").code == "NO_PENDING_CUT"
-    assert response.confirm_cut("beelink", IP, operator="authorized-op") == rr.RelayResult(True, "WOULD_CUT")
-    assert response.confirm_cut("beelink", IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert response.confirm_cut("beelink", IP, operator="authorized-op", request_id=pending_id) == rr.RelayResult(True, "WOULD_CUT")
+    assert response.confirm_cut("beelink", IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
     assert len(target.would_cut) == 1
     assert [event for event, _details, _level in audits if event == "REMOTE_CUT_CONFIRMED"] == ["REMOTE_CUT_CONFIRMED"]
     assert records[-1][2] == rr.OUTCOME_AWAITING_OPERATOR
@@ -227,7 +230,7 @@ def test_normal_cancellation_and_confirmation_use_one_lock_order_without_deadloc
         audit=lambda *args: None, log=lambda *args, **kwargs: None,
         record=lambda *args: None, notify=lambda *args: None,
     )
-    gate.request_cut(rr.LOCAL_SOURCE, IP, 140, ("critical",))
+    pending = gate.request_cut(rr.LOCAL_SOURCE, IP, 140, ("critical",))
 
     original_cut = target.cut
 
@@ -246,7 +249,7 @@ def test_normal_cancellation_and_confirmation_use_one_lock_order_without_deadloc
     gate.cancel_pending = observed_cancel
     result = []
     confirm = threading.Thread(
-        target=lambda: result.append(gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op")), daemon=True,
+        target=lambda: result.append(gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending.request_id)), daemon=True,
     )
     def process_normal():
         with command_guard():
@@ -279,12 +282,13 @@ def test_graduated_confirmation_during_restore_never_creates_a_deferred_cut(
         tick(instance)
         send(instance, v2("ssh_login_after_failures"))
         gate = sup.remote_response
+        pending_id = gate.pending(rr.LOCAL_SOURCE).request_id
         restore_nonce = "r" * 32
         sup.pending_command = {
             "action": "RESTORE_UPLINK", "sent_at": instance.core.now[0], "nonce": restore_nonce,
         }
 
-        refused = gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op")
+        refused = gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id)
         assert refused == rr.RelayResult(False, "RESTORE_IN_FLIGHT")
         assert sup._deferred_cut is None and instance.core.commands() == []
 
@@ -297,7 +301,7 @@ def test_graduated_confirmation_during_restore_never_creates_a_deferred_cut(
             sup.evaluate_state()
 
         assert sup._deferred_cut is None and instance.core.commands() == []
-        assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op").code == "NO_PENDING_CUT"
+        assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
         assert instance.core.commands() == []
     finally:
         instance.core.close()

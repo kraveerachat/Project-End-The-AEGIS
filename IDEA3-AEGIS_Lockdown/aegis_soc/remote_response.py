@@ -19,6 +19,7 @@ local relay. Differences from the Core-local path, all deliberate:
 
 from __future__ import annotations
 
+import secrets
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import nullcontext
@@ -97,7 +98,9 @@ class PendingCut:
     address: str
     score: int
     reasons: tuple[str, ...]
-
+    request_id: str
+    created_at: float
+    target_name: str
 
 class RemoteResponse:
     def __init__(self, *, sources, clock: Callable[[], float], targets: Mapping[str, object],
@@ -131,14 +134,32 @@ class RemoteResponse:
             self._audit_prefixes.pop(source, None)
             self._pending.pop(source, None)
 
-    def request_cut(self, source: str, address: str, score: int, reasons: tuple[str, ...]) -> PendingCut:
-        """Create or replace the pending CUT for a registered source. This method never actuates a target."""
+
+    def request_cut(
+        self,
+        source: str,
+        address: str,
+        score: int,
+        reasons: tuple[str, ...],
+    ) -> PendingCut:
+        """Create or replace a pending CUT. Never actuates a target."""
         with self._lock:
             if source not in self._targets:
                 raise ValueError("unknown source")
-            pending = PendingCut(source, address, score, reasons)
+
+            pending = PendingCut(
+                source=source,
+                address=address,
+                score=score,
+                reasons=reasons,
+                request_id=secrets.token_hex(16),
+                created_at=self._clock(),
+                target_name=str(self._targets[source].name),
+            )
+
             self._pending[source] = pending
             return pending
+
 
     # -- evidence (called with a verified alert only) ---------------------------------------------------------------------
     def handle(self, alert: ra.RemoteAlert) -> gr.Decision:
@@ -182,41 +203,99 @@ class RemoteResponse:
         with self._lock:
             self._pending.pop(source, None)
 
-    def confirm_cut(self, source: str, address: str, *, operator: str) -> RelayResult:
-        """Send the pending CUT for ``source`` to that source's relay target. Only an operator-authenticated Core path may call
-        this; it requires a pending CRITICAL decision for exactly this address and never touches any other source's relay."""
+
+    def confirm_cut(
+        self,
+        source: str,
+        address: str,
+        *,
+        operator: str,
+        request_id: str | None = None,
+    ) -> RelayResult:
+        """Confirm exactly one current, unexpired pending CUT."""
         with self._lock:
             prefix = self._audit_prefixes.get(source, "REMOTE")
             if not isinstance(operator, str) or not operator.strip():
-                self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=UNAUTHORIZED", "WARN")
+                self._audit(
+                    f"{prefix}_CUT_REFUSED",
+                    f"source={source} code=UNAUTHORIZED",
+                    "WARN",
+                )
                 return RelayResult(False, "UNAUTHORIZED")
+
             target = self._targets.get(source)
             if target is None:
-                self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=NO_PENDING_CUT operator={operator[:32]}", "WARN")
                 return RelayResult(False, "NO_PENDING_CUT")
 
         guard = getattr(target, "confirmation_guard", nullcontext)
+
         with guard(), self._lock:
-                pending = self._pending.get(source)
-                if pending is None or pending.address != address or self._targets.get(source) is not target:
-                    self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=NO_PENDING_CUT operator={operator[:32]}", "WARN")
-                    return RelayResult(False, "NO_PENDING_CUT")
-                description = (
-                    f"remote alert CRITICAL source={source} attacker={pending.address} score={pending.score} "
-                    f"operator={operator[:32]}"
-                    if prefix == "REMOTE" else
-                    f"graduated response CRITICAL attacker={pending.address} score={pending.score} "
-                    f"reasons={','.join(pending.reasons)} operator={operator[:32]}"
+            pending = self._pending.get(source)
+
+            if (
+                pending is None
+                or pending.address != address
+                or self._targets.get(source) is not target
+            ):
+                return RelayResult(False, "NO_PENDING_CUT")
+
+            if not isinstance(request_id, str) or not request_id:
+                return RelayResult(False, "REQUEST_ID_REQUIRED")
+
+            if not secrets.compare_digest(
+                request_id, pending.request_id
+            ):
+                return RelayResult(False, "REQUEST_ID_MISMATCH")
+
+            age = self._clock() - pending.created_at
+            if not (0.0 <= age <= 120.0):
+                del self._pending[source]
+                self._audit(
+                    f"{prefix}_CUT_REFUSED",
+                    f"source={source} code=PENDING_EXPIRED",
+                    "WARN",
                 )
-                result = target.cut(description)
-                if result.ok:
-                    del self._pending[source]
-                    self._audit(f"{prefix}_CUT_CONFIRMED", f"source={source} attacker_ip={address} target={target.name} "
-                                                            f"code={result.code} operator={operator[:32]}", "CRITICAL")
-                else:
-                    self._audit(f"{prefix}_CUT_FAILED", f"source={source} target={target.name} code={result.code} "
-                                                         f"operator={operator[:32]}", "ERROR")
-                return result
+                return RelayResult(False, "PENDING_EXPIRED")
+
+            if pending.target_name != target.name:
+                return RelayResult(False, "TARGET_CHANGED")
+
+            if prefix == "REMOTE":
+                description = (
+                    f"remote alert CRITICAL source={source} "
+                    f"attacker={pending.address} score={pending.score} "
+                    f"operator={operator[:32]}"
+                )
+            else:
+                description = (
+                    f"graduated response CRITICAL "
+                    f"attacker={pending.address} score={pending.score} "
+                    f"reasons={','.join(pending.reasons)} "
+                    f"operator={operator[:32]}"
+                )
+
+            result = target.cut(description)
+
+            if result.ok:
+                del self._pending[source]
+                self._audit(
+                    f"{prefix}_CUT_CONFIRMED",
+                    f"source={source} attacker_ip={address} "
+                    f"target={target.name} code={result.code} "
+                    f"operator={operator[:32]}",
+                    "CRITICAL",
+                )
+            else:
+                self._audit(
+                    f"{prefix}_CUT_FAILED",
+                    f"source={source} target={target.name} "
+                    f"code={result.code} operator={operator[:32]}",
+                    "ERROR",
+                )
+
+            return result
+
+
 
     def release_episode(self, source: str, *, operator: str) -> None:
         """After the operator has recovered: the next CRITICAL for this source may ask for a CUT again."""
