@@ -410,3 +410,71 @@ def test_phase_2d_client_never_retries_unknown_outcome():
 
     assert view.state == "OUTCOME_UNKNOWN"
     assert len(send.calls) == 1
+
+def test_phase3_pending_cut_full_socket_roundtrip(
+    core, monkeypatch, tmp_path
+):
+    """Real temporary socket, fake Core hardware, dry-run only."""
+    from aegis_soc import remote_response as rr
+
+    target = rr.DryRunRelayTarget()
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    assert path == core.runtime_dir / "cut.sock"
+    core.supervisor.start_local_cut()
+
+    snapshot = cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    )
+
+    assert snapshot is not None
+    assert snapshot["request_id"] == pending.request_id
+    assert snapshot["target_name"] == "DRYRUN"
+    assert target.would_cut == []
+    assert core.commands() == []
+
+    result = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert result.state == "DRY_RUN_CONFIRMED"
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
+
+    # Confirmation consumes the pending request.
+    assert cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    ) is None
+
+    # Replaying the same request must not trigger another action.
+    replay = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert replay.state != "DRY_RUN_CONFIRMED"
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
