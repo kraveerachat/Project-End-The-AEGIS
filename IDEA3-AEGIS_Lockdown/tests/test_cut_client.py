@@ -250,3 +250,53 @@ def test_end_to_end_an_impostor_server_uid_is_refused(core, monkeypatch, tmp_pat
     core.supervisor.start_local_cut()
     view = cc.ManualCutFlow(path, expected_uid=MY_UID + 1).submit(REASON, SECRET)
     assert view.state == "CHANNEL_UNAVAILABLE" and core.commands() == []
+
+
+def test_pending_status_client_reads_without_cut_or_secret():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+        "created_at": 123.0,
+        "score": 140,
+    }
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_STATUS",
+        "pending": pending,
+    })
+
+    result = cc.fetch_pending_cut(
+        "/run/test/cut.sock", "beelink",
+        expected_uid=1, send=send,
+    )
+    assert result == pending
+    assert send.calls == [{
+        "v": 1, "op": "GET_PENDING_CUT", "source": "beelink",
+    }]
+    assert all("secret" not in body for body in send.calls)
+
+
+def test_pending_status_client_handles_absence_without_retry():
+    send = scripted({"ok": False, "code": "NO_PENDING_CUT"})
+    result = cc.fetch_pending_cut(
+        "/run/test/cut.sock", "beelink",
+        expected_uid=1, send=send,
+    )
+    assert result is None
+    assert len(send.calls) == 1
+
+
+def test_pending_status_client_rejects_invalid_snapshot():
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_STATUS",
+        "pending": {"source": "beelink"},
+    })
+    with pytest.raises(cc.PendingStatusUnavailable):
+        cc.fetch_pending_cut(
+            "/run/test/cut.sock", "beelink",
+            expected_uid=1, send=send,
+        )
+    assert len(send.calls) == 1

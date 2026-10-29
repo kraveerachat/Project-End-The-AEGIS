@@ -813,3 +813,45 @@ def test_pending_confirmation_requires_core_authorization(core):
         core.peer,
     )
     assert refused["code"] == "CONFIRM_NOT_ENABLED"
+
+def test_pending_status_is_read_only_and_uid_scoped(core):
+    from aegis_soc import remote_response as rr
+
+    target = rr.DryRunRelayTarget()
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+    request = {
+        "v": 1,
+        "op": local_cut.PENDING_STATUS_OP,
+        "source": "beelink",
+    }
+
+    wrong_uid = core.cut_gate.handle(
+        request, lr.Peer(uid=MY_UID + 1, pid=1234)
+    )
+    assert wrong_uid["code"] == "PEER_REFUSED"
+
+    result = core.cut_gate.handle(request, core.peer)
+    assert result["ok"] is True
+    assert result["code"] == "PENDING_CUT_STATUS"
+    assert result["pending"]["request_id"] == pending.request_id
+    assert result["pending"]["target_name"] == "DRYRUN"
+    assert result["pending"]["address"] == pending.address
+
+    invalid = core.cut_gate.handle(
+        {**request, "extra": True}, core.peer
+    )
+    assert invalid["code"] == "MALFORMED_REQUEST"
+    assert target.would_cut == []
+    assert core.commands() == []

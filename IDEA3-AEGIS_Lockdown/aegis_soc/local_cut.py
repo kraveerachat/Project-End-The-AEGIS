@@ -58,6 +58,8 @@ CONFIRMATION = "CUT UPLINK"
 ENABLED_VALUE = "YES"
 EVIDENCE_OP = "CUT_EVIDENCE"
 PENDING_CONFIRM_OP = "CONFIRM_PENDING_CUT"
+PENDING_STATUS_OP = "GET_PENDING_CUT"
+_PENDING_STATUS_KEYS = frozenset({"v", "op", "source"})
 SOCKET_GROUP_MODE = 0o660
 # Domain separation: the credential file stores scrypt(DOMAIN + secret), so a D4 RESTORE credential can never verify here.
 CREDENTIAL_DOMAIN = "aegis-idea3-local-cut-credential-v1\x00"
@@ -302,12 +304,58 @@ class LocalCutGate:
         )
 
 
+    def _handle_pending_status(self, body, peer):
+        """Read-only Core snapshot; never confirms or dispatches CUT."""
+        if (
+            not isinstance(body, dict)
+            or set(body) != _PENDING_STATUS_KEYS
+            or body.get("v") != 1
+            or body.get("op") != PENDING_STATUS_OP
+        ):
+            return self._refuse(
+                "MALFORMED_REQUEST", "invalid pending status request", peer
+            )
+
+        source = body.get("source")
+        if (
+            not isinstance(source, str)
+            or not 1 <= len(source) <= 64
+            or not source.isascii()
+            or not all(c.isalnum() or c in "._-" for c in source)
+        ):
+            return self._refuse(
+                "MALFORMED_REQUEST", "invalid source", peer
+            )
+
+        gate = getattr(self.supervisor, "remote_response", None)
+        pending = gate.pending(source) if gate is not None else None
+        if pending is None:
+            return self._refuse(
+                "NO_PENDING_CUT", "no pending request", peer
+            )
+
+        result = lr._response(
+            True, "PENDING_CUT_STATUS",
+            "Read-only snapshot; confirmation must be revalidated",
+        )
+        result["pending"] = {
+            "source": pending.source,
+            "address": pending.address,
+            "request_id": pending.request_id,
+            "target_name": pending.target_name,
+            "created_at": pending.created_at,
+            "score": pending.score,
+        }
+        return result
+
     def _handle(self, body: Any, peer: lr.Peer):
         if peer.uid != self.allowed_uid:
             return self._refuse("PEER_REFUSED", "request is not from the configured operator account", peer)
         if isinstance(body, dict) and body.get("op") == EVIDENCE_OP:
             return self._evidence_for(body, peer)
 
+        if isinstance(body, dict) and body.get("op") == PENDING_STATUS_OP:
+            return self._handle_pending_status(body, peer)
         if isinstance(body, dict) and body.get("op") == PENDING_CONFIRM_OP:
             return self._handle_pending_confirmation(body, peer)
 
