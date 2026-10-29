@@ -316,15 +316,28 @@ def test_the_hook_does_not_run_when_the_supervisor_refuses(core):
     assert untrusted.reason_code == "CORE_TIME_UNTRUSTED" and ran == []
 
 
-def test_a_cut_deferred_behind_a_restore_gets_its_row_only_when_it_is_actually_dispatched(core):
-    core.supervisor.pending_command = {"action": RESTORE_UPLINK, "sent_at": 0, "nonce": "r" * 32}
-    queued = cut(core)
-    assert queued["code"] == "CUT_QUEUED" and queued["ok"] is True
-    assert pre_dispatch_rows(core) == [] and core.commands() == []
+def test_manual_cut_during_restore_is_refused_without_deferred_replay(core):
+    core.supervisor.pending_command = {
+        "action": RESTORE_UPLINK,
+        "sent_at": 0,
+        "nonce": "r" * 32,
+    }
+
+    refused = cut(core)
+
+    assert refused["ok"] is False
+    assert refused["code"] == "RESTORE_IN_FLIGHT"
+    assert core.supervisor._deferred_cut is None
+    assert pre_dispatch_rows(core) == []
+    assert core.commands() == []
+
     with core.supervisor._command_lock:
         core.supervisor.pending_command = None
         core.supervisor._drain_deferred_cut_locked()
-    assert len(cuts(core)) == 1 and len(pre_dispatch_rows(core)) == 1
+
+    assert cuts(core) == []
+    assert pre_dispatch_rows(core) == []
+    assert core.commands() == []
 
 
 def test_a_dry_run_command_writes_no_pre_dispatch_row(core):

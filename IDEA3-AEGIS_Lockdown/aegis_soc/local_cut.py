@@ -389,7 +389,7 @@ class LocalCutGate:
             )
 
         result = self.supervisor.issue_command(
-            CUT_UPLINK, f"local console: {reason}", critical=True, origin=CUT_ORIGIN, pre_publish=pre_publish,
+            CUT_UPLINK, f"local console: {reason}", critical=True, origin=CUT_ORIGIN, pre_publish=pre_publish, allow_defer=False,
         )
         if result.sent:
             return lr._response(
