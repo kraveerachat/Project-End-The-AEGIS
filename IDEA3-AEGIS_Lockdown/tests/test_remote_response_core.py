@@ -272,13 +272,15 @@ def test_no_message_can_release_an_episode_only_an_explicit_operator_call(env):
 # ------------------------------------------------------------------------------------- the local path and the lab relay stay separate
 
 
-def test_the_core_local_alert_path_is_unchanged_with_the_remote_ingress_running(env):
+def test_the_core_local_alert_path_uses_the_same_confirmation_gate_as_remote_alerts(env):
+    shared_gate = env.sup.remote_response
     assert send(env, v2("ssh_brute_force", IP))["code"] == "OBSERVED"   # the lab Core scores without binding an incident
     assert env.sup.containment.calls == [("block", IP)]                  # local evidence still blocks locally
     tick(env)
     send(env, v2("ssh_login_after_failures", IP))
-    assert [c[0] for c in env.rec.commands] == ["CUT_UPLINK"]            # and the existing local auto-CUT behaviour is intact
-    assert env.rec.commands[0][2]["origin"] == "graduated-response"
+    assert env.sup.remote_response is shared_gate
+    assert shared_gate.pending(rr.LOCAL_SOURCE).address == IP
+    assert env.rec.commands == []
 
 
 def test_remote_evidence_and_local_evidence_are_scored_independently(env):

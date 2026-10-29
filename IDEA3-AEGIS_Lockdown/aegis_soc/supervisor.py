@@ -206,6 +206,16 @@ def _load_remote_alert_components():
         return None
 
 
+def _load_remote_response_component():
+    """Load only the shared CUT-confirmation gate; keep it optional for governed releases that do not ship it."""
+    import importlib
+
+    try:
+        return importlib.import_module(f"{__package__}.remote_response")
+    except ImportError:
+        return None
+
+
 GRADUATED_HISTORY = 10
 
 
@@ -382,11 +392,13 @@ class AegisSupervisor:
         not_after: float | None = None,
         restore_basis: str | None = None,
         pre_publish=None,
+        allow_defer: bool = True,
     ):
         """Issue a physical command and let Core own pending-ACK state.
 
         ``pre_publish`` runs inside ``_command_lock``, after the pending/containment checks passed and immediately before the
         publish, so a durable pre-dispatch record is part of the same atomic decision (a refused request writes nothing).
+        ``allow_defer=False`` is reserved for graduated confirmation; the default preserves manual CUT priority behind RESTORE.
         """
         if (
             action == "RESTORE_UPLINK"
@@ -422,6 +434,18 @@ class AegisSupervisor:
                     )
                 if self.pending_command is not None:
                     if action == "CUT_UPLINK" and self.pending_command.get("action") == "RESTORE_UPLINK":
+                        if not allow_defer:
+                            detail = "CUT_UPLINK rejected: RESTORE_UPLINK is in flight"
+                            db.log_event("COMMAND_REJECTED", f"{detail} (origin={origin})", db.WARN)
+                            return CommandResult(
+                                action,
+                                False,
+                                False,
+                                self.controller.dry_run,
+                                None,
+                                detail,
+                                reason_code="RESTORE_IN_FLIGHT",
+                            )
                         self._deferred_cut = self._deferred_cut or {
                             "description": description,
                             "critical": critical,
@@ -596,6 +620,10 @@ class AegisSupervisor:
         if state == "NORMAL" and self.graduated is not None and self.graduated.auto_cut_latched:
             # Only an operator RESTORE brings the device back to NORMAL; that ends the lockdown episode.
             self.graduated.reset_episode()
+            if self.remote_response is not None:
+                rr = _load_remote_response_component()
+                if rr is not None:
+                    self.remote_response.cancel_pending(rr.LOCAL_SOURCE)
             self.log_event("INFO", "graduated_episode_reset", reason="device_normal")
 
         physical = self.awaiting_physical_confirmation
@@ -945,26 +973,47 @@ class AegisSupervisor:
             self._graduated_act(follow_up)
 
     def _graduated_cut(self, decision: gr.Decision) -> str:
-        """The only automatic physical action: one CUT_UPLINK per lockdown episode, through the normal Core command path."""
-        if self.settings.dry_run:
-            self.log_event("INFO", "graduated_cut_noop", attacker_ip=decision.address, reason_code="DRY_RUN")
-            return "DRY_RUN"
+        """Queue one local CUT request per lockdown episode. Physical action always requires operator confirmation."""
         if self.status.armed != "ARMED":
             self.log_event("WARNING", "graduated_cut_blocked", attacker_ip=decision.address, reason="system_disarmed")
             return "CUT_DISARMED"
-        description = (
-            f"graduated response CRITICAL attacker={decision.address} score={decision.score} "
-            f"reasons={','.join(decision.reasons)}"
-        )[:240]
-        result = self.issue_command("CUT_UPLINK", description, critical=True, origin="graduated-response")
-        sent = bool(getattr(result, "ok", False) and getattr(result, "sent", False))
-        self.log_event(
-            "CRITICAL" if sent else "ERROR", "graduated_cut_issued" if sent else "graduated_cut_refused",
-            attacker_ip=decision.address, reason_code=str(getattr(result, "reason_code", "") or "")[:64],
+        gate = self._ensure_cut_confirmation_gate()
+        if gate is None:
+            self.log_event("ERROR", "graduated_cut_refused", attacker_ip=decision.address,
+                           reason_code="CONFIRMATION_GATE_UNAVAILABLE")
+            return "CUT_REFUSED"
+        rr, response = gate
+        response.request_cut(rr.LOCAL_SOURCE, decision.address, decision.score, decision.reasons)
+        self._remote_audit(
+            "LOCAL_GRADUATED_CUT_AWAITING",
+            f"source={rr.LOCAL_SOURCE} attacker_ip={decision.address} target={response.target_name(rr.LOCAL_SOURCE)}",
+            "CRITICAL",
         )
-        if sent:
-            return "CUT_SENT"
-        return "CUT_QUEUED" if getattr(result, "reason_code", None) == "CUT_QUEUED" else "CUT_REFUSED"
+        self.log_event("CRITICAL", "graduated_cut_awaiting_operator", attacker_ip=decision.address)
+        return "AWAITING_OPERATOR"
+
+    def _ensure_cut_confirmation_gate(self, rr=None):
+        """Return the one gate shared by local and remote graduated CRITICAL decisions."""
+        rr = rr or _load_remote_response_component()
+        if rr is None:
+            return None
+        if self.remote_response is None:
+            target = rr.DryRunRelayTarget() if self.settings.dry_run else rr.CoreRelayTarget(
+                lambda *args, **kwargs: self.issue_command(*args, **kwargs),
+                rr.LOCAL_SOURCE,
+                origin="graduated-response",
+                target_name="LOCAL_CORE_RELAY",
+                command_guard=self.command_guard,
+            )
+            self.remote_response = rr.RemoteResponse(
+                sources=(), clock=self.monotonic, targets={}, audit=self._remote_audit,
+                log=self.log_event, record=lambda source, item, outcome: self._graduated_record(item, outcome, source),
+                notify=self._remote_notify,
+            )
+            self.remote_response.register_source(
+                rr.LOCAL_SOURCE, target=target, audit_prefix="LOCAL_GRADUATED",
+            )
+        return rr, self.remote_response
 
     def recovery_view_path(self) -> Path:
         return self.settings.runtime_dir / recovery_view.VIEW_NAME
@@ -1115,22 +1164,26 @@ class AegisSupervisor:
                 if mode == rr.RELAY_DRYRUN:
                     targets[name] = rr.DryRunRelayTarget()
                 elif mode == rr.RELAY_LAB:
-                    targets[name] = rr.CoreRelayTarget(self.issue_command, name)
-            self.remote_response = rr.RemoteResponse(
-                sources=settings.sources, clock=self.monotonic, targets=targets, audit=self._remote_audit,
-                log=self.log_event, record=lambda source, decision, outcome: self._graduated_record(decision, outcome, source),
-                notify=self._remote_notify,
-            )
+                    targets[name] = rr.CoreRelayTarget(
+                        self.issue_command, name, command_guard=self.command_guard,
+                    )
+            _module, response = self._ensure_cut_confirmation_gate(rr)
+            registered = []
+            for name in settings.sources:
+                response.register_source(name, target=targets.get(name))
+                registered.append(name)
             subscriber = ras.RemoteAlertSubscriber(
                 settings, verifier, on_alert=self.on_remote_alert, on_refusal=self.on_remote_refusal,
             )
             subscriber.start()
         except ras.SettingsError as error:
-            self.remote_response = None
+            for name in locals().get("registered", ()):
+                self.remote_response.unregister_source(name)
             self.log_event("ERROR", "remote_alerts_failed", error=error.code)
             return
         except Exception as error:
-            self.remote_response = None
+            for name in locals().get("registered", ()):
+                self.remote_response.unregister_source(name)
             self.log_event("ERROR", "remote_alerts_failed", error=type(error).__name__)
             return
         self.remote_subscriber = subscriber

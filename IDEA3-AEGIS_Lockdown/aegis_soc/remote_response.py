@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -31,6 +32,7 @@ RELAY_NONE = "NONE"
 RELAY_DRYRUN = "DRYRUN"
 RELAY_LAB = "LAB_RELAY"
 RELAY_MODES = (RELAY_NONE, RELAY_DRYRUN, RELAY_LAB)
+LOCAL_SOURCE = "__local__"
 
 OUTCOME_REMOTE_HOST = "REMOTE_HOST"
 OUTCOME_RECOMMENDED = "RECOMMENDED"
@@ -65,16 +67,26 @@ class DryRunRelayTarget:
 
 
 class CoreRelayTarget:
-    """Lab profile only: the Core's own (single) relay, through the normal command path and its checks."""
+    """The Core's own relay, reached only after the shared confirmation gate accepts a pending CUT."""
 
     name = RELAY_LAB
 
-    def __init__(self, issue_command: Callable, source: str) -> None:
+    def __init__(self, issue_command: Callable, source: str, *, origin: str | None = None,
+                 target_name: str | None = None, command_guard: Callable | None = None) -> None:
         self._issue = issue_command
         self._source = source
+        self._origin = origin or f"remote-alert:{source}"
+        self.name = target_name or RELAY_LAB
+        self._command_guard = command_guard
+
+    def confirmation_guard(self):
+        """Acquire the Core command lock before the confirmation gate lock; dry-run targets need no outer lock."""
+        return self._command_guard() if self._command_guard is not None else nullcontext()
 
     def cut(self, description: str) -> RelayResult:
-        result = self._issue("CUT_UPLINK", description[:240], critical=True, origin=f"remote-alert:{self._source}")
+        result = self._issue(
+            "CUT_UPLINK", description[:240], critical=True, origin=self._origin, allow_defer=False,
+        )
         sent = bool(getattr(result, "ok", False) and getattr(result, "sent", False))
         return RelayResult(sent, "CUT_SENT" if sent else str(getattr(result, "reason_code", "") or "CUT_REFUSED")[:64])
 
@@ -92,11 +104,41 @@ class RemoteResponse:
                  audit: Callable[[str, str, str], None], log: Callable[..., None],
                  record: Callable[[str, gr.Decision, str | None], None],
                  notify: Callable[[str, gr.Decision, str | None], None]) -> None:
-        self._engines = {source: gr.GraduatedResponse(clock=clock) for source in sources}
-        self._targets = {source: targets.get(source) or UnconfiguredRelayTarget() for source in self._engines}
+        self._clock = clock
+        self._engines: dict[str, gr.GraduatedResponse] = {}
+        self._targets: dict[str, object] = {}
+        self._audit_prefixes: dict[str, str] = {}
         self._pending: dict[str, PendingCut] = {}
         self._audit, self._log, self._record, self._notify = audit, log, record, notify
         self._lock = threading.RLock()
+        for source in sources:
+            self.register_source(source, target=targets.get(source))
+
+    def register_source(self, source: str, *, target: object | None = None, audit_prefix: str = "REMOTE") -> None:
+        """Add one independently-scored source to this confirmation gate without replacing existing pending requests."""
+        with self._lock:
+            if source in self._engines:
+                raise ValueError("source already registered")
+            self._engines[source] = gr.GraduatedResponse(clock=self._clock)
+            self._targets[source] = target or UnconfiguredRelayTarget()
+            self._audit_prefixes[source] = audit_prefix
+
+    def unregister_source(self, source: str) -> None:
+        """Remove a source whose optional ingress failed to start; other sources and pending requests are untouched."""
+        with self._lock:
+            self._engines.pop(source, None)
+            self._targets.pop(source, None)
+            self._audit_prefixes.pop(source, None)
+            self._pending.pop(source, None)
+
+    def request_cut(self, source: str, address: str, score: int, reasons: tuple[str, ...]) -> PendingCut:
+        """Create or replace the pending CUT for a registered source. This method never actuates a target."""
+        with self._lock:
+            if source not in self._targets:
+                raise ValueError("unknown source")
+            pending = PendingCut(source, address, score, reasons)
+            self._pending[source] = pending
+            return pending
 
     # -- evidence (called with a verified alert only) ---------------------------------------------------------------------
     def handle(self, alert: ra.RemoteAlert) -> gr.Decision:
@@ -118,7 +160,7 @@ class RemoteResponse:
                 outcome = OUTCOME_RECOMMENDED
             elif decision.action == gr.AUTO_CUT:
                 # The policy would cut automatically for a local source; for a remote one it only asks the operator.
-                self._pending[alert.source] = PendingCut(alert.source, decision.address, decision.score, decision.reasons)
+                self.request_cut(alert.source, decision.address, decision.score, decision.reasons)
                 outcome = OUTCOME_AWAITING_OPERATOR
                 self._audit("REMOTE_CUT_AWAITING",
                             f"source={alert.source} attacker_ip={decision.address} target={self._targets[alert.source].name}", "CRITICAL")
@@ -131,26 +173,50 @@ class RemoteResponse:
         with self._lock:
             return self._pending.get(source)
 
+    def target_name(self, source: str) -> str:
+        with self._lock:
+            return self._targets[source].name
+
+    def cancel_pending(self, source: str) -> None:
+        """Invalidate a request when trusted state proves that its lockdown episode has ended."""
+        with self._lock:
+            self._pending.pop(source, None)
+
     def confirm_cut(self, source: str, address: str, *, operator: str) -> RelayResult:
         """Send the pending CUT for ``source`` to that source's relay target. Only an operator-authenticated Core path may call
         this; it requires a pending CRITICAL decision for exactly this address and never touches any other source's relay."""
         with self._lock:
-            pending = self._pending.get(source)
-            if pending is None or pending.address != address:
-                self._audit("REMOTE_CUT_REFUSED", f"source={source} code=NO_PENDING_CUT operator={operator[:32]}", "WARN")
+            prefix = self._audit_prefixes.get(source, "REMOTE")
+            if not isinstance(operator, str) or not operator.strip():
+                self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=UNAUTHORIZED", "WARN")
+                return RelayResult(False, "UNAUTHORIZED")
+            target = self._targets.get(source)
+            if target is None:
+                self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=NO_PENDING_CUT operator={operator[:32]}", "WARN")
                 return RelayResult(False, "NO_PENDING_CUT")
-            target = self._targets[source]
-            description = (f"remote alert CRITICAL source={source} attacker={pending.address} score={pending.score} "
-                           f"operator={operator[:32]}")
-            result = target.cut(description)
-            if result.ok:
-                del self._pending[source]
-                self._audit("REMOTE_CUT_CONFIRMED", f"source={source} attacker_ip={address} target={target.name} "
-                                                    f"code={result.code} operator={operator[:32]}", "CRITICAL")
-            else:
-                self._audit("REMOTE_CUT_FAILED", f"source={source} target={target.name} code={result.code} "
-                                                 f"operator={operator[:32]}", "ERROR")
-            return result
+
+        guard = getattr(target, "confirmation_guard", nullcontext)
+        with guard(), self._lock:
+                pending = self._pending.get(source)
+                if pending is None or pending.address != address or self._targets.get(source) is not target:
+                    self._audit(f"{prefix}_CUT_REFUSED", f"source={source} code=NO_PENDING_CUT operator={operator[:32]}", "WARN")
+                    return RelayResult(False, "NO_PENDING_CUT")
+                description = (
+                    f"remote alert CRITICAL source={source} attacker={pending.address} score={pending.score} "
+                    f"operator={operator[:32]}"
+                    if prefix == "REMOTE" else
+                    f"graduated response CRITICAL attacker={pending.address} score={pending.score} "
+                    f"reasons={','.join(pending.reasons)} operator={operator[:32]}"
+                )
+                result = target.cut(description)
+                if result.ok:
+                    del self._pending[source]
+                    self._audit(f"{prefix}_CUT_CONFIRMED", f"source={source} attacker_ip={address} target={target.name} "
+                                                            f"code={result.code} operator={operator[:32]}", "CRITICAL")
+                else:
+                    self._audit(f"{prefix}_CUT_FAILED", f"source={source} target={target.name} code={result.code} "
+                                                         f"operator={operator[:32]}", "ERROR")
+                return result
 
     def release_episode(self, source: str, *, operator: str) -> None:
         """After the operator has recovered: the next CRITICAL for this source may ask for a CUT again."""
