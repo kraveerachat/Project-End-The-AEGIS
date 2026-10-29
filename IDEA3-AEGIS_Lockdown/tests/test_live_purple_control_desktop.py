@@ -14,6 +14,9 @@ import pytest
 
 from tools import live_purple_control_desktop as desktop
 from tools import live_purple_observer as live
+from test_local_cut import (
+    MY_UID, REASON, SECRET, core, credential, enable,  # noqa: F401
+)
 
 rc = desktop.restore_client
 
@@ -1062,3 +1065,86 @@ def test_phase_2d_real_target_never_enables_confirm(
 
     assert str(app._pending_confirm_button.cget("state")) == "disabled"
     assert app._pending_snapshot is None
+
+def test_phase3_gui_real_socket_pending_dry_run(
+    core, app_factory, monkeypatch, tmp_path
+):
+    """GUI -> temporary Core socket -> authenticated dry-run."""
+    from aegis_soc import remote_response as rr
+
+    target = rr.DryRunRelayTarget()
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    assert path == core.runtime_dir / "cut.sock"
+    core.supervisor.start_local_cut()
+
+    # The test Core runs as the current test UID.
+    monkeypatch.setattr(
+        desktop.cut_desktop.client,
+        "core_uid",
+        lambda: MY_UID,
+    )
+
+    prompts = FakePrompts()
+    prompts.ask_pending_reason = lambda: REASON
+    prompts.ask_pending_confirmation = (
+        lambda: desktop.cut_desktop.client.CONFIRMATION
+    )
+    prompts.ask_pending_secret = lambda: SECRET
+
+    app, root = app_factory(None, prompts)
+    app._pending_socket_path = str(path)
+
+    refresh = app._pending_refresh_button
+    confirm = app._pending_confirm_button
+
+    assert str(confirm.cget("state")) == "disabled"
+
+    # GUI reads the real temporary Core socket.
+    refresh.configure(state=tk.NORMAL)
+    refresh.invoke()
+    root.update()
+
+    text = app._pending_status.cget("text")
+    assert pending.request_id in text
+    assert pending.address in text
+    assert "DRYRUN" in text
+    assert str(confirm.cget("state")) == "normal"
+    assert target.would_cut == []
+    assert core.commands() == []
+
+    # GUI confirms using real Core authentication.
+    confirm.invoke()
+    root.update()
+
+    assert "DRY_RUN_CONFIRMED" in (
+        app._pending_status.cget("text")
+    )
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
+    assert str(confirm.cget("state")) == "disabled"
+
+    # A subsequent refresh must not show the consumed request.
+    refresh.invoke()
+    root.update()
+
+    assert "NO_PENDING_CUT" in (
+        app._pending_status.cget("text")
+    )
+    assert str(confirm.cget("state")) == "disabled"
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
