@@ -39,6 +39,7 @@ Live CUT may be enabled, none of which is implemented or tested yet:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import socket
@@ -524,7 +525,10 @@ class LocalCutGate:
                 expires_at=time.time() + 30.0,
                 reason=reason,
             )
-        except Exception:
+        except Exception as error:
+            logging.getLogger("aegis_soc").error(
+                "CUT authorization issue failed: %s: %s", type(error).__name__, error
+            )
             return self._refuse("AUTHORIZATION_STORE_UNAVAILABLE", "CUT authorization could not be persisted", peer)
 
         def pre_publish(info: dict) -> None:

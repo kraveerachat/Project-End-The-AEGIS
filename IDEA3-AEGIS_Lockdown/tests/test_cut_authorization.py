@@ -216,6 +216,32 @@ def test_consume_and_audit_are_atomic_and_fail_closed(v1, authorization):
     assert mqtt.published == []
 
 
+def test_consume_failure_logs_the_real_exception_type_and_message(v1, authorization, caplog):
+    path, store, issuer = authorization
+    controller, mqtt, _, _ = v1
+    approval = grant(issuer)
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            "CREATE TRIGGER fail_cut_consume_audit_log BEFORE INSERT ON cut_authorization_events "
+            "WHEN NEW.event_type = 'CONSUMED' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with caplog.at_level("ERROR", logger="aegis_soc"):
+        result = issue(controller, approval)
+
+    # The outcome is unchanged (still fail-closed); only a diagnostic log line is new.
+    assert (result.sent, result.reason_code) == (False, "CUT_AUTHORIZATION_STORE_UNAVAILABLE")
+    assert store.get(approval.approval_id)["state"] == "AUTHORIZED"
+    assert mqtt.published == []
+
+    [record] = [r for r in caplog.records if "CUT authorization consume failed" in r.message]
+    assert "audit unavailable" in record.message
+
+
 @pytest.mark.parametrize(
     "publish_result,publish_error,outcome,reason",
     [

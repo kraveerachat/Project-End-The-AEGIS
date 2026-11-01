@@ -10,6 +10,7 @@ import ast
 import json
 import os
 import socket
+import sqlite3
 import stat
 import threading
 import time
@@ -304,6 +305,19 @@ def test_an_unavailable_audit_store_prevents_publication_and_is_explicit(core):
     core.audit.fail_strict = False
     assert cut(core)["code"] == "CUT_PUBLISHED"
     assert len(pre_dispatch_rows(core)) == 1 and len(cuts(core)) == 1
+
+
+def test_an_authorization_store_failure_is_logged_and_still_fails_closed(core, monkeypatch, caplog):
+    def broken_issue(**_kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(core.cut_gate._authorization_issuer, "issue", broken_issue)
+    with caplog.at_level("ERROR", logger="aegis_soc"):
+        response = cut(core)
+    assert response["ok"] is False and response["code"] == "AUTHORIZATION_STORE_UNAVAILABLE"
+    assert core.commands() == [] and core.supervisor.pending_command is None
+    [record] = [r for r in caplog.records if "CUT authorization issue failed" in r.message]
+    assert "OperationalError" in record.message and "disk I/O error" in record.message
 
 
 def test_concurrent_requests_publish_one_command_with_one_row(core):

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import sqlite3
 import time
@@ -17,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 
+
+_logger = logging.getLogger("aegis_soc")
 
 CUT_UPLINK = "CUT_UPLINK"
 _TERMINAL_OUTCOMES = frozenset({"PUBLISHED", "NOT_PUBLISHED", "OUTCOME_UNKNOWN"})
@@ -338,8 +341,9 @@ class CutAuthorizationStore:
             if connection.in_transaction:
                 connection.rollback()
             raise
-        except Exception:
+        except Exception as error:
             connection.rollback()
+            _logger.error("CUT authorization consume failed: %s: %s", type(error).__name__, error)
             raise CutAuthorizationError("CUT_AUTHORIZATION_STORE_UNAVAILABLE") from None
         finally:
             connection.close()
