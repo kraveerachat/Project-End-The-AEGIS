@@ -1,0 +1,22 @@
+# Separate alert broker: reachable only on loopback, so the only remote path is the reverse tunnel.
+# It is a separate instance because ACL and packet-size settings are global, and must not affect the device broker.
+per_listener_settings false
+allow_anonymous false
+persistence false
+retain_available false
+max_packet_size 8192
+acl_file <ALERT_CONFIG_DIR>/acl
+log_dest stderr
+log_type error
+log_type warning
+log_type notice
+connection_messages true
+
+listener 8884 127.0.0.1
+protocol mqtt
+cafile <SENDER_CA_CERT>
+certfile <BROKER_CERT>
+keyfile <BROKER_KEY>
+tls_version tlsv1.2
+require_certificate true
+use_identity_as_username true

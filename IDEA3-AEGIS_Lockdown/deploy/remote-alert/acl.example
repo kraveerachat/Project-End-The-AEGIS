@@ -1,0 +1,5 @@
+user aegis-core
+topic read aegis/alert/<SOURCE_ID>
+
+user aegis-alert-<SOURCE_ID>
+topic write aegis/alert/<SOURCE_ID>
