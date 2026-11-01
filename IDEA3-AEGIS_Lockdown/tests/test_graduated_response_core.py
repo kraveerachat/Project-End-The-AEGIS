@@ -80,6 +80,32 @@ def tick(env, seconds=1.0):
     env.core.now[0] += seconds
 
 
+def _test_core_grant_dispatch(supervisor):
+    """Unit-test Core grant; true socket authentication is tested separately."""
+    import time
+
+    from aegis_soc.controller import CUT_UPLINK
+
+    def dispatch(target, pending, description):
+        grant = supervisor._cut_authorization_issuer.issue(
+            request_id=pending.request_id,
+            incident_id=pending.request_id,
+            target_device=supervisor.controller.cut_target_device,
+            action=CUT_UPLINK,
+            operator_identity="test:approved-operator",
+            expires_at=time.time() + 30.0,
+            reason=description,
+        )
+        return target.cut(
+            description,
+            cut_authorization=grant,
+            cut_request_id=pending.request_id,
+            cut_incident_id=pending.request_id,
+        )
+
+    return dispatch
+
+
 # --------------------------------------------------------------------------- default stays inert
 
 
@@ -175,7 +201,20 @@ def test_local_confirmation_rejects_missing_wrong_unauthorized_and_duplicate_req
     assert env.rec.commands == [] and gate.pending(rr.LOCAL_SOURCE) is not None
     pending_id = gate.pending(rr.LOCAL_SOURCE).request_id
 
-    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "CUT_SENT"
+    assert gate.confirm_cut(
+        rr.LOCAL_SOURCE, IP,
+        operator="authorized-op",
+        request_id=pending_id,
+    ).code == "CUT_AUTHORIZATION_REQUIRED"
+    assert env.rec.commands == []
+    assert gate.pending(rr.LOCAL_SOURCE) is not None
+
+    assert gate.confirm_cut(
+        rr.LOCAL_SOURCE, IP,
+        operator="authorized-op",
+        request_id=pending_id,
+        physical_cut=_test_core_grant_dispatch(response),
+    ).code == "CUT_SENT"
     assert len(env.rec.commands) == 1
     assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
     assert len(env.rec.commands) == 1
@@ -232,14 +271,11 @@ def test_normal_cancellation_and_confirmation_use_one_lock_order_without_deadloc
     )
     pending = gate.request_cut(rr.LOCAL_SOURCE, IP, 140, ("critical",))
 
-    original_cut = target.cut
-
-    def paused_cut(description):
+    def paused_dispatch(_target, _pending, description):
         target_entered.set()
         assert release_target.wait(1.0)
-        return original_cut(description)
-
-    target.cut = paused_cut
+        issue("CUT_UPLINK", description)
+        return rr.RelayResult(True, "CUT_SENT")
     original_cancel = gate.cancel_pending
 
     def observed_cancel(source):
@@ -249,7 +285,15 @@ def test_normal_cancellation_and_confirmation_use_one_lock_order_without_deadloc
     gate.cancel_pending = observed_cancel
     result = []
     confirm = threading.Thread(
-        target=lambda: result.append(gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending.request_id)), daemon=True,
+        target=lambda: result.append(
+            gate.confirm_cut(
+                rr.LOCAL_SOURCE, IP,
+                operator="authorized-op",
+                request_id=pending.request_id,
+                physical_cut=paused_dispatch,
+            )
+        ),
+        daemon=True,
     )
     def process_normal():
         with command_guard():
@@ -288,7 +332,12 @@ def test_graduated_confirmation_during_restore_never_creates_a_deferred_cut(
             "action": "RESTORE_UPLINK", "sent_at": instance.core.now[0], "nonce": restore_nonce,
         }
 
-        refused = gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id)
+        refused = gate.confirm_cut(
+            rr.LOCAL_SOURCE, IP,
+            operator="authorized-op",
+            request_id=pending_id,
+            physical_cut=_test_core_grant_dispatch(sup),
+        )
         assert refused == rr.RelayResult(False, "RESTORE_IN_FLIGHT")
         assert sup._deferred_cut is None and instance.core.commands() == []
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import struct
 import threading
@@ -92,9 +93,10 @@ def send_request(path, body: dict, *, expected_uid: int, timeout: float = 5.0) -
         client.close()
 
 
-def cut_request(reason: str, secret: str) -> dict:
+def cut_request(reason: str, secret: str, *, request_id: str | None = None, incident_id: str | None = None) -> dict:
     return {"v": 1, "op": "CUT_UPLINK", "origin": CUT_ORIGIN, "confirmation": CONFIRMATION,
-            "reason": reason, "secret": secret}
+            "reason": reason, "secret": secret, "request_id": request_id or secrets.token_hex(16),
+            "incident_id": incident_id}
 
 
 def evidence_request(msg_id: str) -> dict:
@@ -206,9 +208,18 @@ _CODES = {
     "REQUEST_ID_REQUIRED": ("REFUSED_INPUT", WARN, "Request identity is required. Nothing was sent."),
     "REQUEST_ID_MISMATCH": ("REFUSED_INPUT", WARN, "Request identity does not match. Nothing was sent."),
     "TARGET_CHANGED": ("REFUSED_OTHER", WARN, "The target changed. Nothing was sent."),
+    "OUTCOME_UNKNOWN": (
+        "OUTCOME_UNKNOWN",
+        CRITICAL,
+        (
+            "The Core cannot confirm whether the CUT was published. "
+            "Check Core audit, command evidence and device state. "
+            "Do not retry automatically."
+        ),
+    ),
     "CUT_PUBLISHED": ("PUBLISHED", INFO, "CUT published by the Core. Waiting for device ACK. Physical state is NOT proven."),
-    "CUT_QUEUED": ("QUEUED", WARN, "CUT accepted but queued behind an in-flight RESTORE; it has no command id yet. "
-                                    "Check Core evidence before acting again."),
+    "CUT_QUEUED": ("QUEUED", WARN, ("CUT accepted but queued behind an in-flight RESTORE; it has no command id yet. "
+                                    "Check Core evidence before acting again.")),
     "CUT_DRY_RUN": ("DRY_RUN", WARN, "The Core is in dry-run mode. Nothing was sent to the device."),
     "AUTH_REQUIRED": ("REFUSED_AUTH", WARN, "Operator authentication is required. Nothing was sent."),
     "AUTH_FAILED": ("REFUSED_AUTH", WARN, "Authentication failed. Nothing was sent."),
@@ -227,6 +238,9 @@ _CODES = {
     "REASON_REQUIRED": ("REFUSED_INPUT", WARN, "A reason is required. Nothing was sent."),
     "REASON_INVALID": ("REFUSED_INPUT", WARN, "The reason was not accepted. Nothing was sent."),
     "MALFORMED_REQUEST": ("REFUSED_INPUT", WARN, "The Core rejected the request format. Nothing was sent."),
+    "REQUEST_ID_INVALID": ("REFUSED_INPUT", WARN, "The Core rejected the request identity. Nothing was sent."),
+    "TARGET_UNAVAILABLE": ("NOT_SENT", CRITICAL, "The Core has no configured relay target. Nothing was sent."),
+    "AUTHORIZATION_STORE_UNAVAILABLE": ("REFUSED_AUDIT", CRITICAL, "The Core could not persist CUT authorization. Nothing was sent."),
     "CHANNEL_CLOSING": ("NOT_SENT", WARN, "The Core CUT channel is closing. Nothing was sent."),
 }
 
@@ -401,7 +415,7 @@ def confirm_pending_cut(
         return refused
 
     if (
-        target != "DRYRUN"
+        not (target == "DRYRUN" or (source == "__local__" and target == "LOCAL_CORE_RELAY"))
         or not isinstance(address, str)
         or not 1 <= len(address) <= 45
         or not isinstance(request_id, str)
@@ -469,12 +483,50 @@ def confirm_pending_cut(
     code = response.get("code")
     ok = response.get("ok")
 
+    if ok is True and code == "CUT_PUBLISHED":
+        msg_id = response.get("msg_id")
+        seq = response.get("seq")
+
+        if (
+            not isinstance(msg_id, str)
+            or len(msg_id) != 32
+            or any(c not in "0123456789abcdef" for c in msg_id)
+            or type(seq) is not int
+            or seq < 1
+        ):
+            return View(
+                "OUTCOME_UNKNOWN",
+                "Core reported publication without a valid "
+                "command identity. Do not retry automatically.",
+                CRITICAL,
+                True,
+            )
+
+        return View(
+            "PUBLISHED",
+            f"Core published CUT {msg_id} (seq={seq}). "
+            "ESP32 ACK, relay contact state and network isolation "
+            "are NOT yet verified.",
+            INFO,
+            True,
+            msg_id,
+        )
+
     if ok is True and code == "PENDING_CUT_DRY_RUN":
         return View(
             "DRY_RUN_CONFIRMED",
             "The Core accepted a simulated Pending CUT. "
             "No physical CUT was performed.",
             OK,
+            True,
+        )
+
+    if ok is False and code == "CUT_PUBLISHED":
+        return View(
+            "OUTCOME_UNKNOWN",
+            "Conflicting Core publication response. "
+            "Check Core evidence; do not retry automatically.",
+            CRITICAL,
             True,
         )
 

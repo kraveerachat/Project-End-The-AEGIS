@@ -381,7 +381,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 else:
                     lines = [
                         "PENDING CUT — READ-ONLY CORE SNAPSHOT",
-                        "Confirmation is not available in this panel.",
+                        "Confirmation requires Core operator authorization.",
                     ]
                     for item in items:
                         lines.extend((
@@ -416,7 +416,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._pending_snapshot = (
                 dict(items[0])
                 if len(items) == 1
-                and items[0].get("target_name") == "DRYRUN"
+                and (items[0].get("target_name") == "DRYRUN" or (items[0].get("source") == "__local__" and items[0].get("target_name") == "LOCAL_CORE_RELAY"))
                 and not self._pending_confirming
                 else None
             )
@@ -444,7 +444,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 or cut_flow.busy
                 or not self._pending_socket_path
                 or not isinstance(pending, dict)
-                or pending.get("target_name") != "DRYRUN"
+                or not (pending.get("target_name") == "DRYRUN" or (pending.get("source") == "__local__" and pending.get("target_name") == "LOCAL_CORE_RELAY"))
             ):
                 return
 

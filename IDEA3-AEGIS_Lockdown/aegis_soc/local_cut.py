@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import socket
 import stat
 import threading
@@ -52,6 +53,7 @@ from . import database as db
 from . import local_restore as lr
 from . import recovery_client
 from .controller import CUT_UPLINK, RESTORE_UPLINK, CommandResult
+from .cut_authorization import TrustedCutAuthorizationIssuer
 
 CUT_ORIGIN = "core-local-cut"
 CONFIRMATION = "CUT UPLINK"
@@ -67,8 +69,11 @@ SECRET_MAX_CHARS = 256
 READ_DEADLINE_SEC = 3.0
 MAX_HANDLERS = 4
 REFUSAL_AUDIT_INTERVAL_SEC = 10.0
-_REQUEST_KEYS = frozenset({"v", "op", "origin", "confirmation", "reason", "secret"})
-_PENDING_CONFIRM_KEYS = _REQUEST_KEYS | frozenset({
+_BASE_REQUEST_KEYS = frozenset({"v", "op", "origin", "confirmation", "reason", "secret"})
+_REQUEST_KEYS = _BASE_REQUEST_KEYS | frozenset({
+    "request_id", "incident_id",
+})
+_PENDING_CONFIRM_KEYS = _BASE_REQUEST_KEYS | frozenset({
     "source", "address", "request_id", "target",
 })
 _EVIDENCE_KEYS = frozenset({"v", "op", "msg_id"})
@@ -99,9 +104,17 @@ def credentials_are_distinct(cut: lr.RestoreCredential, restore: lr.RestoreCrede
     return restore is None or (cut.salt, cut.digest) != (restore.salt, restore.digest)
 
 
-def cut_request(reason: str, secret: str, confirmation: str = CONFIRMATION) -> dict[str, Any]:
+def cut_request(
+    reason: str,
+    secret: str,
+    confirmation: str = CONFIRMATION,
+    *,
+    request_id: str | None = None,
+    incident_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "v": 1, "op": CUT_UPLINK, "origin": CUT_ORIGIN, "confirmation": confirmation, "reason": reason, "secret": secret,
+        "request_id": request_id or secrets.token_hex(16), "incident_id": incident_id,
     }
 
 
@@ -122,6 +135,7 @@ class LocalCutGate:
         *,
         allowed_uid: int,
         credential: lr.RestoreCredential,
+        authorization_issuer: TrustedCutAuthorizationIssuer,
         audit: Callable[..., None] | None = None,
         audit_strict: Callable[..., None] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
@@ -129,6 +143,7 @@ class LocalCutGate:
         self.supervisor = supervisor
         self.allowed_uid = int(allowed_uid)
         self.credential = credential
+        self._authorization_issuer = authorization_issuer
         self.audit = audit or db.log_event
         self.audit_strict = audit_strict or db.log_event_strict
         self.monotonic = monotonic
@@ -220,7 +235,7 @@ class LocalCutGate:
 
 
     def _handle_pending_confirmation(self, body, peer):
-        """Core-authenticated pending confirmation; lab dry-run only."""
+        """Core-authenticated pending confirmation with local-only physical scope."""
         if (
             not isinstance(body, dict)
             or set(body) != _PENDING_CONFIRM_KEYS
@@ -274,13 +289,114 @@ class LocalCutGate:
                 "TARGET_MISMATCH", "target mismatch", peer
             )
 
-        # Phase 1C: refuse all physical relay targets.
-        # Production dispatch requires a separate security review.
+        # Physical pending CUT is authorized only by this authenticated
+        # Core-local gate. RemoteResponse never mints a grant.
         if body["target"] != "DRYRUN":
-            return self._refuse(
-                "CONFIRM_NOT_ENABLED", "dry-run only", peer
+            from . import remote_response as rr
+
+            if (
+                source != rr.LOCAL_SOURCE
+                or body["target"] != "LOCAL_CORE_RELAY"
+            ):
+                return self._refuse(
+                    "CONFIRM_NOT_ENABLED",
+                    "physical pending CUT is local-only",
+                    peer,
+                )
+
+            def authorized_dispatch(target, bound_pending, description):
+                device_id = getattr(
+                    self.supervisor.controller,
+                    "cut_target_device",
+                    None,
+                )
+
+                if not isinstance(device_id, str) or not device_id:
+                    return rr.RelayResult(False, "TARGET_UNAVAILABLE")
+
+                if (
+                    bound_pending.source != source
+                    or bound_pending.address != body["address"]
+                    or bound_pending.request_id != body["request_id"]
+                    or bound_pending.target_name != body["target"]
+                    or target.name != body["target"]
+                ):
+                    return rr.RelayResult(False, "PENDING_BINDING_MISMATCH")
+
+                try:
+                    approval = self._authorization_issuer.issue(
+                        request_id=bound_pending.request_id,
+                        incident_id=bound_pending.request_id,
+                        target_device=device_id,
+                        action=CUT_UPLINK,
+                        operator_identity=f"uid:{peer.uid}",
+                        expires_at=time.time() + 30.0,
+                        reason=body["reason"].strip(),
+                    )
+                except Exception:
+                    # No approval: never call the relay target.
+                    return rr.RelayResult(
+                        False, "AUTHORIZATION_STORE_UNAVAILABLE"
+                    )
+
+                # CoreRelayTarget forwards the grant to the central
+                # controller. The controller validates and consumes it.
+                return target.cut(
+                    description,
+                    cut_authorization=approval,
+                    cut_request_id=bound_pending.request_id,
+                    cut_incident_id=bound_pending.request_id,
+                )
+
+            result = response.confirm_cut(
+                source,
+                body["address"],
+                operator=f"uid:{peer.uid}",
+                request_id=body["request_id"],
+                dry_run_only=False,
+                physical_cut=authorized_dispatch,
             )
 
+            if result.ok and result.code == "CUT_SENT":
+                msg_id = result.msg_id
+                seq = result.seq
+
+                if (
+                    not isinstance(msg_id, str)
+                    or len(msg_id) != 32
+                    or any(c not in "0123456789abcdef" for c in msg_id)
+                    or type(seq) is not int
+                    or seq < 1
+                ):
+                    return self._refuse(
+                        "OUTCOME_UNKNOWN",
+                        "publication identity unavailable; "
+                        "check Core evidence before retry",
+                        peer,
+                    )
+
+                return lr._response(
+                    True,
+                    "CUT_PUBLISHED",
+                    "Core published an authorized CUT; "
+                    "device ACK and physical isolation are NOT proven",
+                    msg_id=msg_id,
+                    seq=seq,
+                    evidence=_evidence(
+                        requested="ACCEPTED",
+                        published="PUBLISHED",
+                        ack="PENDING",
+                    ),
+                )
+
+            return self._refuse(
+                result.code,
+                "pending physical CUT not confirmed as published; "
+                "check Core evidence before any retry",
+                peer,
+            )
+
+        # Preserve the existing dry-run confirmation path.
         result = response.confirm_cut(
             source,
             body["address"],
@@ -374,22 +490,63 @@ class LocalCutGate:
         problem = lr.reason_problem(body.get("reason"))
         if problem:
             return self._refuse(problem, "a bounded printable reason is required", peer)
+        request_id = body.get("request_id")
+        incident_id = body.get("incident_id")
+        if (
+            not isinstance(request_id, str)
+            or len(request_id) != 32
+            or any(character not in "0123456789abcdef" for character in request_id)
+            or (
+                incident_id is not None
+                and (
+                    not isinstance(incident_id, str)
+                    or not 1 <= len(incident_id) <= 160
+                    or not incident_id.isascii()
+                    or not incident_id.isprintable()
+                )
+            )
+        ):
+            return self._refuse("REQUEST_ID_INVALID", "a valid request identity is required", peer)
         refused = self._authenticate(body, peer)
         if refused is not None:
             return refused
         reason = body["reason"].strip()
+        target_device = self.supervisor.controller.cut_target_device
+        if not isinstance(target_device, str) or not target_device:
+            return self._refuse("TARGET_UNAVAILABLE", "the Core has no configured relay target", peer)
+        try:
+            approval = self._authorization_issuer.issue(
+                request_id=request_id,
+                incident_id=incident_id,
+                target_device=target_device,
+                action=CUT_UPLINK,
+                operator_identity=f"uid:{peer.uid}",
+                expires_at=time.time() + 30.0,
+                reason=reason,
+            )
+        except Exception:
+            return self._refuse("AUTHORIZATION_STORE_UNAVAILABLE", "CUT authorization could not be persisted", peer)
 
         def pre_publish(info: dict) -> None:
             # Runs inside the supervisor's command lock, after the pending checks and immediately before the publish.
             # A failure here raises, so nothing is published. Never contains the secret.
             self.audit_strict(
                 "CUT_PRE_DISPATCH",
-                f"uid={peer.uid} pid={peer.pid} msg_id={info.get('msg_id')} seq={info.get('seq')} reason={reason}",
+                f"uid={peer.uid} pid={peer.pid} request_id={request_id} "
+                f"msg_id={info.get('msg_id')} seq={info.get('seq')} reason={reason}",
                 db.CRITICAL,
             )
 
         result = self.supervisor.issue_command(
-            CUT_UPLINK, f"local console: {reason}", critical=True, origin=CUT_ORIGIN, pre_publish=pre_publish, allow_defer=False,
+            CUT_UPLINK,
+            f"local console: {reason}",
+            critical=True,
+            origin=CUT_ORIGIN,
+            pre_publish=pre_publish,
+            allow_defer=False,
+            cut_authorization=approval,
+            cut_request_id=request_id,
+            cut_incident_id=incident_id,
         )
         if result.sent:
             return lr._response(

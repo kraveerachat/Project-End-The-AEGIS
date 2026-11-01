@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import pytest
-from test_local_restore import Core, p1
+from test_local_restore import DEVICE, Core, p1
 
 from aegis_soc import config, local_cut
 from aegis_soc import database as db
@@ -40,7 +40,8 @@ def core(tmp_path, credential):
     instance.supervisor.status.uplink = "NORMAL"
     instance.clock_now = [1000.0]
     instance.cut_gate = local_cut.LocalCutGate(
-        instance.supervisor, allowed_uid=MY_UID, credential=credential, audit=instance.audit.log,
+        instance.supervisor, allowed_uid=MY_UID, credential=credential,
+        authorization_issuer=instance.supervisor._cut_authorization_issuer, audit=instance.audit.log,
         audit_strict=instance.audit.append, monotonic=lambda: instance.clock_now[0],
     )
     yield instance
@@ -60,12 +61,43 @@ def cut_without(core, key):
     return core.cut_gate.handle(body, core.peer)
 
 
+def test_cut_requests_have_fresh_request_identity_and_never_expose_the_internal_approval(core):
+    first_body = local_cut.cut_request(REASON, SECRET)
+    second_body = local_cut.cut_request(REASON, SECRET)
+    assert first_body["request_id"] != second_body["request_id"]
+    assert len(first_body["request_id"]) == 32
+
+    response = core.cut_gate.handle(first_body, core.peer)
+
+    assert response["code"] == "CUT_PUBLISHED"
+    assert "approval_id" not in response
+    rows = core.supervisor.cut_authorizations.for_request(first_body["request_id"])
+    assert len(rows) == 1
+    assert rows[0]["request_id"] == first_body["request_id"]
+    assert rows[0]["target_device"] == DEVICE
+    assert rows[0]["action"] == CUT_UPLINK
+    assert rows[0]["operator_identity"] == f"uid:{core.peer.uid}"
+    assert rows[0]["state"] == "CONSUMED"
+
+
 def cuts(core):
     return [command for command in core.commands() if command.fields["action"] == CUT_UPLINK]
 
 
 def pre_dispatch_rows(core):
     return [row for row in core.audit.strict if row[0] == "CUT_PRE_DISPATCH"]
+
+
+def approved_issue(core, description="test approved CUT", **kwargs):
+    request_id = p1.new_msg_id()
+    approval = core.supervisor._cut_authorization_issuer.issue(
+        request_id=request_id, incident_id=None, target_device=DEVICE, action=CUT_UPLINK,
+        operator_identity="test:trusted-local-gate", expires_at=time.time() + 30, reason=description,
+    )
+    return core.supervisor.issue_command(
+        CUT_UPLINK, description, cut_authorization=approval, cut_request_id=request_id,
+        cut_incident_id=None, **kwargs,
+    )
 
 
 def enable(monkeypatch, core, tmp_path, *, uid=MY_UID, gid=None, name="cut.sock", secret=SECRET):
@@ -180,6 +212,7 @@ def test_a_success_resets_the_failure_counter(core):
 def test_a_d4_restore_credential_can_never_authenticate_a_cut(core):
     restore_style = lr.RestoreCredential.parse(lr.hash_secret(SECRET, n=lr.SCRYPT_MIN_N))
     gate = local_cut.LocalCutGate(core.supervisor, allowed_uid=MY_UID, credential=restore_style,
+                                  authorization_issuer=core.supervisor._cut_authorization_issuer,
                                   audit=core.audit.log, audit_strict=core.audit.append)
     response = gate.handle(local_cut.cut_request(REASON, SECRET), core.peer)
     assert response["code"] == "AUTH_FAILED" and core.commands() == []
@@ -300,7 +333,7 @@ def test_the_pre_dispatch_audit_runs_inside_the_supervisor_command_lock(core):
         probe.join()
         observed.append((result[0], len(core.client.published)))
 
-    result = core.supervisor.issue_command(CUT_UPLINK, "x", critical=True, origin="test", pre_publish=hook)
+    result = approved_issue(core, "x", critical=True, origin="test", pre_publish=hook)
     assert result.sent
     assert observed == [(False, 0)]  # another thread cannot take the lock while the hook runs; nothing published yet
 
@@ -312,7 +345,7 @@ def test_the_hook_does_not_run_when_the_supervisor_refuses(core):
     assert refused.reason_code == "COMMAND_PENDING" and ran == []
     core.supervisor.pending_command = None
     core.clock.current = "UNSYNCED"
-    untrusted = core.supervisor.issue_command(CUT_UPLINK, "x", origin="test", pre_publish=lambda i: ran.append(i))
+    untrusted = approved_issue(core, "x", origin="test", pre_publish=lambda i: ran.append(i))
     assert untrusted.reason_code == "CORE_TIME_UNTRUSTED" and ran == []
 
 
@@ -323,13 +356,16 @@ def test_manual_cut_during_restore_is_refused_without_deferred_replay(core):
         "nonce": "r" * 32,
     }
 
-    refused = cut(core)
+    body = local_cut.cut_request(REASON, SECRET)
+    refused = core.cut_gate.handle(body, core.peer)
 
     assert refused["ok"] is False
     assert refused["code"] == "RESTORE_IN_FLIGHT"
     assert core.supervisor._deferred_cut is None
     assert pre_dispatch_rows(core) == []
     assert core.commands() == []
+    [unused] = core.supervisor.cut_authorizations.for_request(body["request_id"])
+    assert unused["state"] == "AUTHORIZED"
 
     with core.supervisor._command_lock:
         core.supervisor.pending_command = None
@@ -361,7 +397,7 @@ def test_the_controller_hook_failure_marks_the_reserved_command_unpublished(core
     def boom(_info):
         raise OSError("disk full")
 
-    result = core.supervisor.issue_command(CUT_UPLINK, "x", critical=True, origin="test", pre_publish=boom)
+    result = approved_issue(core, "x", critical=True, origin="test", pre_publish=boom)
     assert result.reason_code == "AUDIT_UNAVAILABLE" and not result.sent
     assert core.commands() == [] and core.supervisor.pending_command is None
 
@@ -868,3 +904,445 @@ def test_pending_status_is_read_only_and_uid_scoped(core):
     assert invalid["code"] == "MALFORMED_REQUEST"
     assert target.would_cut == []
     assert core.commands() == []
+
+
+
+def test_pending_physical_through_authenticated_core_gate_one_shot(core):
+    """Real Core authorization and Protocol v1, fake MQTT transport only."""
+    from aegis_soc import remote_response as rr
+
+    supervisor = core.supervisor
+    target = rr.CoreRelayTarget(
+        supervisor.issue_command,
+        rr.LOCAL_SOURCE,
+        target_name="LOCAL_CORE_RELAY",
+        command_guard=supervisor.command_guard,
+    )
+
+    response = rr.RemoteResponse(
+        sources=(rr.LOCAL_SOURCE,),
+        clock=lambda: core.clock_now[0],
+        targets={rr.LOCAL_SOURCE: target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    supervisor.remote_response = response
+
+    pending = response.request_cut(
+        rr.LOCAL_SOURCE,
+        "198.51.100.25",
+        140,
+        ("simulated_critical_incident",),
+    )
+
+    request = {
+        "v": 1,
+        "op": "CONFIRM_PENDING_CUT",
+        "origin": local_cut.CUT_ORIGIN,
+        "confirmation": local_cut.CONFIRMATION,
+        "reason": REASON,
+        "secret": SECRET,
+        "source": pending.source,
+        "address": pending.address,
+        "request_id": pending.request_id,
+        "target": pending.target_name,
+    }
+
+    before = len(cuts(core))
+
+    wrong_uid = core.cut_gate.handle(
+        request,
+        lr.Peer(uid=MY_UID + 1, pid=1234),
+    )
+    assert wrong_uid["ok"] is False
+    assert wrong_uid["code"] == "PEER_REFUSED"
+
+    wrong_secret = core.cut_gate.handle(
+        {**request, "secret": "incorrect-operator-secret"},
+        core.peer,
+    )
+    assert wrong_secret["ok"] is False
+    assert wrong_secret["code"] == "AUTH_FAILED"
+
+    wrong_target = core.cut_gate.handle(
+        {**request, "target": "UNAUTHORIZED_TARGET"},
+        core.peer,
+    )
+    assert wrong_target["ok"] is False
+
+    wrong_id = core.cut_gate.handle(
+        {**request, "request_id": "0" * 32},
+        core.peer,
+    )
+    assert wrong_id["ok"] is False
+
+    assert len(cuts(core)) == before
+    assert supervisor.cut_authorizations.for_request(
+        pending.request_id
+    ) == []
+
+    accepted = core.cut_gate.handle(request, core.peer)
+
+    assert accepted["ok"] is True
+    assert accepted["code"] == "CUT_PUBLISHED"
+
+    assert isinstance(accepted["msg_id"], str)
+    assert len(accepted["msg_id"]) == 32
+    assert all(c in "0123456789abcdef" for c in accepted["msg_id"])
+    assert type(accepted["seq"]) is int
+    assert accepted["seq"] > 0
+
+    physical_commands = cuts(core)
+    assert len(physical_commands) == before + 1
+    assert physical_commands[-1].fields["action"] == CUT_UPLINK
+
+    rows = supervisor.cut_authorizations.for_request(
+        pending.request_id
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["state"] == "CONSUMED"
+    assert rows[0]["request_id"] == pending.request_id
+    assert rows[0]["incident_id"] == pending.request_id
+    assert rows[0]["target_device"] == DEVICE
+    assert rows[0]["operator_identity"] == f"uid:{core.peer.uid}"
+
+    assert response.pending(rr.LOCAL_SOURCE) is None
+
+    replay = core.cut_gate.handle(request, core.peer)
+
+    assert replay["ok"] is False
+    assert replay["code"] == "NO_PENDING_CUT"
+    assert len(cuts(core)) == before + 1
+    assert len(
+        supervisor.cut_authorizations.for_request(pending.request_id)
+    ) == 1
+
+
+
+def test_pending_physical_via_real_core_socket_one_shot(
+    core, monkeypatch, tmp_path
+):
+    """Real AF_UNIX + Core verification; fake MQTT and no hardware."""
+    from aegis_soc import remote_response as rr
+
+    supervisor = core.supervisor
+
+    target = rr.CoreRelayTarget(
+        supervisor.issue_command,
+        rr.LOCAL_SOURCE,
+        target_name="LOCAL_CORE_RELAY",
+        command_guard=supervisor.command_guard,
+    )
+
+    response = rr.RemoteResponse(
+        sources=(rr.LOCAL_SOURCE,),
+        clock=lambda: core.clock_now[0],
+        targets={rr.LOCAL_SOURCE: target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+
+    supervisor.remote_response = response
+
+    pending = response.request_cut(
+        rr.LOCAL_SOURCE,
+        "198.51.100.25",
+        140,
+        ("simulated_critical_incident",),
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+
+    supervisor.start_local_cut()
+
+    try:
+        assert supervisor.local_cut is not None
+        assert path.exists()
+
+        request = {
+            "v": 1,
+            "op": "CONFIRM_PENDING_CUT",
+            "origin": local_cut.CUT_ORIGIN,
+            "confirmation": local_cut.CONFIRMATION,
+            "reason": REASON,
+            "secret": SECRET,
+            "source": pending.source,
+            "address": pending.address,
+            "request_id": pending.request_id,
+            "target": pending.target_name,
+        }
+
+        before = len(cuts(core))
+
+        def submit(body):
+            return local_cut.send_cut_request(
+                path,
+                body,
+                expected_uid=MY_UID,
+            )
+
+        # Invalid operator secret cannot publish.
+        wrong_secret = submit({
+            **request,
+            "secret": "incorrect-operator-secret",
+        })
+
+        assert wrong_secret["ok"] is False
+        assert wrong_secret["code"] == "AUTH_FAILED"
+
+        # Wrong request identity cannot publish.
+        wrong_id = submit({
+            **request,
+            "request_id": "0" * 32,
+        })
+
+        assert wrong_id["ok"] is False
+
+        # Wrong target cannot publish.
+        wrong_target = submit({
+            **request,
+            "target": "UNAUTHORIZED_TARGET",
+        })
+
+        assert wrong_target["ok"] is False
+
+        assert len(cuts(core)) == before
+        assert response.pending(rr.LOCAL_SOURCE) is not None
+
+        # Real local UNIX socket, authenticated Core gate.
+        accepted = submit(request)
+
+        assert accepted["ok"] is True
+        assert accepted["code"] == "CUT_PUBLISHED"
+
+        assert isinstance(accepted["msg_id"], str)
+        assert len(accepted["msg_id"]) == 32
+        assert all(c in "0123456789abcdef" for c in accepted["msg_id"])
+        assert type(accepted["seq"]) is int
+        assert accepted["seq"] > 0
+
+        commands = cuts(core)
+
+        assert len(commands) == before + 1
+        assert commands[-1].fields["action"] == CUT_UPLINK
+
+        rows = supervisor.cut_authorizations.for_request(
+            pending.request_id
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["state"] == "CONSUMED"
+        assert rows[0]["request_id"] == pending.request_id
+        assert rows[0]["incident_id"] == pending.request_id
+        assert rows[0]["target_device"] == DEVICE
+        assert rows[0]["operator_identity"] == f"uid:{MY_UID}"
+
+        # Pending incident cannot authorize a second CUT.
+        replay = submit(request)
+
+        assert replay["ok"] is False
+        assert replay["code"] == "NO_PENDING_CUT"
+        assert len(cuts(core)) == before + 1
+        assert len(
+            supervisor.cut_authorizations.for_request(
+                pending.request_id
+            )
+        ) == 1
+
+    finally:
+        supervisor.stop_local_cut()
+
+
+
+def test_pending_local_physical_via_desktop_client_and_core_socket(
+    core, monkeypatch, tmp_path
+):
+    """Actual desktop client and AF_UNIX, fake Core MQTT only."""
+    from aegis_soc import cut_client as cc
+    from aegis_soc import remote_response as rr
+
+    supervisor = core.supervisor
+
+    target = rr.CoreRelayTarget(
+        supervisor.issue_command,
+        rr.LOCAL_SOURCE,
+        target_name="LOCAL_CORE_RELAY",
+        command_guard=supervisor.command_guard,
+    )
+
+    response = rr.RemoteResponse(
+        sources=(rr.LOCAL_SOURCE,),
+        clock=lambda: core.clock_now[0],
+        targets={rr.LOCAL_SOURCE: target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+
+    supervisor.remote_response = response
+
+    pending = response.request_cut(
+        rr.LOCAL_SOURCE,
+        "203.0.113.9",
+        140,
+        ("simulated_critical_incident",),
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    supervisor.start_local_cut()
+
+    try:
+        assert supervisor.local_cut is not None
+
+        # Read the actual pending snapshot via Core UNIX socket.
+        snapshot = cc.fetch_pending_cut(
+            path,
+            rr.LOCAL_SOURCE,
+            expected_uid=MY_UID,
+        )
+
+        assert isinstance(snapshot, dict)
+        assert snapshot["source"] == rr.LOCAL_SOURCE
+        assert snapshot["request_id"] == pending.request_id
+        assert snapshot["target_name"] == "LOCAL_CORE_RELAY"
+
+        before = len(cuts(core))
+
+        # Wrong operator secret cannot publish.
+        refused = cc.confirm_pending_cut(
+            path,
+            snapshot,
+            REASON,
+            "incorrect-operator-secret",
+            cc.CONFIRMATION,
+            expected_uid=MY_UID,
+        )
+
+        assert refused.state != "PUBLISHED"
+        assert len(cuts(core)) == before
+        assert supervisor.cut_authorizations.for_request(
+            pending.request_id
+        ) == []
+
+        # Correct Core-authenticated confirmation.
+        accepted = cc.confirm_pending_cut(
+            path,
+            snapshot,
+            REASON,
+            SECRET,
+            cc.CONFIRMATION,
+            expected_uid=MY_UID,
+        )
+
+        assert accepted.state == "PUBLISHED"
+
+        assert isinstance(accepted.msg_id, str)
+        assert len(accepted.msg_id) == 32
+        assert accepted.msg_id in accepted.text
+        assert "NOT yet verified" in accepted.text
+
+        commands = cuts(core)
+        assert len(commands) == before + 1
+        assert commands[-1].fields["action"] == CUT_UPLINK
+
+        rows = supervisor.cut_authorizations.for_request(
+            pending.request_id
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["state"] == "CONSUMED"
+        assert rows[0]["target_device"] == DEVICE
+        assert rows[0]["operator_identity"] == f"uid:{MY_UID}"
+
+        assert response.pending(rr.LOCAL_SOURCE) is None
+
+        # Replaying the same desktop confirmation cannot cut again.
+        replay = cc.confirm_pending_cut(
+            path,
+            snapshot,
+            REASON,
+            SECRET,
+            cc.CONFIRMATION,
+            expected_uid=MY_UID,
+        )
+
+        assert replay.state != "PUBLISHED"
+        assert len(cuts(core)) == before + 1
+        assert len(
+            supervisor.cut_authorizations.for_request(
+                pending.request_id
+            )
+        ) == 1
+
+    finally:
+        supervisor.stop_local_cut()
+
+
+
+@pytest.mark.parametrize(
+    ("source", "target_name"),
+    [
+        ("beelink", "LOCAL_CORE_RELAY"),
+        ("__local__", "LAB_RELAY"),
+    ],
+)
+def test_pending_physical_scope_is_enforced_by_core(
+    core, source, target_name
+):
+    from aegis_soc import remote_response as rr
+
+    supervisor = core.supervisor
+    target = rr.CoreRelayTarget(
+        supervisor.issue_command,
+        source,
+        target_name=target_name,
+        command_guard=supervisor.command_guard,
+    )
+
+    response = rr.RemoteResponse(
+        sources=(source,),
+        clock=lambda: core.clock_now[0],
+        targets={source: target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+
+    supervisor.remote_response = response
+
+    pending = response.request_cut(
+        source,
+        "203.0.113.9",
+        140,
+        ("simulated_critical_incident",),
+    )
+
+    body = {
+        "v": 1,
+        "op": "CONFIRM_PENDING_CUT",
+        "origin": local_cut.CUT_ORIGIN,
+        "confirmation": local_cut.CONFIRMATION,
+        "reason": REASON,
+        "secret": SECRET,
+        "source": source,
+        "address": pending.address,
+        "request_id": pending.request_id,
+        "target": pending.target_name,
+    }
+
+    result = core.cut_gate.handle(body, core.peer)
+
+    assert result["ok"] is False
+    assert result["code"] == "CONFIRM_NOT_ENABLED"
+    assert cuts(core) == []
+    assert supervisor.cut_authorizations.for_request(
+        pending.request_id
+    ) == []
+    assert response.pending(source) is not None

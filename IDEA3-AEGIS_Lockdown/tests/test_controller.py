@@ -12,6 +12,7 @@ import pytest
 from aegis_soc import config
 from aegis_soc import protocol_v1 as p1
 from aegis_soc.controller import DEFAULT_RESTORE_ORIGINS, AegisCommandController
+from aegis_soc.cut_authorization import CutAuthorizationStore
 from aegis_soc.protocol_inbound import ProtocolContext
 from aegis_soc.protocol_store import ProtocolStore
 
@@ -68,7 +69,28 @@ def context(store, clock):
 
 
 def _v1(mqtt, context, audit=lambda *args: None, **kwargs):
-    return AegisCommandController(mqtt, audit_log=audit, protocol=context, protocol_mode="v1", **kwargs)
+    auth = CutAuthorizationStore(
+        Path(config.DB_PATH).with_name(f"controller-cut-{id(mqtt)}.sqlite3"), wall_clock=lambda: NOW,
+    )
+    issuer = auth.trusted_issuer()
+    controller = AegisCommandController(
+        mqtt, audit_log=audit, protocol=context, protocol_mode="v1", cut_authorizations=auth, **kwargs,
+    )
+    controller._test_cut_issuer = issuer
+    return controller
+
+
+def _authorized_cut(controller, description, **kwargs):
+    request_id = p1.new_msg_id()
+    approval = controller._test_cut_issuer.issue(
+        request_id=request_id, incident_id=None, target_device=controller.cut_target_device,
+        action="CUT_UPLINK", operator_identity="test:trusted-operator", expires_at=NOW + 30,
+        reason=description,
+    )
+    return controller.issue(
+        "CUT_UPLINK", description, cut_authorization=approval, cut_request_id=request_id,
+        cut_incident_id=None, **kwargs,
+    )
 
 
 def _parse(topic, payload, kind):
@@ -81,7 +103,7 @@ def test_live_command_publishes_a_signed_v1_command(context, store):
     mqtt = FakeMQTT()
     events, audit = _audit_collector()
 
-    result = _v1(mqtt, context, audit).issue("CUT_UPLINK", "test containment", origin="test")
+    result = _authorized_cut(_v1(mqtt, context, audit), "test containment", origin="test")
 
     assert (result.ok, result.sent, result.dry_run, result.seq) == (True, True, False, 1)
     topic, payload = mqtt.published[0]
@@ -101,7 +123,7 @@ def test_sequence_is_committed_before_the_publish(context, store):
         message = p1.parse(payload, topic=topic, device_id=DEVICE, accept_kinds=frozenset({p1.COMMAND}))
         observed.append((store.command(message.fields["msg_id"])["state"], store.last_allocated_seq(DEVICE)))
 
-    _v1(FakeMQTT(on_publish=on_publish), context).issue("CUT_UPLINK", "ordering", origin="test")
+    _authorized_cut(_v1(FakeMQTT(on_publish=on_publish), context), "ordering", origin="test")
 
     assert observed == [("RESERVED", 1)]
 
@@ -109,11 +131,11 @@ def test_sequence_is_committed_before_the_publish(context, store):
 def test_not_after_caps_device_expiry_and_an_expired_command_is_never_reserved(context, store):
     mqtt = FakeMQTT()
     controller = _v1(mqtt, context)
-    capped = controller.issue("CUT_UPLINK", "dispatch", origin="test", not_after=NOW + 10.9)
+    capped = _authorized_cut(controller, "dispatch", origin="test", not_after=NOW + 10.9)
     assert _parse(*mqtt.published[0], p1.COMMAND).int("expires_at") == NOW + 10
     assert capped.sent is True
 
-    expired = controller.issue("CUT_UPLINK", "dispatch", origin="test", not_after=NOW)
+    expired = _authorized_cut(controller, "dispatch", origin="test", not_after=NOW)
     assert (expired.sent, expired.reason_code) == (False, "EXPIRED_AT_CORE")
     assert store.last_allocated_seq(DEVICE) == 1
     assert len(mqtt.published) == 1
@@ -124,7 +146,7 @@ def test_untrusted_core_time_publishes_no_command_and_reserves_nothing(context, 
     mqtt = FakeMQTT()
     events, audit = _audit_collector()
 
-    result = _v1(mqtt, context, audit).issue("CUT_UPLINK", "containment", origin="test", critical=True)
+    result = _authorized_cut(_v1(mqtt, context, audit), "containment", origin="test", critical=True)
 
     assert (result.ok, result.sent, result.reason_code) == (False, False, "CORE_TIME_UNTRUSTED")
     assert mqtt.published == []
@@ -135,7 +157,7 @@ def test_untrusted_core_time_publishes_no_command_and_reserves_nothing(context, 
 def test_mqtt_failure_burns_the_sequence_without_false_success(context, store):
     controller = _v1(FakeMQTT(publish_result=False), context)
 
-    failed = controller.issue("CUT_UPLINK", "offline", origin="test")
+    failed = _authorized_cut(controller, "offline", origin="test")
 
     assert (failed.ok, failed.sent, failed.reason_code) == (False, False, "MQTT_UNAVAILABLE")
     burned = store.command(p1.parse(
@@ -144,7 +166,7 @@ def test_mqtt_failure_burns_the_sequence_without_false_success(context, store):
     ).fields["msg_id"])
     assert burned["state"] == "NOT_PUBLISHED"
     controller.mqtt.publish_result = True
-    assert controller.issue("CUT_UPLINK", "retry by operator", origin="test").seq == 2
+    assert _authorized_cut(controller, "retry by operator", origin="test").seq == 2
 
 
 def test_store_failure_before_publish_sends_nothing(context):
@@ -154,7 +176,7 @@ def test_store_failure_before_publish_sends_nothing(context):
 
     mqtt = FakeMQTT()
     broken = ProtocolContext(DEVICE, KEYS, BrokenStore(), context.clock)
-    result = _v1(mqtt, broken).issue("CUT_UPLINK", "containment", origin="test")
+    result = _authorized_cut(_v1(mqtt, broken), "containment", origin="test")
     assert (result.sent, result.reason_code) == (False, "PROTOCOL_STORE_UNAVAILABLE")
     assert mqtt.published == []
 
@@ -163,7 +185,7 @@ def test_store_failure_after_the_point_of_no_return_still_reports_sent(context, 
     monkeypatch.setattr(store, "mark_published", lambda _msg_id: (_ for _ in ()).throw(OSError("disk full")))
     events, audit = _audit_collector()
 
-    result = _v1(FakeMQTT(), context, audit).issue("CUT_UPLINK", "containment", origin="test")
+    result = _authorized_cut(_v1(FakeMQTT(), context, audit), "containment", origin="test")
 
     assert result.sent is True
     assert store.command(result.nonce)["state"] == "RESERVED"
@@ -180,14 +202,14 @@ def test_missing_protocol_context_fails_closed():
     result = AegisCommandController(mqtt, audit_log=lambda *args: None, protocol_mode="v1").issue(
         "CUT_UPLINK", "containment", origin="test",
     )
-    assert (result.sent, result.reason_code) == (False, "PROTOCOL_NOT_CONFIGURED")
+    assert (result.sent, result.reason_code) == (False, "CUT_AUTHORIZATION_REQUIRED")
     assert mqtt.published == []
 
 
 def test_an_unknown_protocol_mode_is_treated_as_strict_v1():
     mqtt = FakeMQTT()
     controller = AegisCommandController(mqtt, audit_log=lambda *args: None, protocol_mode="v2")
-    assert controller.issue("CUT_UPLINK", "containment", origin="test").reason_code == "PROTOCOL_NOT_CONFIGURED"
+    assert controller.issue("CUT_UPLINK", "containment", origin="test").reason_code == "CUT_AUTHORIZATION_REQUIRED"
     assert controller.send_heartbeat() is False
     assert mqtt.published == []
 
@@ -284,8 +306,16 @@ def _legacy_signature_valid(payload):
 
 def test_legacy_lab_mode_is_isolated_and_explicit():
     mqtt = FakeMQTT()
-    controller = AegisCommandController(mqtt, audit_log=lambda *args: None, protocol_mode="legacy-v0-lab")
-    result = controller.issue("CUT_UPLINK", "lab", origin="test")
+    auth = CutAuthorizationStore(
+        Path(config.DB_PATH).with_name(f"legacy-cut-{id(mqtt)}.sqlite3"), wall_clock=lambda: NOW,
+    )
+    issuer = auth.trusted_issuer()
+    controller = AegisCommandController(
+        mqtt, audit_log=lambda *args: None, protocol_mode="legacy-v0-lab",
+        cut_authorizations=auth, cut_target_device=DEVICE,
+    )
+    controller._test_cut_issuer = issuer
+    result = _authorized_cut(controller, "lab", origin="test")
     assert result.sent is True
     topic, payload = mqtt.published[0]
     assert topic == config.TOPIC_CMD

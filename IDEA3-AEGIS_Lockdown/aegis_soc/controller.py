@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from . import config, security
 from . import database as db
 from . import protocol_v1 as p1
+from .cut_authorization import CutAuthorizationError, CutAuthorizationGrant, CutAuthorizationStore
 
 CUT_UPLINK = "CUT_UPLINK"
 RESTORE_UPLINK = "RESTORE_UPLINK"
@@ -51,6 +52,8 @@ class AegisCommandController:
         protocol=None,
         protocol_mode: str | None = None,
         restore_origins: frozenset[str] = DEFAULT_RESTORE_ORIGINS,
+        cut_authorizations: CutAuthorizationStore | None = None,
+        cut_target_device: str | None = None,
     ):
         origins = frozenset(restore_origins)
         if origins & FORBIDDEN_RESTORE_ORIGINS:
@@ -63,6 +66,8 @@ class AegisCommandController:
         # Anything other than the explicit lab opt-in is strict Protocol v1.
         self.legacy = mode == config.PROTOCOL_MODE_LEGACY_LAB
         self.restore_origins = origins
+        self.cut_authorizations = cut_authorizations
+        self.cut_target_device = getattr(protocol, "device_id", None) or cut_target_device
         self._last_heartbeat_issued_at: int | None = None
         self._heartbeat_withheld = False
 
@@ -80,6 +85,9 @@ class AegisCommandController:
         authorize_restore: bool = False,
         not_after: float | None = None,
         pre_publish: Callable[[dict], None] | None = None,
+        cut_authorization: CutAuthorizationGrant | None = None,
+        cut_request_id: str | None = None,
+        cut_incident_id: str | None = None,
     ) -> CommandResult:
         """Issue an allow-listed command or safely simulate it.
 
@@ -112,9 +120,49 @@ class AegisCommandController:
             self._audit_log("DRY_RUN_COMMAND", detail, level)
             return CommandResult(action, True, False, True, None, detail)
 
+        consumed_approval: str | None = None
+        if action == CUT_UPLINK:
+            if (
+                self.cut_authorizations is None
+                or cut_authorization is None
+                or cut_request_id is None
+                or self.cut_target_device is None
+            ):
+                return self._reject(
+                    action,
+                    "CUT_UPLINK rejected: Core-issued one-shot authorization required",
+                    "CUT_AUTHORIZATION_REQUIRED",
+                    f"CUT_UPLINK rejected: missing central authorization (origin={origin})",
+                )
+            try:
+                consumed_approval = self.cut_authorizations.consume(
+                    cut_authorization,
+                    request_id=cut_request_id,
+                    incident_id=cut_incident_id,
+                    target_device=self.cut_target_device,
+                    action=action,
+                )
+            except CutAuthorizationError as error:
+                code = str(error) or "CUT_AUTHORIZATION_REFUSED"
+                return self._reject(action, f"CUT_UPLINK rejected: {code}", code)
+
         if self.legacy:
-            return self._issue_legacy(action, safe_context, level, pre_publish)
-        return self._issue_v1(action, safe_context, level, not_after, pre_publish)
+            result = self._issue_legacy(action, safe_context, level, pre_publish)
+        else:
+            result = self._issue_v1(action, safe_context, level, not_after, pre_publish)
+        if consumed_approval is not None:
+            outcome = "PUBLISHED" if result.sent else (
+                "OUTCOME_UNKNOWN" if result.reason_code == "OUTCOME_UNKNOWN" else "NOT_PUBLISHED"
+            )
+            try:
+                self.cut_authorizations.record_outcome(consumed_approval, outcome, result.nonce)
+            except Exception:
+                self._audit_log(
+                    "CUT_AUTHORIZATION_OUTCOME_AUDIT_FAILED",
+                    f"approval={consumed_approval} outcome={outcome}",
+                    db.CRITICAL,
+                )
+        return result
 
     def _run_pre_publish(self, action: str, safe_context: str, pre_publish, info: dict) -> CommandResult | None:
         if pre_publish is None:
@@ -132,7 +180,13 @@ class AegisCommandController:
         refused = self._run_pre_publish(action, safe_context, pre_publish, {"msg_id": nonce, "seq": None})
         if refused is not None:
             return refused
-        if not self.mqtt.publish(config.TOPIC_CMD, payload):
+        try:
+            published = self.mqtt.publish(config.TOPIC_CMD, payload)
+        except Exception:
+            return self._reject(
+                action, f"MQTT publication outcome unknown: {safe_context}", "OUTCOME_UNKNOWN"
+            )
+        if not published:
             return self._reject(action, f"MQTT unavailable; not sent: {safe_context}", "MQTT_UNAVAILABLE")
         self._audit_log("COMMAND_SENT", safe_context, level)
         return CommandResult(action, True, True, False, nonce, f"SENT {safe_context}")
@@ -186,7 +240,13 @@ class AegisCommandController:
             self._mark_not_published(reserved.msg_id)
             return refused
 
-        if not self.mqtt.publish(topic, payload):
+        try:
+            published = self.mqtt.publish(topic, payload)
+        except Exception:
+            return self._reject(
+                action, f"MQTT publication outcome unknown: {safe_context}", "OUTCOME_UNKNOWN"
+            )
+        if not published:
             self._mark_not_published(reserved.msg_id)
             return self._reject(action, f"MQTT unavailable; not sent: {safe_context}", "MQTT_UNAVAILABLE")
 
