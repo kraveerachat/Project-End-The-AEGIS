@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 import tkinter as tk
@@ -14,9 +15,6 @@ import pytest
 
 from tools import live_purple_control_desktop as desktop
 from tools import live_purple_observer as live
-from test_local_cut import (
-    MY_UID, REASON, SECRET, core, credential, enable,  # noqa: F401
-)
 
 rc = desktop.restore_client
 
@@ -396,7 +394,7 @@ def test_the_severity_panel_marks_graduated_status_stale_when_status_json_stops_
 
     write_core_status(app._status_path, 125)
     _poll(app, root)
-    app._render_severity()
+    app._tick_severity()
     root.update()
     texts = " | ".join(_texts(root))
     assert "Core evidence" in texts and "STALE — the Core is not updating" in texts
@@ -404,7 +402,7 @@ def test_the_severity_panel_marks_graduated_status_stale_when_status_json_stops_
 
     write_core_status(app._status_path, 1)
     _poll(app, root)
-    app._render_severity()
+    app._tick_severity()
     root.update()
     assert "STALE" not in " | ".join(_texts(root))
 
@@ -605,6 +603,136 @@ def test_the_recovery_page_updates_while_open_and_stops_when_left(app_factory, t
     assert app._page_tick is None and app._page_after is None
 
 
+def test_the_recovery_page_preserves_scroll_position_across_a_live_refresh_tick(app_factory, tmp_path):
+    """Regression: _render_recovery() destroys and rebuilds every Section's children on each
+    SEVERITY_POLL_MS tick; the enclosing ScrollFrame's canvas used to reset to the top on every
+    tick because its scrollregion collapses while the old children are gone and nothing restored
+    the view afterward. The snapshot comparison added since (task 3, no-flicker) means a tick with
+    no real data change now skips the rebuild entirely -- harmless for scroll, but it would no
+    longer exercise the restore path this test is actually about, so the view is changed here too,
+    forcing a real rebuild, exactly like test_..._updates_while_open_and_stops_when_left already does."""
+    app, root, recovery = open_recovery(app_factory, tmp_path)
+    # The bug (and this fix) is specifically about the <Configure>-driven scrollregion recompute that a
+    # real, mapped window processes on its own idle cycle; a withdrawn window never gets that from the X
+    # server, so this one test needs a real, small, on-screen window instead of the suite's usual withdraw().
+    root.deiconify()
+    root.geometry("1024x300")
+    root.update()
+    canvases = _widgets(root, "Canvas")
+    assert canvases, "expected the Recovery page's ScrollFrame canvas"
+    canvas = canvases[0]
+    bbox = canvas.bbox("all")
+    assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+    canvas.yview_moveto(0.5)
+    root.update()
+    before = canvas.yview()[0]
+    assert before > 0.05, "test setup did not actually scroll down"
+    write_recovery_view(recovery, restore_pending=True, restore_pending_remaining_sec=6.0, lockout_remaining_sec=20.0)
+    app._tick_live_page()
+    root.update()
+    assert any(text.startswith("NOT READY") for text in _texts(root)), "test setup did not actually change the data"
+    after = canvas.yview()[0]
+    assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
+    root.withdraw()
+
+
+def test_the_lockdown_severity_panel_preserves_scroll_position_across_a_live_refresh_tick(app_factory, tmp_path):
+    """Same mechanism and fix as the Recovery page above, applied to the Lockdown page's severity panel
+    (_render_severity), which is driven by its own, separate SEVERITY_POLL_MS timer. The graduated-status.json
+    file is rewritten before the tick (same path app_factory itself writes the initial projection to) so the
+    snapshot comparison added since (task 3) sees a real change and actually rebuilds, rather than skipping --
+    this test is about the restore-on-rebuild path, not the (also correct, but different) skip path."""
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    root.deiconify()
+    root.geometry("1024x300")
+    root.update()
+    canvases = _widgets(root, "Canvas")
+    assert canvases, "expected the Lockdown page's ScrollFrame canvas"
+    canvas = canvases[0]
+    bbox = canvas.bbox("all")
+    assert bbox is not None and bbox[3] > canvas.winfo_height(), "test setup needs real scrollable overflow"
+    canvas.yview_moveto(0.5)
+    root.update()
+    before = canvas.yview()[0]
+    assert before > 0.05, "test setup did not actually scroll down"
+    changed = dict(DECISIONS, highest_level="CRITICAL")
+    (tmp_path / "graduated-status.json").write_text(json.dumps(changed), encoding="utf-8")
+    app._tick_severity()
+    root.update()
+    assert "CRITICAL" in _texts(root), "test setup did not actually change the data"
+    after = canvas.yview()[0]
+    assert abs(after - before) < 0.02, f"scroll position jumped from {before} to {after} on a refresh tick"
+    root.withdraw()
+
+
+def test_the_recovery_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory, tmp_path):
+    """The periodic rebuild-every-tick is what caused the flicker; widget identity staying the same across a
+    no-change tick is the proxy for "nothing was destroyed/recreated, so nothing visibly flickered"."""
+    app, root, _ = open_recovery(app_factory, tmp_path)
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_recovery_page_rebuilds_promptly_when_the_data_actually_changes(app_factory, tmp_path):
+    app, root, recovery = open_recovery(app_factory, tmp_path)
+    before = [id(w) for w in _widgets(root, "Label")]
+    write_recovery_view(recovery, restore_pending=True, restore_pending_remaining_sec=6.0)
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before != after
+    assert any(text.startswith("NOT READY") for text in _texts(root))
+
+
+def test_the_incidents_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_audit_page_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory, tmp_path):
+    from test_live_purple_core_records import ROWS, make_audit
+
+    audit = make_audit(tmp_path / "audit.sqlite3", ROWS)
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, audit_db=audit)
+    app._show_page("audit")
+    root.update()
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_live_page()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_lockdown_severity_panel_does_not_rebuild_on_an_unchanged_refresh_tick(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    before = [id(w) for w in _widgets(root, "Label")]
+    app._tick_severity()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before == after, "an unchanged tick rebuilt widgets and would flicker"
+
+
+def test_the_lockdown_severity_panel_rebuilds_promptly_when_the_data_actually_changes(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    before = [id(w) for w in _widgets(root, "Label")]
+    changed = dict(DECISIONS, highest_level="CRITICAL")
+    (tmp_path / "graduated-status.json").write_text(json.dumps(changed), encoding="utf-8")
+    app._tick_severity()
+    root.update()
+    after = [id(w) for w in _widgets(root, "Label")]
+    assert before != after
+    assert "CRITICAL" in _texts(root)
+
+
 @pytest.mark.parametrize("language,marker", [("th", "พร้อม"), ("zh", "可执行")])
 def test_the_recovery_page_follows_the_language_and_keeps_codes(app_factory, tmp_path, language, marker):
     _app, root, _ = open_recovery(app_factory, tmp_path, language=language, restore_pending=True, restore_pending_remaining_sec=3.0)
@@ -775,12 +903,38 @@ def test_incidents_page_shows_the_cores_graduated_decisions(app_factory):
     assert "203.0.113.9 — decide with the CUT button" in joined
 
 
-def test_incidents_page_without_a_source_says_not_available_and_why(app_factory):
+def test_incidents_page_without_a_source_shows_a_plain_empty_state_not_the_raw_reason(app_factory):
     app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
     app._show_page("incidents")
     root.update()
     joined = "\n".join(_texts(root))
-    assert "NOT_AVAILABLE — NOT_FOUND" in joined and "graduated-status.json" in joined
+    assert "Incident data source not found" in joined and "cannot be determined" in joined
+    assert "No events found" not in joined and "the system is watching" not in joined
+    assert "Data source status: NOT_FOUND" in joined
+    assert "NOT_AVAILABLE" not in joined and "graduated-status.json" not in joined
+
+
+def test_incidents_page_always_shows_the_intro_and_level_legend(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "graduated response decisions" in joined
+    assert "RESPONSE LEVELS" in joined
+    for level, phrase in (("LOW", "Log / audit only"), ("MEDIUM", "Software IP block"),
+                          ("HIGH", "Recommends a physical CUT"), ("CRITICAL", "Automatic CUT")):
+        assert level in joined and phrase in joined
+
+
+def test_incidents_page_renders_a_card_per_decision_with_friendly_labels(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), DECISIONS, status_age=5)
+    app._show_page("incidents")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "Attacker IP" in joined and "Attack type" in joined and "Corroborated" in joined
+    assert "203.0.113.9" in joined and "HIGH" in joined and "MEDIUM" in joined
+    assert "recommend physical CUT" in joined  # RECOMMEND_CUT mapped to a friendly label
+    assert "PORT_SCAN" in joined and "MULTI_VECTOR" in joined  # unmapped test kinds still shown, raw, never hidden
 
 
 @pytest.mark.parametrize("language,marker", [("th", "การตัดสินใจ"), ("zh", "决策")])
@@ -802,7 +956,7 @@ def test_audit_page_lists_cut_and_restore_records_without_reasons(app_factory, t
     joined = "\n".join(_texts(root))
     assert "observer mode" not in joined and "Operational actions" not in joined
     for expected in ("RESTORE_REQUESTED", "COMMAND_SENT", "RESTORE_UPLINK", "ACK_RECEIVED", "RESTORE_ALREADY_PENDING",
-                     "CUT_PRE_DISPATCH", "ab" * 16, "RESTORE_AUTH_LOCKOUT", "2026-10-24 19:01:06"):
+                     "CUT_PRE_DISPATCH", "ab" * 16, "RESTORE_AUTH_LOCKOUT", "19:01:06"):  # the feed shows HH:MM:SS, not the full date
         assert expected in joined, expected
     assert "STATUS_AUTHENTICATED" not in joined and SECRET_REASON not in joined
 
@@ -937,214 +1091,303 @@ def test_switching_the_language_relabels_the_controls_and_back(app_factory, tmp_
     assert desktop.RESTORE_BUTTON_TEXT in [b.cget("text") for b in _widgets(root, "Button")]
 
 
-def test_pending_cut_panel_is_read_only(app_factory, monkeypatch):
-    seen = []
+@pytest.mark.parametrize(("language", "page", "marker"), [
+    ("th", "overview", "หลักฐานสดจาก Core — อ่านอย่างเดียว"),
+    ("zh", "devices", "连接与心跳证据"),
+    ("th", "lockdown", "สถานะล็อกดาวน์ปัจจุบัน"),
+    ("zh", "settings", "界面语言"),
+])
+def test_refined_operational_pages_use_the_selected_language(app_factory, language, page, marker):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language=language, status_age=0)
 
-    def fake_fetch(path, source):
-        seen.append((path, source))
-        if source == "beelink":
-            return {
-                "source": "beelink",
-                "address": "198.51.100.25",
-                "request_id": "a" * 32,
-                "target_name": "DRYRUN",
-                "created_at": 123.0,
-                "score": 140,
-            }
-        return None
-
-    monkeypatch.setattr(
-        desktop.cut_desktop.client,
-        "fetch_pending_cut",
-        fake_fetch,
-    )
-
-    app, root = app_factory(None, FakePrompts())
-    app._pending_socket_path = "/run/test-only.sock"
-    app._pending_refresh_button.configure(state=tk.NORMAL)
-    app._pending_refresh_button.invoke()
+    app._show_page(page)
     root.update()
 
-    text = app._pending_status.cget("text")
-    assert "198.51.100.25" in text
-    assert "a" * 32 in text
-    assert "DRYRUN" in text
-    assert "No CUT sent by this panel" in text
+    assert marker in _texts(root)
 
-    assert seen == [
-        ("/run/test-only.sock", "__local__"),
-        ("/run/test-only.sock", "beelink"),
-    ]
-def test_phase_2d_dry_run_confirmation_button(app_factory, monkeypatch):
-    calls = []
 
-    def fake_fetch(path, source):
-        if source != "beelink":
-            return None
-        return {
-            "source": source,
-            "address": "198.51.100.25",
-            "request_id": "a" * 32,
-            "target_name": "DRYRUN",
-            "created_at": 123.0,
-            "score": 140,
-        }
-
-    def fake_confirm(path, pending, reason, secret, confirmation):
-        calls.append((path, pending, reason, secret, confirmation))
-        return desktop.cut_desktop.client.View(
-            "DRY_RUN_CONFIRMED",
-            "No physical CUT was performed.",
-            desktop.cut_desktop.client.OK,
-            True,
-        )
-
-    monkeypatch.setattr(
-        desktop.cut_desktop.client,
-        "fetch_pending_cut", fake_fetch,
+def test_audit_console_has_structured_headers_and_keeps_machine_fields(app_factory, tmp_path):
+    audit_db = tmp_path / "audit.sqlite3"
+    connection = sqlite3.connect(audit_db)
+    connection.execute(
+        "CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, timestamp TEXT, event_type TEXT, details TEXT)"
     )
-    monkeypatch.setattr(
-        desktop.cut_desktop.client,
-        "confirm_pending_cut", fake_confirm,
+    connection.execute(
+        "INSERT INTO audit_logs VALUES (1, '2026-10-24 19:01:06', 'ACK_RECEIVED', 'OK - seq 16')"
     )
+    connection.commit()
+    connection.close()
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=audit_db)
 
-    prompts = FakePrompts()
-    prompts.ask_pending_reason = lambda: "authorized lab simulation"
-    prompts.ask_pending_confirmation = (
-        lambda: desktop.cut_desktop.client.CONFIRMATION
-    )
-    prompts.ask_pending_secret = lambda: "test-secret"
+    app._show_page("audit")
+    root.update()
+    texts = _texts(root)
 
-    app, root = app_factory(None, prompts)
-    app._pending_socket_path = "/run/test-only.sock"
-    button = app._pending_confirm_button
+    assert "TIME" in texts
+    assert "EVENT" in texts
+    assert "DETAILS" in texts
+    assert "ACK_RECEIVED" in texts
+    assert "OK · seq 16" in texts
 
-    assert str(button.cget("state")) == "disabled"
-    app._pending_refresh_button.configure(state=tk.NORMAL)
-    app._pending_refresh_button.invoke()
+
+def test_settings_language_callback_keeps_persistence_and_shows_localized_feedback(app_factory, tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_DB_PATH", str(tmp_path / "audit.db"))
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="en")
+    from aegis_soc import i18n
+
+    app._show_page("settings")
+    app._set_language("th")
     root.update()
 
-    assert str(button.cget("state")) == "normal"
+    assert i18n.get_language() == "th"
+    assert "อัปเดตภาษาเรียบร้อยแล้ว" in _texts(root)
 
-    button.invoke()
+
+def test_settings_theme_callback_keeps_theme_state_and_shows_feedback(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), language="zh")
+    from aegis_soc import theme_state
+
+    app._show_page("settings")
+    target = "light" if theme_state.get_theme() == "dark" else "dark"
+    app._set_theme(target)
     root.update()
 
-    assert len(calls) == 1
-    assert calls[0][1]["request_id"] == "a" * 32
-    assert calls[0][3] == "test-secret"
-    assert calls[0][4] == desktop.cut_desktop.client.CONFIRMATION
-    assert "DRY_RUN_CONFIRMED" in app._pending_status.cget("text")
-    assert str(button.cget("state")) == "disabled"
+    assert theme_state.get_theme() == target
+    assert "外观已成功更新。" in _texts(root)
 
 
-def test_phase_2d_real_target_never_enables_confirm(
-    app_factory, monkeypatch
-):
-    def fake_fetch(path, source):
-        if source != "beelink":
-            return None
-        return {
-            "source": source,
-            "address": "198.51.100.25",
-            "request_id": "b" * 32,
-            "target_name": "LOCAL_CORE_RELAY",
-            "created_at": 123.0,
-            "score": 140,
-        }
+def _value_after(root, label):
+    texts = _texts(root)
+    after = texts[texts.index(label) + 1:]
+    return next(text for text in after if len(text) > 1 or text.isalnum())   # skip the one-glyph status marker
 
-    monkeypatch.setattr(
-        desktop.cut_desktop.client,
-        "fetch_pending_cut", fake_fetch,
-    )
 
-    app, root = app_factory(None, FakePrompts())
-    app._pending_socket_path = "/run/test-only.sock"
-    app._pending_refresh_button.configure(state=tk.NORMAL)
-    app._pending_refresh_button.invoke()
+@pytest.mark.parametrize("status, blocked, expected", [
+    ("HEALTHY", [], "0"),
+    ("HEALTHY", ["203.0.113.5", "203.0.113.6", "203.0.113.7"], "3"),
+    ("UNAVAILABLE — ContainmentUnavailable", [], "UNKNOWN"),
+    ("NOT_CONFIGURED", [], "UNKNOWN"),
+])
+def test_the_diagnostics_blocked_ip_count_is_never_a_fake_zero(app_factory, monkeypatch, status, blocked, expected):
+    monkeypatch.setattr(desktop.live, "containment_status", lambda: (status, blocked))
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app._show_page("diagnostics")
     root.update()
+    assert _value_after(root, "Active software blocks") == expected
+    if expected == "UNKNOWN":
+        assert "This is not zero." in "\n".join(_texts(root))
 
-    assert str(app._pending_confirm_button.cget("state")) == "disabled"
-    assert app._pending_snapshot is None
 
-def test_phase3_gui_real_socket_pending_dry_run(
-    core, app_factory, monkeypatch, tmp_path
-):
-    """GUI -> temporary Core socket -> authenticated dry-run."""
-    from aegis_soc import remote_response as rr
-
-    target = rr.DryRunRelayTarget()
-    gate = rr.RemoteResponse(
-        sources=("beelink",),
-        clock=lambda: core.clock_now[0],
-        targets={"beelink": target},
-        audit=lambda *args: None,
-        log=lambda *args, **kwargs: None,
-        record=lambda *args: None,
-        notify=lambda *args: None,
-    )
-    core.supervisor.remote_response = gate
-
-    pending = gate.request_cut(
-        "beelink", "198.51.100.25", 140, ("critical",)
-    )
-
-    path = enable(monkeypatch, core, tmp_path)
-    assert path == core.runtime_dir / "cut.sock"
-    core.supervisor.start_local_cut()
-
-    # The test Core runs as the current test UID.
-    monkeypatch.setattr(
-        desktop.cut_desktop.client,
-        "core_uid",
-        lambda: MY_UID,
-    )
-
-    prompts = FakePrompts()
-    prompts.ask_pending_reason = lambda: REASON
-    prompts.ask_pending_confirmation = (
-        lambda: desktop.cut_desktop.client.CONFIRMATION
-    )
-    prompts.ask_pending_secret = lambda: SECRET
-
-    app, root = app_factory(None, prompts)
-    app._pending_socket_path = str(path)
-
-    refresh = app._pending_refresh_button
-    confirm = app._pending_confirm_button
-
-    assert str(confirm.cget("state")) == "disabled"
-
-    # GUI reads the real temporary Core socket.
-    refresh.configure(state=tk.NORMAL)
-    refresh.invoke()
+@pytest.mark.parametrize("status, blocked, expected", [
+    ("HEALTHY", [], "none"),
+    ("HEALTHY", ["203.0.113.5"], "1"),
+    ("UNAVAILABLE — ContainmentUnavailable", [], "UNKNOWN"),
+    ("NOT_CONFIGURED", [], "UNKNOWN"),
+])
+def test_the_recovery_blocked_ip_count_is_never_a_fake_none(app_factory, tmp_path, monkeypatch, status, blocked, expected):
+    monkeypatch.setattr(desktop.live, "containment_status", lambda: (status, blocked))
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5, recovery=recovery)
+    app._show_page("recovery")
     root.update()
+    assert _value_after(root, "Active software blocks") == expected
 
-    text = app._pending_status.cget("text")
-    assert pending.request_id in text
-    assert pending.address in text
-    assert "DRYRUN" in text
-    assert str(confirm.cget("state")) == "normal"
-    assert target.would_cut == []
-    assert core.commands() == []
 
-    # GUI confirms using real Core authentication.
-    confirm.invoke()
+def test_incidents_page_with_a_verified_empty_source_says_none_found_without_claiming_safety(app_factory):
+    empty = {"v": 1, "highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), empty, status_age=5)
+    app._show_page("incidents")
     root.update()
+    joined = "\n".join(_texts(root))
+    assert "No events found in the available data source" in joined
+    assert "does not prove that no attack occurred" in joined
+    assert "not found" not in joined and "unavailable" not in joined.lower().replace("not_available", "")
 
-    assert "DRY_RUN_CONFIRMED" in (
-        app._pending_status.cget("text")
-    )
-    assert len(target.would_cut) == 1
-    assert core.commands() == []
-    assert str(confirm.cget("state")) == "disabled"
 
-    # A subsequent refresh must not show the consumed request.
-    refresh.invoke()
+def test_recovery_status_tiles_separate_the_state_code_from_its_explanation_and_clarify_ready(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5, recovery=recovery)
+    app._show_page("recovery")
     root.update()
+    texts = _texts(root)
+    assert "NOT_AVAILABLE" in texts                                   # the real state code, alone, in the big value
+    assert not any(t.startswith("NOT_AVAILABLE — No graduated") for t in texts)
+    assert "No graduated-response summary from Core" in texts          # its meaning, as a wrapping helper line
+    ready_note = next(t for t in texts if t.startswith("Core-side RESTORE eligibility only"))
+    assert "does not prove the cable or relay is reconnected" in ready_note and "pin 2" in ready_note
 
-    assert "NO_PENDING_CUT" in (
-        app._pending_status.cget("text")
-    )
-    assert str(confirm.cget("state")) == "disabled"
-    assert len(target.would_cut) == 1
-    assert core.commands() == []
+
+def test_a_long_section_title_wraps_inside_its_card_instead_of_being_clipped(app_factory, tmp_path):
+    recovery = write_recovery_view(tmp_path / "recovery-status.json")
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5, recovery=recovery)
+    root.geometry("1440x900")
+    app._show_page("recovery")
+    root.update()
+    title = next(w for w in _widgets(root, "Label") if str(w.cget("text")).startswith("ACTIVE SOFTWARE BLOCKS"))
+    assert int(title.cget("wraplength")) > 0
+    assert title.winfo_reqwidth() <= title.master.winfo_width()
+
+
+_EMPTY_SOURCE = {"v": 1, "updated_at": 1.0, "auto_cut_latched": False, "highest_level": "LOW", "cut_recommended_for": None, "decisions": []}
+
+
+def _overview_texts(app_factory, graduated):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), graduated, status_age=5)
+    app._show_page("overview")
+    root.update()
+    return "\n".join(_texts(root)), root
+
+
+def test_overview_banner_never_says_no_incidents_without_a_readable_incident_source(app_factory):
+    joined, _root = _overview_texts(app_factory, None)
+    assert "Incident Status Unavailable" in joined and "cannot be determined" in joined
+    assert "No Active Incidents" not in joined and "No open security incident" not in joined
+
+
+def test_overview_banner_for_a_verified_empty_source_says_none_found_without_claiming_safety(app_factory):
+    joined, _root = _overview_texts(app_factory, _EMPTY_SOURCE)
+    assert "No Events Found" in joined and "does not prove that no attack occurred" in joined
+    assert "No Active Incidents" not in joined
+
+
+def test_overview_banner_reports_recorded_decisions(app_factory):
+    joined, _root = _overview_texts(app_factory, DECISIONS)
+    assert "Core Decisions Recorded" in joined and "Highest level: HIGH" in joined
+
+
+def test_overview_not_available_cards_each_say_what_is_missing_instead_of_repeating_one_reason(app_factory):
+    joined, _root = _overview_texts(app_factory, None)
+    for note in ("Not provided by the Core status document", "No open-incident count here",
+                 "No daily event count is provided to this Desktop"):
+        assert note in joined
+    assert joined.count("fresh and internally consistent") == 0
+
+
+def test_devices_page_explains_missing_device_metrics_and_that_a_software_ack_is_not_physical_proof(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("devices")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "did not report this value to this Desktop" in joined and "does not mean the device is faulty" in joined
+    assert "Reported is not the same as physically verified" in joined
+    assert "software ACK" in joined and "not proof of physical cable continuity" in joined
+
+
+def test_audit_page_notes_that_command_and_ack_tokens_are_not_physical_verification_and_keeps_its_tokens(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("audit")
+    root.update()
+    joined = "\n".join(_texts(root))
+    assert "COMMAND_SENT and ACK_RECEIVED are command and acknowledgement evidence" in joined
+    assert "not physical verification" in joined
+
+
+def test_settings_preference_labels_are_left_aligned_like_every_other_row(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), None, status_age=5)
+    app._show_page("settings")
+    root.update()
+    labels = {w.cget("text"): w for w in _widgets(root, "Label")}
+    for text in ("Interface language", "Appearance"):
+        assert str(labels[text].cget("anchor")) == "w"
+
+
+# ---- audit outcome colours and the environment badge (display-only truthfulness) ----
+
+def _status_names():
+    return SimpleNamespace(pres=SimpleNamespace(STATUS_HEALTHY="healthy", STATUS_WARNING="warning", STATUS_CRITICAL="critical",
+                                                 STATUS_NEUTRAL="neutral", STATUS_UNKNOWN="unknown"))
+
+
+@pytest.mark.parametrize("kind, expected", [
+    ("RESTORE_REFUSED", "warning"), ("RESTORE_AUTH_LOCKOUT", "warning"), ("ALERT_REFUSED", "warning"),
+    ("RESTORE_REQUESTED", "neutral"), ("COMMAND_SENT", "neutral"), ("ACK_RECEIVED", "neutral"),
+    ("ALERT_ACCEPTED", "neutral"), ("CUT_PRE_DISPATCH", "critical"),
+])
+def test_a_refused_or_locked_out_audit_outcome_is_never_shown_green(kind, expected):
+    assert desktop._feed_status(_status_names(), kind) == expected
+
+
+def _badge_texts(root):
+    from aegis_soc import theme as ui_theme
+    found = []
+
+    def walk(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ui_theme.PageHeader):
+                found.extend(w._label.cget("text") for w in _descendants(child) if isinstance(w, ui_theme.StatusBadge))
+            walk(child)
+    walk(root)
+    return found
+
+
+def _descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _descendants(child)
+
+
+@pytest.mark.parametrize("page", ["overview", "lockdown"])
+def test_the_page_badge_reports_the_cores_profile_not_a_green_live_claim(app_factory, page):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)   # the Core reports profile=lab, dry_run=false
+    app._show_page(page)
+    root.update()
+    assert _badge_texts(root) == ["LAB"]
+    assert "LIVE" not in _texts(root) and "ใช้งานจริง" not in _texts(root)
+
+
+def test_the_page_badge_is_unknown_without_readable_core_evidence(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts())
+    app._show_page("overview")
+    root.update()
+    assert _badge_texts(root) == ["UNKNOWN"]
+
+
+def test_the_page_badge_adds_dry_run_only_when_the_core_reports_it(app_factory):
+    import dataclasses
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    app.latest = dataclasses.replace(app.latest, dry_run="TRUE")
+    app._show_page("overview")
+    root.update()
+    assert _badge_texts(root) == ["LAB · DRY RUN"]
+
+
+def test_a_long_state_code_on_an_overview_card_fits_its_card_at_1366_wide(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    root.geometry("1366x768")
+    app._show_page("overview")
+    root.update()
+    app._refresh_overview_metrics()
+    root.update()
+    cards = [w for w in _widgets(root, "Label") if w.cget("text") == "NOT_AVAILABLE"]
+    assert len(cards) == 3
+    for label in cards:
+        assert label.winfo_width() >= label.winfo_reqwidth(), "the state code is cut off by its card"
+
+
+def test_no_restore_audit_kind_is_ever_shown_as_a_green_success():
+    from tools import live_purple_core_records as records
+    gui = _status_names()
+    restore_kinds = [kind for kind in records.FEED_KINDS if kind.startswith("RESTORE")]
+    assert set(restore_kinds) == {"RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT"}   # no "completed" kind exists
+    assert {kind: desktop._feed_status(gui, kind) for kind in restore_kinds} == {
+        "RESTORE_REQUESTED": "neutral", "RESTORE_REFUSED": "warning", "RESTORE_AUTH_LOCKOUT": "warning"}
+    assert all(desktop._feed_status(gui, kind) != "healthy" for kind in records.FEED_KINDS if not kind.startswith("GRADUATED_"))
+
+
+def _header_chips(app):
+    return [badge._label.cget("text") for badge in (app.badge_mode, app.badge_broker, app.badge_esp32)]
+
+
+def test_the_header_chips_say_unknown_not_disarmed_before_any_trustworthy_evidence(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts())   # no readable Core status
+    assert app.latest.valid is False
+    assert _header_chips(app) == ["UNKNOWN", "MQTT: UNKNOWN", "ESP32: UNKNOWN"]   # no poll has run yet
+    app._rebuild_ui()   # what a language/theme change does
+    root.update()
+    assert _header_chips(app) == ["UNKNOWN", "MQTT: UNKNOWN", "ESP32: UNKNOWN"]
+
+
+def test_the_header_chips_follow_the_cores_evidence_immediately_when_it_is_valid(app_factory):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
+    assert app.latest.valid is True
+    assert _header_chips(app) == ["ARMED", "MQTT: CONNECTED", "ESP32: ONLINE"]

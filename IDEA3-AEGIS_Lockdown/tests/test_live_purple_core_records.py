@@ -135,6 +135,29 @@ def test_audit_rows_carry_only_machine_fields_and_never_the_reason(tmp_path):
     assert SECRET_REASON not in text and "uid=" not in text and "pid" not in text
 
 
+def test_feed_record_separates_time_event_and_safe_machine_detail():
+    row = {
+        "at": "2026-10-24 19:01:06",
+        "kind": "ACK_RECEIVED",
+        "code": "OK",
+        "ref": "seq 16",
+        "ip": "203.0.113.7",
+        "mitre": "T1046,T1110",
+    }
+
+    assert rec.feed_record(row) == (
+        "19:01:06",
+        "ACK_RECEIVED",
+        "OK · 203.0.113.7 · seq 16 · T1046,T1110",
+    )
+
+
+def test_feed_record_uses_an_explicit_empty_detail_without_exposing_reason_text():
+    row = {"at": "", "kind": "RESTORE_REQUESTED", "code": "", "ref": "", "ip": "", "mitre": ""}
+
+    assert rec.feed_record(row) == ("—", "RESTORE_REQUESTED", "—")
+
+
 def test_text_inside_a_reason_cannot_fake_a_field():
     spoof = "code=FAKE_OK seq=99 msg_id=" + "cd" * 16 + " seq=7"
     assert rec.parse_audit_details("COMMAND_SENT", f"CUT_UPLINK - local cut: {spoof}; uid=1; pid=2 (origin=x) seq=5") == ("CUT_UPLINK", "seq 5")
@@ -250,6 +273,65 @@ def test_graduated_row_and_header_facts():
     assert rec.audit_facts([], "", t)[0][1].startswith("0 newest")
 
 
+def test_incident_summary_tiles_never_hide_an_unavailable_source_behind_a_fake_zero():
+    highest, latest, source = rec.incident_summary_tiles(None, "NOT_FOUND", t)
+    assert source[1] == "NOT_FOUND" and source[2] is False   # the TRUE reason, never "0 events"
+    assert highest[1] == "UNKNOWN" and latest[1] == "UNKNOWN"   # an unreadable source is never "none yet"
+
+    empty = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    highest, latest, source = rec.incident_summary_tiles(empty, "", t)
+    assert highest == ("Highest level right now", "LOW", "LOW")
+    assert latest[1] == "none yet" and source == ("Data source status", "AVAILABLE", True)
+
+    item = {"at": None, "attacker_ip": "203.0.113.9", "kind": "port_scan", "level": "HIGH", "action": "RECOMMEND_CUT",
+           "outcome": "", "score": 70, "reasons": [], "mitre": [], "corroborated": False}
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": "203.0.113.9", "auto_cut_latched": False, "decisions": [item]}
+    highest, latest, source = rec.incident_summary_tiles(graduated, "", t)
+    assert latest == ("Latest event", "Port scan", "HIGH")   # the raw kind mapped to its friendly label
+    assert source == ("Data source status", "AVAILABLE", True)
+
+
+def test_incident_kind_and_action_labels_fall_back_to_the_raw_value_when_unmapped():
+    assert rec.incident_kind_label("port_scan", t) == "Port scan"
+    assert rec.incident_kind_label("some_future_kind", t) == "some_future_kind"
+    assert rec.incident_action_label("AUTO_CUT", t) == "automatic CUT"
+    assert rec.incident_action_label("UNEXPECTED", t) == "UNEXPECTED"
+    assert rec.incident_action_label("", t) == "—"
+
+
+def test_recovery_tile_facts_mirror_the_same_values_and_conditions_as_recovery_facts(tmp_path):
+    view = make_view(tmp_path)
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": "203.0.113.9", "auto_cut_latched": True, "decisions": [{}]}
+    tiles = dict((label, (value, level)) for label, value, level in rec.recovery_tile_facts(EVIDENCE, view, graduated, "FRESH", t))
+    rows = dict((label, (value, level)) for label, value, level in rec.recovery_facts(EVIDENCE, view, "", graduated, [], "", "FRESH", t))
+    assert tiles["Ready for a RESTORE"] == ("READY", "LOW")
+    assert rows["Ready for a RESTORE"][1] == "LOW" and rows["Ready for a RESTORE"][0].startswith("READY")
+    for label in ("Uplink state", "ESP32 device", "Broker", "Trusted time"):
+        assert tiles[label] == rows[label]   # identical value and level -- only the row label differs for Graduated
+    assert tiles["Graduated response"] == ("HIGH", "HIGH")   # the tile omits the "latched" suffix the detail row keeps
+    assert rows["Graduated response"] == ("HIGH — automatic CUT latched", "HIGH")
+
+
+def test_recovery_tile_facts_not_ready_and_no_graduated_projection():
+    bad = {"uplink": "NORMAL", "device": "OFFLINE", "broker": "DISCONNECTED", "trusted_time": "UNTRUSTED"}
+    tiles = dict((label, (value, level)) for label, value, level in rec.recovery_tile_facts(bad, None, None, "FRESH", t))
+    assert tiles["Ready for a RESTORE"] == ("NOT READY", "HIGH")
+    assert tiles["Graduated response"] == ("NOT_AVAILABLE", None)   # the code alone; the meaning is the tile helper
+
+
+def test_recovery_tile_only_label_keys_excludes_ready_and_matches_real_labels():
+    assert "recovery.ready" not in rec.RECOVERY_TILE_ONLY_LABEL_KEYS
+    labels = {t(key) for key in rec.RECOVERY_TILE_ONLY_LABEL_KEYS}
+    assert labels == {"Uplink state", "ESP32 device", "Broker", "Trusted time", "Graduated response"}
+
+
+def test_recovery_tile_label_keys_order_matches_recovery_tile_facts_output_order(tmp_path):
+    view = make_view(tmp_path)
+    graduated = {"highest_level": "HIGH", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    tiles = rec.recovery_tile_facts(EVIDENCE, view, graduated, "FRESH", t)
+    assert [label for label, _v, _l in tiles] == [t(key) for key in rec.RECOVERY_TILE_LABEL_KEYS]
+
+
 # ---- lockdown cause / blocked IPs / runbook ----
 
 DECISION = {
@@ -324,3 +406,34 @@ def test_registration_never_replaces_an_existing_key():
     table = {"recovery.ready": {"en": "mine"}}
     rec.register_record_strings(type("I", (), {"STRINGS": table}))
     assert table["recovery.ready"] == {"en": "mine"} and "recovery.hint" in table
+
+
+def test_blocked_ip_facts_is_unknown_not_none_when_the_list_operation_did_not_succeed():
+    assert rec.blocked_ip_facts([], t, known=False) == [("Active software blocks", "UNKNOWN", None)]
+    assert rec.blocked_ip_facts([], t, known=True) == [("Active software blocks", "none", "LOW")]
+
+
+_EMPTY_VALID = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+
+
+@pytest.mark.parametrize("graduated, reason, title_start, detail", [
+    (_EMPTY_VALID, "", "No events found in the available data source", None),
+    (None, "NOT_FOUND", "Incident data source not found", "NOT_FOUND"),
+    (None, "NOT_CONFIGURED", "Incident data source unavailable", "NOT_CONFIGURED"),
+    (None, "PERMISSION_DENIED", "Incident data source unavailable", "PERMISSION_DENIED"),
+    (None, "STALE", "Incident data is stale", "STALE"),
+])
+def test_incident_empty_state_separates_unavailable_sources_from_a_verified_empty_list(graduated, reason, title_start, detail):
+    title, got_detail = rec.incident_empty_state(graduated, reason, t)
+    assert title.startswith(title_start) and got_detail == detail
+    if graduated is None:   # an unreadable source must never read as an all-clear
+        assert "No events" not in title and "watching" not in title
+
+
+def test_recovery_tile_helpers_explain_ready_as_core_side_only_and_name_the_missing_summary():
+    helpers = rec.recovery_tile_helpers(None, t)
+    assert len(helpers) == len(rec.RECOVERY_TILE_LABEL_KEYS)
+    assert "Core-side" in helpers[0] and "pin 2" in helpers[0] and "does not prove" in helpers[0]
+    assert helpers[-1] == "No graduated-response summary from Core"
+    graduated = {"highest_level": "LOW", "cut_recommended_for": None, "auto_cut_latched": False, "decisions": []}
+    assert rec.recovery_tile_helpers(graduated, t)[-1] == ""
