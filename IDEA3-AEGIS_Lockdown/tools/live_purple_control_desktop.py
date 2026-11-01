@@ -22,11 +22,13 @@ import json
 import os
 import stat
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog
 
 from tools import graceful_exit
+from tools import live_purple_audit_model as audit_model
 from tools import live_purple_control_strings as strings
 from tools import live_purple_core_records as records
 from tools import live_purple_cut_desktop as cut_desktop
@@ -39,6 +41,8 @@ STATUS_PATH_ENV = "AEGIS_DESKTOP_STATUS_PATH"
 GRADUATED_PATH_ENV = "AEGIS_GRADUATED_STATUS_PATH"
 RECOVERY_PATH_ENV = "AEGIS_DESKTOP_RECOVERY_PATH"
 AUDIT_DB_ENV = "AEGIS_DESKTOP_AUDIT_DB"
+AUDIT_MODEL_MAX_AGE_SECONDS = 5.0
+ALERT_PANEL_SIZE = "480x600"
 CONTROL_TITLE = "AEGIS IDEA3 — PURPLE DESKTOP — CUT / RESTORE (CORE-AUTHENTICATED)"
 RESTORE_BUTTON_TEXT = "RESTORE NETWORK (Core-authenticated)"
 RESTORE_DISABLED_TEXT = "RESTORE NETWORK — DISABLED"
@@ -269,6 +273,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._page_tick = None
             self._page_after = None
             self._page_snapshot = None
+            self._audit_model_cache = None
+            self._audit_model_at = 0.0
+            self._alert_panel_key = None
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
 
@@ -279,6 +286,7 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _show_page(self, key):
             self._stop_live_page()
             super()._show_page(key)  # the CUT base installs its CUT control on the lockdown page
+            self._enable_alert_button()
             if key == "lockdown":
                 self._install_restore_control()
                 self._install_severity_panel()
@@ -293,6 +301,122 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
                 # design system directly while building.
                 design.ensure_fonts(self.root)
                 design.restyle_section_titles(self.workspace, gui=gui)
+
+        # -- read-only audit evidence: Alerts panel and Overview --------------------------------------------------------
+        def _audit_model(self):
+            now = time.monotonic()
+            if self._audit_model_cache is None or now - self._audit_model_at >= AUDIT_MODEL_MAX_AGE_SECONDS:
+                self._audit_model_cache = audit_model.read_snapshot(audit_path)
+                self._audit_model_at = now
+            return self._audit_model_cache
+
+        def _enable_alert_button(self):
+            # The preview base disables every Button under the root and replaces its command after each page change.
+            if self._notif_button is not None and self._notif_button.winfo_exists():
+                self._notif_button.configure(state=tk.NORMAL, command=self._show_notification_panel)
+
+        def _notification_button_text(self):
+            label = gui.i18n.t("notif.button_label")
+            count = self._audit_model().last_24h
+            return f"{label} ({count})" if count else label
+
+        def _refresh_notification_indicator(self):
+            shot = self._audit_model()
+            if self._notif_button is not None and self._notif_button.winfo_exists():
+                variant = "danger" if shot.highest_24h == "CRITICAL" else ("warning" if shot.highest_24h else "secondary")
+                self._notif_button.config(text=self._notification_button_text())
+                gui.set_button_variant(self._notif_button, variant)
+            panel_open = self._notif_panel is not None and self._notif_panel.winfo_exists()
+            if panel_open and self._alert_panel_key != (shot, gui.i18n.get_language()):
+                self._build_notification_panel_contents(self._notif_panel)
+
+        def _show_notification_panel(self):
+            if self._notif_panel is not None and self._notif_panel.winfo_exists():
+                self._notif_panel.lift()
+                self._notif_panel.focus_force()
+                return
+            panel = tk.Toplevel(self.root)
+            panel.title(gui.i18n.t("notif.panel_title"))
+            panel.configure(bg=gui.COLOR_BG)
+            panel.geometry(ALERT_PANEL_SIZE)
+            panel.transient(self.root)
+            panel.protocol("WM_DELETE_WINDOW", self._close_notification_panel)
+            self._notif_panel = panel
+            self._build_notification_panel_contents(panel)
+
+        def _build_notification_panel_contents(self, panel):
+            """Read-only by design: this window has no action button of any kind."""
+            t = gui.i18n.t
+            palette = gui.ui_theme.get_palette()
+            shot = self._audit_model()
+            self._alert_panel_key = (shot, gui.i18n.get_language())
+            for child in panel.winfo_children():
+                child.destroy()
+            tk.Label(panel, text=t("audit_alert.footer"), font=gui.ui_theme.FONT_HINT, fg=palette.muted, bg=palette.panel,
+                     wraplength=450, justify="left", anchor="w").pack(side="bottom", fill="x", ipadx=10, ipady=8)
+            tk.Label(panel, text=t("notif.panel_title"), font=gui.ui_theme.FONT_SECTION, fg=palette.text, bg=palette.panel,
+                     anchor="w").pack(side="top", fill="x", ipadx=12, ipady=10)
+            scroll = gui.ScrollFrame(panel)
+            scroll.pack(fill="both", expand=True)
+            body = scroll.inner
+            if shot.reason:
+                gui.make_hint(body, t("audit_alert.unavailable", reason=shot.reason)).pack(anchor="w", padx=12, pady=12)
+            elif not shot.alerts:
+                gui.make_hint(body, t("audit_alert.empty")).pack(anchor="w", padx=12, pady=12)
+            for alert in shot.alerts:
+                heading, lines = audit_model.alert_lines(alert, t)
+                status = {"CRITICAL": gui.pres.STATUS_CRITICAL, "LOW": gui.pres.STATUS_NEUTRAL}.get(alert.level, gui.pres.STATUS_WARNING)
+                card = gui.Section(body, heading, accent=gui.ui_theme.status_color(status))
+                card.pack(fill="x", padx=10, pady=6)
+                for line in lines:
+                    tk.Label(card.body, text=line, font=gui.ui_theme.FONT_HINT, fg=palette.text, bg=palette.panel,
+                             wraplength=410, justify="left", anchor="w").pack(fill="x")
+
+        def _refresh_live_evidence(self):
+            super()._refresh_live_evidence()
+            if self.session.authenticated:
+                self._refresh_notification_indicator()
+                self._refresh_recent_activity()
+
+        def _refresh_overview_metrics(self):
+            super()._refresh_overview_metrics()
+            if not self.session.authenticated:
+                return
+            t = gui.i18n.t
+            shot = self._audit_model()
+            # Dead Man's Switch stays with the base class: it may only come from the Core status document.
+            for key, value, note in (("today", shot.today, "audit_alert.today_note"),
+                                     ("incidents", shot.open_incidents, "audit_alert.incidents_note")):
+                card = self.metric_cards.get(key)
+                if value is None or card is None or not card.winfo_exists():
+                    continue
+                card.update(str(value), gui.pres.STATUS_NEUTRAL, t(note))
+                wanted = gui.ui_theme.FONT_METRIC_VALUE
+                if str(card._value_label.cget("font")) != str(wanted):
+                    card._value_label.config(font=wanted)
+
+        def _refresh_recent_activity(self):
+            if not hasattr(self, "activity_body") or not self.activity_body.winfo_exists():
+                return
+            shot = self._audit_model()
+            key = (shot.reason, shot.activity, gui.i18n.get_language())
+            if key == getattr(self.activity_body, "_aegis_activity_key", None):
+                return   # unchanged: no destroy/rebuild per refresh tick
+            self.activity_body._aegis_activity_key = key
+            for row in self.activity_rows:
+                row.destroy()
+            self.activity_rows = []
+            if shot.reason or not shot.activity:
+                text = (gui.i18n.t("audit_alert.unavailable", reason=shot.reason) if shot.reason
+                        else gui.i18n.t("activity.empty"))
+                empty = gui.EmptyState(self.activity_body, "", text, compact=True)
+                empty.pack(anchor="w", pady=(4, 0))
+                self.activity_rows.append(empty)
+                return
+            for row in shot.activity:
+                widget = gui.EvidenceRow(self.activity_body, row.time, row.severity, row.event, row.source)
+                widget.pack(fill="x", anchor="w")
+                self.activity_rows.append(widget)
 
         # -- RESTORE ----------------------------------------------------------------------------------------------------
         def _install_restore_control(self):
@@ -865,6 +989,7 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
     register_severity_strings(gui.i18n)
     records.register_record_strings(gui.i18n)
+    audit_model.register_strings(gui.i18n)
     live.register_observer_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()

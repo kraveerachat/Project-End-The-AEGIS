@@ -1391,3 +1391,62 @@ def test_the_header_chips_follow_the_cores_evidence_immediately_when_it_is_valid
     app, root = app_factory(FakeRestoreFlow(), FakePrompts(), status_age=5)
     assert app.latest.valid is True
     assert _header_chips(app) == ["ARMED", "MQTT: CONNECTED", "ESP32: ONLINE"]
+
+
+def _audit_db(path):
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, timestamp TEXT, level TEXT, event_type TEXT, details TEXT)")
+    connection.execute("CREATE TABLE incidents (id INTEGER PRIMARY KEY, state TEXT)")
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    connection.execute("INSERT INTO audit_logs (timestamp, level, event_type, details) VALUES (?, 'CRITICAL', 'GRADUATED_CRITICAL', ?)",
+                       (stamp, "source=beelink attacker_ip=192.168.10.10 score=140 action=AUTO_CUT reasons=ssh_brute_force+40"))
+    connection.commit()
+    connection.close()
+    return path
+
+
+def _texts(widget):
+    found = []
+    for child in widget.winfo_children():
+        if isinstance(child, tk.Label):
+            found.append(child.cget("text"))
+        found.extend(_texts(child))
+    return found
+
+
+def _buttons(widget):
+    found = [child for child in widget.winfo_children() if isinstance(child, tk.Button)]
+    for child in widget.winfo_children():
+        found.extend(_buttons(child))
+    return found
+
+
+def test_the_alert_button_opens_a_read_only_panel_of_audit_alerts(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=_audit_db(tmp_path / "audit.db"))
+    assert str(app._notif_button.cget("state")) == tk.NORMAL
+    assert app._notif_button.cget("text").endswith("(1)")
+    app._notif_button.invoke()
+    root.update()
+    text = "\n".join(_texts(app._notif_panel))
+    assert "192.168.10.10" in text and "CRITICAL" in text and "Telegram" in text
+    assert _buttons(app._notif_panel) == []
+
+
+def test_the_overview_shows_audit_activity_and_counts_but_never_a_dead_man_value(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=_audit_db(tmp_path / "audit.db"))
+    app._show_page("overview")
+    root.update()
+    assert app.metric_cards["today"]._value_label.cget("text") == "1"
+    assert app.metric_cards["incidents"]._value_label.cget("text") == "0"
+    assert app.metric_cards["deadman"]._value_label.cget("text") == "NOT_AVAILABLE"
+    assert any("GRADUATED_CRITICAL" in text for text in _texts(app.activity_body))
+
+
+def test_a_missing_audit_database_keeps_the_panel_open_and_the_counts_unavailable(app_factory, tmp_path):
+    app, root = app_factory(FakeRestoreFlow(), FakePrompts(), audit_db=tmp_path / "missing.db")
+    app._notif_button.invoke()
+    root.update()
+    assert any("NOT_AVAILABLE" in text for text in _texts(app._notif_panel))
+    app._show_page("overview")
+    root.update()
+    assert app.metric_cards["today"]._value_label.cget("text") == "NOT_AVAILABLE"
