@@ -143,6 +143,36 @@ FLOW_TEXTS = {
         "结果丢失。CUT 可能发生也可能没有。请勿假定任何一种；请检查 Core 证据。未重试。"),
     "The result was lost. The RESTORE may or may not have happened. Do NOT run it again; check Core evidence.": _both(
         "", "ผลลัพธ์สูญหาย RESTORE อาจเกิดขึ้นหรือไม่ก็ได้ อย่าสั่งซ้ำ โปรดตรวจหลักฐานจาก Core", "结果丢失。RESTORE 可能发生也可能没有。请勿再次执行；请检查 Core 证据。"),
+    # CUT authorization and pending-CUT confirmation results (cut_client.py, added with the one-shot CUT grant).
+    "Conflicting Core publication response. Check Core evidence; do not retry automatically.": _both(
+        "", "Core ตอบผลการส่งคำสั่งขัดแย้งกัน โปรดตรวจหลักฐานจาก Core และอย่าสั่งซ้ำอัตโนมัติ", "Core 的发布响应相互矛盾。请检查 Core 证据；请勿自动重试。"),
+    "Conflicting Core response. Verify Core status.": _both("", "Core ตอบกลับขัดแย้งกัน โปรดตรวจสถานะ Core", "Core 响应相互矛盾。请核实 Core 状态。"),
+    "Core reported publication without a valid command identity. Do not retry automatically.": _both(
+        "", "Core รายงานว่าส่งคำสั่งแล้วแต่ไม่มีตัวตนคำสั่งที่ถูกต้อง อย่าสั่งซ้ำอัตโนมัติ", "Core 报告已发布，但没有有效的指令标识。请勿自动重试。"),
+    "Core response lost. Check Core status. No automatic retry was performed.": _both(
+        "", "คำตอบจาก Core สูญหาย โปรดตรวจสถานะ Core ระบบไม่ได้สั่งซ้ำอัตโนมัติ", "Core 响应丢失。请检查 Core 状态。未执行自动重试。"),
+    "Core unavailable. Nothing was sent.": _both("", "ติดต่อ Core ไม่ได้ " + _NS["th"], "Core 不可用。" + _NS["zh"]),
+    "Invalid Core response. Check Core status.": _both("", "คำตอบจาก Core ไม่ถูกต้อง โปรดตรวจสถานะ Core", "Core 响应无效。请检查 Core 状态。"),
+    "Invalid pending confirmation. Nothing was sent.": _both("", "การยืนยันคำขอที่ค้างอยู่ไม่ถูกต้อง " + _NS["th"], "待确认请求无效。" + _NS["zh"]),
+    "No pending CUT exists. Nothing was sent.": _both("", "ไม่มีคำขอ CUT ที่ค้างอยู่ " + _NS["th"], "不存在待确认的 CUT。" + _NS["zh"]),
+    "Pending confirmation is disabled for this target.": _both("", "ปิดการยืนยันคำขอที่ค้างอยู่สำหรับเป้าหมายนี้", "此目标已禁用待确认功能。"),
+    "Request identity does not match. Nothing was sent.": _both("", "ตัวตนของคำขอไม่ตรงกัน " + _NS["th"], "请求标识不匹配。" + _NS["zh"]),
+    "Request identity is required. Nothing was sent.": _both("", "ต้องระบุตัวตนของคำขอ " + _NS["th"], "需要请求标识。" + _NS["zh"]),
+    "The CUT secret is required. Nothing was sent.": _both("", "ต้องใช้รหัสลับ CUT " + _NS["th"], "需要 CUT 密钥。" + _NS["zh"]),
+    "The Core accepted a simulated Pending CUT. No physical CUT was performed.": _both(
+        "", "Core รับคำขอ CUT ที่ค้างอยู่แบบจำลอง ไม่มีการ CUT สายจริง", "Core 已接受模拟的待确认 CUT。未执行实际 CUT。"),
+    "The Core cannot confirm whether the CUT was published. Check Core audit, command evidence and device state. Do not retry automatically.": _both(
+        "", "Core ยืนยันไม่ได้ว่าส่งคำสั่ง CUT ออกไปแล้วหรือไม่ โปรดตรวจบันทึก audit ของ Core หลักฐานคำสั่ง และสถานะอุปกรณ์ อย่าสั่งซ้ำอัตโนมัติ",
+        "Core 无法确认 CUT 是否已发布。请检查 Core 审计、指令证据和设备状态。请勿自动重试。"),
+    "The Core could not persist CUT authorization. Nothing was sent.": _both(
+        "", "Core บันทึกสิทธิ์อนุมัติ CUT ไม่ได้ " + _NS["th"], "Core 无法持久保存 CUT 授权。" + _NS["zh"]),
+    "The Core has no configured relay target. Nothing was sent.": _both("", "Core ยังไม่ได้ตั้งค่าเป้าหมายรีเลย์ " + _NS["th"], "Core 未配置继电器目标。" + _NS["zh"]),
+    "The Core rejected the request identity. Nothing was sent.": _both("", "Core ปฏิเสธตัวตนของคำขอ " + _NS["th"], "Core 拒绝了请求标识。" + _NS["zh"]),
+    "The pending request expired. Nothing was sent.": _both("", "คำขอที่ค้างอยู่หมดอายุแล้ว " + _NS["th"], "待确认请求已过期。" + _NS["zh"]),
+    "The pending target does not match. Nothing was sent.": _both("", "เป้าหมายของคำขอที่ค้างอยู่ไม่ตรงกัน " + _NS["th"], "待确认目标不匹配。" + _NS["zh"]),
+    "The target changed. Nothing was sent.": _both("", "เป้าหมายเปลี่ยนไปแล้ว " + _NS["th"], "目标已更改。" + _NS["zh"]),
+    "Unexpected Core response. Verify Core status. Do not automatically retry.": _both(
+        "", "Core ตอบกลับผิดคาด โปรดตรวจสถานะ Core อย่าสั่งซ้ำอัตโนมัติ", "Core 响应异常。请核实 Core 状态。请勿自动重试。"),
 }
 
 # Reasons that appear before " Nothing was sent." (or alone) from the local pre-checks and channel errors.
