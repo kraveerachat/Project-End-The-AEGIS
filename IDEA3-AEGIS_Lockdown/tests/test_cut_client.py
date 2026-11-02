@@ -250,3 +250,308 @@ def test_end_to_end_an_impostor_server_uid_is_refused(core, monkeypatch, tmp_pat
     core.supervisor.start_local_cut()
     view = cc.ManualCutFlow(path, expected_uid=MY_UID + 1).submit(REASON, SECRET)
     assert view.state == "CHANNEL_UNAVAILABLE" and core.commands() == []
+
+
+def test_pending_status_client_reads_without_cut_or_secret():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+        "created_at": 123.0,
+        "score": 140,
+    }
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_STATUS",
+        "pending": pending,
+    })
+
+    result = cc.fetch_pending_cut(
+        "/run/test/cut.sock", "beelink",
+        expected_uid=1, send=send,
+    )
+    assert result == pending
+    assert send.calls == [{
+        "v": 1, "op": "GET_PENDING_CUT", "source": "beelink",
+    }]
+    assert all("secret" not in body for body in send.calls)
+
+
+def test_pending_status_client_handles_absence_without_retry():
+    send = scripted({"ok": False, "code": "NO_PENDING_CUT"})
+    result = cc.fetch_pending_cut(
+        "/run/test/cut.sock", "beelink",
+        expected_uid=1, send=send,
+    )
+    assert result is None
+    assert len(send.calls) == 1
+
+
+def test_pending_status_client_rejects_invalid_snapshot():
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_STATUS",
+        "pending": {"source": "beelink"},
+    })
+    with pytest.raises(cc.PendingStatusUnavailable):
+        cc.fetch_pending_cut(
+            "/run/test/cut.sock", "beelink",
+            expected_uid=1, send=send,
+        )
+    assert len(send.calls) == 1
+
+
+def test_phase_2d_client_confirms_dry_run():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted({
+        "ok": True,
+        "code": "PENDING_CUT_DRY_RUN",
+    })
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "DRY_RUN_CONFIRMED"
+    assert "No physical CUT" in view.text
+
+    assert len(send.calls) == 1
+    body = send.calls[0]
+
+    assert body["op"] == "CONFIRM_PENDING_CUT"
+    assert body["request_id"] == "a" * 32
+    assert body["source"] == "beelink"
+    assert body["target"] == "DRYRUN"
+    assert body["secret"] == SECRET
+    assert body["confirmation"] == cc.CONFIRMATION
+    assert body["op"] != "CUT_UPLINK"
+
+
+def test_phase_2d_client_refuses_real_targets():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "LOCAL_CORE_RELAY",
+    }
+
+    send = scripted()
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "REFUSED_INPUT"
+    assert send.calls == []
+
+
+def test_phase_2d_client_refuses_missing_secret():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted()
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        "",
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "REFUSED_AUTH"
+    assert send.calls == []
+
+
+def test_phase_2d_client_never_retries_unknown_outcome():
+    pending = {
+        "source": "beelink",
+        "address": "198.51.100.25",
+        "request_id": "a" * 32,
+        "target_name": "DRYRUN",
+    }
+
+    send = scripted(cc.OutcomeUnknown("lost"))
+
+    view = cc.confirm_pending_cut(
+        "/run/test/cut.sock",
+        pending,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=1,
+        send=send,
+    )
+
+    assert view.state == "OUTCOME_UNKNOWN"
+    assert len(send.calls) == 1
+
+def test_phase3_pending_cut_full_socket_roundtrip(
+    core, monkeypatch, tmp_path
+):
+    """Real temporary socket, fake Core hardware, dry-run only."""
+    from aegis_soc import remote_response as rr
+
+    target = rr.DryRunRelayTarget()
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    assert path == core.runtime_dir / "cut.sock"
+    core.supervisor.start_local_cut()
+
+    snapshot = cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    )
+
+    assert snapshot is not None
+    assert snapshot["request_id"] == pending.request_id
+    assert snapshot["target_name"] == "DRYRUN"
+    assert target.would_cut == []
+    assert core.commands() == []
+
+    result = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert result.state == "DRY_RUN_CONFIRMED"
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
+
+    # Confirmation consumes the pending request.
+    assert cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    ) is None
+
+    # Replaying the same request must not trigger another action.
+    replay = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        SECRET,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert replay.state != "DRY_RUN_CONFIRMED"
+    assert len(target.would_cut) == 1
+    assert core.commands() == []
+
+
+@pytest.mark.parametrize(
+    "failure, expected_state",
+    [
+        ("wrong_secret", "REFUSED_AUTH"),
+        ("wrong_request_id", "REFUSED_INPUT"),
+        ("expired", "REFUSED_OTHER"),
+        ("spoofed_target", "REFUSED_OTHER"),
+    ],
+)
+def test_phase3_security_failure_over_core_socket(
+    core, monkeypatch, tmp_path, failure, expected_state
+):
+    """Core must fail closed without any real CUT dispatch."""
+    from aegis_soc import remote_response as rr
+
+    class SpoofedDryRun(rr.DryRunRelayTarget):
+        def cut(self, description):
+            raise AssertionError("Spoofed target must never actuate")
+
+    target = (
+        SpoofedDryRun()
+        if failure == "spoofed_target"
+        else rr.DryRunRelayTarget()
+    )
+
+    gate = rr.RemoteResponse(
+        sources=("beelink",),
+        clock=lambda: core.clock_now[0],
+        targets={"beelink": target},
+        audit=lambda *args: None,
+        log=lambda *args, **kwargs: None,
+        record=lambda *args: None,
+        notify=lambda *args: None,
+    )
+    core.supervisor.remote_response = gate
+
+    pending = gate.request_cut(
+        "beelink", "198.51.100.25", 140, ("critical",)
+    )
+
+    path = enable(monkeypatch, core, tmp_path)
+    core.supervisor.start_local_cut()
+
+    snapshot = cc.fetch_pending_cut(
+        path, "beelink", expected_uid=MY_UID,
+    )
+
+    assert snapshot is not None
+    assert snapshot["request_id"] == pending.request_id
+    assert core.commands() == []
+
+    secret = SECRET
+
+    if failure == "wrong_secret":
+        secret = "incorrect-secret-for-acceptance"
+
+    elif failure == "wrong_request_id":
+        snapshot["request_id"] = "0" * 32
+
+    elif failure == "expired":
+        core.clock_now[0] += 121.0
+
+    result = cc.confirm_pending_cut(
+        path,
+        snapshot,
+        REASON,
+        secret,
+        cc.CONFIRMATION,
+        expected_uid=MY_UID,
+    )
+
+    assert result.state == expected_state
+    assert result.state != "DRY_RUN_CONFIRMED"
+    assert target.would_cut == []
+    assert core.commands() == []

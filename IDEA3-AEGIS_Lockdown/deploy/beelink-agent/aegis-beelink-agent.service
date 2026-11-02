@@ -1,0 +1,49 @@
+# AEGIS IDEA3 protected-host detection agent -- PROVIDED, NOT INSTALLED OR ENABLED.
+# Install/enable is an owner action after review (see README.md). Nothing in the repository installs this file.
+[Unit]
+Description=AEGIS IDEA3 protected-host detection agent (reports SSH attack evidence to the Core over mutual-TLS MQTT)
+Documentation=file:///opt/aegis-beelink-agent/README.md
+After=network-online.target
+Wants=network-online.target
+# Never start with a half-written configuration.
+ConditionPathExists=/etc/aegis-beelink-agent/agent.env
+
+[Service]
+Type=simple
+User=aegis-agent
+Group=aegis-agent
+# journald read access only (no other privilege): the agent follows the SSH daemon's records and nothing else.
+SupplementaryGroups=systemd-journal
+EnvironmentFile=/etc/aegis-beelink-agent/agent.env
+ExecStart=/opt/aegis-beelink-agent/venv/bin/python /opt/aegis-beelink-agent/tools/aegis_beelink_agent.py
+# The agent exits non-zero when it is blind (journal follower ended) or cannot reach the Core: let systemd show and restart it.
+Restart=on-failure
+RestartSec=15
+StartLimitIntervalSec=600
+StartLimitBurst=10
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+ReadOnlyPaths=/etc/aegis-beelink-agent /opt/aegis-beelink-agent
+
+[Install]
+WantedBy=multi-user.target

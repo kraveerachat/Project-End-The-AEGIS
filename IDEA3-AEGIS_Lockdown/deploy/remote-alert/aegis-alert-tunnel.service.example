@@ -1,0 +1,24 @@
+# Started by the controller, so a CUT also takes this link down: the attacked host keeps no path to the control plane.
+[Unit]
+Description=AEGIS IDEA3 reverse tunnel from the protected host to the alert broker
+Wants=network-online.target
+After=network-online.target aegis-alert-broker.service
+Requires=aegis-alert-broker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=<CORE_ACCOUNT>
+Group=<CORE_ACCOUNT>
+Environment=HOME=<CORE_ACCOUNT_HOME>
+ExecStart=/usr/bin/ssh -NT -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i <TUNNEL_PRIVATE_KEY> -R 127.0.0.1:18884:127.0.0.1:8884 <TUNNEL_ACCOUNT>@<PROTECTED_HOST>
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

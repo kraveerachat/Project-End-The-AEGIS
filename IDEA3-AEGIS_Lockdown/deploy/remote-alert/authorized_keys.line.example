@@ -1,0 +1,1 @@
+restrict,port-forwarding,permitlisten="127.0.0.1:18884" ssh-ed25519 <TUNNEL_PUBLIC_KEY> <KEY_COMMENT>

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from contextlib import contextmanager
 
 import pytest
 from test_core_recovery import IP, OTHER_IP, FakeContainment, make_env
@@ -17,6 +19,8 @@ from test_local_restore import SECRET
 from aegis_soc import alert_sink, comms, config, graduated_detector, graduated_ingress, graduated_response
 from aegis_soc import database as db
 from aegis_soc import local_restore as lr
+from aegis_soc import remote_alert as ra
+from aegis_soc import remote_response as rr
 from aegis_soc.graduated_detector import GraduatedDetector
 from aegis_soc.production_detector import ProductionDetector
 
@@ -126,28 +130,192 @@ def test_repeated_alerts_inside_the_post_block_grace_never_cut(env):
     assert env.rec.commands == []
 
 
-def test_login_after_brute_force_cuts_once_through_the_normal_command_path(env):
+def test_login_after_brute_force_creates_one_pending_cut_without_issuing_a_command(env):
     send(env, v2("ssh_brute_force"))
     tick(env, 2)
     send(env, v2("ssh_login_after_failures"))
-    assert len(env.rec.commands) == 1
-    action, description, kwargs = env.rec.commands[0]
-    assert action == "CUT_UPLINK" and kwargs == {"critical": True, "origin": "graduated-response"}
-    assert f"attacker={IP}" in description and "CRITICAL" in description
-    assert env.rec.alerts[-1]["level"] == "CRITICAL" and env.rec.alerts[-1]["outcome"] == "CUT_SENT"
+    pending = env.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE)
+    assert pending is not None and pending.address == IP and pending.score >= 100
+    assert env.rec.commands == []
+    assert env.rec.alerts[-1]["level"] == "CRITICAL" and env.rec.alerts[-1]["outcome"] == "AWAITING_OPERATOR"
     tick(env, 2)
     send(env, v2("ssh_login_after_failures", OTHER_IP))
-    assert len(env.rec.commands) == 1  # latched for this lockdown episode
+    assert env.rec.commands == []  # latched for this lockdown episode
 
 
-def test_a_failed_software_block_escalates_to_an_automatic_cut(tmp_path, monkeypatch, credential):
+def test_an_authorized_local_confirmation_reaches_would_cut_only_in_dry_run(tmp_path, monkeypatch, credential):
+    from dataclasses import replace
+
+    instance = build(tmp_path, monkeypatch, credential)
+    try:
+        instance.core.supervisor.settings = replace(instance.core.supervisor.settings, dry_run=True)
+        send(instance, v2("ssh_brute_force"))
+        tick(instance)
+        send(instance, v2("ssh_login_after_failures"))
+        response = instance.core.supervisor.remote_response
+        pending_id = response.pending(rr.LOCAL_SOURCE).request_id
+        assert response.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id) == rr.RelayResult(True, "WOULD_CUT")
+        assert instance.rec.commands == []
+    finally:
+        instance.core.close()
+
+
+def test_local_confirmation_rejects_missing_wrong_unauthorized_and_duplicate_requests(env):
+    response = env.core.supervisor
+    assert response.remote_response is None
+
+    send(env, v2("ssh_brute_force"))
+    tick(env)
+    send(env, v2("ssh_login_after_failures"))
+    gate = response.remote_response
+
+    assert gate.confirm_cut("wrong-source", IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, OTHER_IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="").code == "UNAUTHORIZED"
+    assert env.rec.commands == [] and gate.pending(rr.LOCAL_SOURCE) is not None
+    pending_id = gate.pending(rr.LOCAL_SOURCE).request_id
+
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "CUT_SENT"
+    assert len(env.rec.commands) == 1
+    assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
+    assert len(env.rec.commands) == 1
+
+
+def test_the_existing_remote_pending_and_confirmation_path_is_unchanged():
+    now = [0.0]
+    audits, records = [], []
+    target = rr.DryRunRelayTarget()
+    response = rr.RemoteResponse(
+        sources=("beelink",), clock=lambda: now[0], targets={"beelink": target},
+        audit=lambda *fields: audits.append(fields), log=lambda *args, **kwargs: None,
+        record=lambda *fields: records.append(fields), notify=lambda *args: None,
+    )
+    common = {"source": "beelink", "attacker_ip": IP, "detail": "verified", "at": 1.0, "cert_sha256": "a" * 64}
+    response.handle(ra.RemoteAlert(kind=ra.KIND_SSH_BRUTE_FORCE, **common))
+    now[0] += 1
+    response.handle(ra.RemoteAlert(kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES, **common))
+
+    assert response.pending("beelink").address == IP and target.would_cut == []
+    pending_id = response.pending("beelink").request_id
+    assert response.confirm_cut("beelink", OTHER_IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert response.confirm_cut("beelink", IP, operator="authorized-op", request_id=pending_id) == rr.RelayResult(True, "WOULD_CUT")
+    assert response.confirm_cut("beelink", IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
+    assert len(target.would_cut) == 1
+    assert [event for event, _details, _level in audits if event == "REMOTE_CUT_CONFIRMED"] == ["REMOTE_CUT_CONFIRMED"]
+    assert records[-1][2] == rr.OUTCOME_AWAITING_OPERATOR
+
+
+def test_normal_cancellation_and_confirmation_use_one_lock_order_without_deadlock():
+    command_lock = threading.RLock()
+    target_entered = threading.Event()
+    release_target = threading.Event()
+    cancel_attempted = threading.Event()
+    actuations = []
+
+    @contextmanager
+    def command_guard():
+        with command_lock:
+            yield
+
+    def issue(action, description, **kwargs):
+        with command_lock:
+            actuations.append((action, description, kwargs))
+            return type("Result", (), {"ok": True, "sent": True, "reason_code": None})()
+
+    target = rr.CoreRelayTarget(
+        issue, rr.LOCAL_SOURCE, origin="graduated-response", command_guard=command_guard,
+    )
+    gate = rr.RemoteResponse(
+        sources=(rr.LOCAL_SOURCE,), clock=lambda: 0.0, targets={rr.LOCAL_SOURCE: target},
+        audit=lambda *args: None, log=lambda *args, **kwargs: None,
+        record=lambda *args: None, notify=lambda *args: None,
+    )
+    pending = gate.request_cut(rr.LOCAL_SOURCE, IP, 140, ("critical",))
+
+    original_cut = target.cut
+
+    def paused_cut(description):
+        target_entered.set()
+        assert release_target.wait(1.0)
+        return original_cut(description)
+
+    target.cut = paused_cut
+    original_cancel = gate.cancel_pending
+
+    def observed_cancel(source):
+        cancel_attempted.set()
+        original_cancel(source)
+
+    gate.cancel_pending = observed_cancel
+    result = []
+    confirm = threading.Thread(
+        target=lambda: result.append(gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending.request_id)), daemon=True,
+    )
+    def process_normal():
+        with command_guard():
+            gate.cancel_pending(rr.LOCAL_SOURCE)
+
+    normal = threading.Thread(target=process_normal, daemon=True)
+    confirm.start()
+    assert target_entered.wait(1.0)
+    normal.start()
+    cancel_attempted.wait(0.25)
+    release_target.set()
+    confirm.join(1.0)
+    normal.join(1.0)
+
+    assert not confirm.is_alive() and not normal.is_alive()
+    assert result == [rr.RelayResult(True, "CUT_SENT")]
+    assert len(actuations) == 1
+    assert gate.pending(rr.LOCAL_SOURCE) is None
+
+
+@pytest.mark.parametrize("completion", ["ack", "timeout"])
+def test_graduated_confirmation_during_restore_never_creates_a_deferred_cut(
+    tmp_path, monkeypatch, credential, completion,
+):
+    instance = build(tmp_path, monkeypatch, credential)
+    try:
+        sup = instance.core.supervisor
+        monkeypatch.setattr(sup, "issue_command", type(sup).issue_command.__get__(sup, type(sup)))
+        send(instance, v2("ssh_brute_force"))
+        tick(instance)
+        send(instance, v2("ssh_login_after_failures"))
+        gate = sup.remote_response
+        pending_id = gate.pending(rr.LOCAL_SOURCE).request_id
+        restore_nonce = "r" * 32
+        sup.pending_command = {
+            "action": "RESTORE_UPLINK", "sent_at": instance.core.now[0], "nonce": restore_nonce,
+        }
+
+        refused = gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id)
+        assert refused == rr.RelayResult(False, "RESTORE_IN_FLIGHT")
+        assert sup._deferred_cut is None and instance.core.commands() == []
+
+        sup._on_status("NORMAL", -40, 100000)
+        assert gate.pending(rr.LOCAL_SOURCE) is None
+        if completion == "ack":
+            sup._on_ack("OK", "accepted", restore_nonce)
+        else:
+            tick(instance, config.ACK_TIMEOUT_SEC + 1)
+            sup.evaluate_state()
+
+        assert sup._deferred_cut is None and instance.core.commands() == []
+        assert gate.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op", request_id=pending_id).code == "NO_PENDING_CUT"
+        assert instance.core.commands() == []
+    finally:
+        instance.core.close()
+
+
+def test_a_failed_software_block_escalates_to_a_pending_cut(tmp_path, monkeypatch, credential):
     instance = build(tmp_path, monkeypatch, credential, containment=FakeContainment(block_ok=False))
     try:
         send(instance, v2("syn_flood"))  # MEDIUM 50 -> block fails -> +60 corroborated -> CRITICAL
         levels = [a["level"] for a in instance.rec.alerts]
         assert levels[0] == "MEDIUM" and instance.rec.alerts[0]["outcome"] == "BLOCK_FAILED"
         assert levels[-1] == "CRITICAL"
-        assert [c[0] for c in instance.rec.commands] == ["CUT_UPLINK"]
+        assert instance.rec.commands == []
+        assert instance.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE).address == IP
     finally:
         instance.core.close()
 
@@ -156,16 +324,18 @@ def test_an_unavailable_helper_counts_as_a_failed_block(tmp_path, monkeypatch, c
     instance = build(tmp_path, monkeypatch, credential, containment=FakeContainment(unavailable=True))
     try:
         send(instance, v2("syn_flood"))
-        assert [c[0] for c in instance.rec.commands] == ["CUT_UPLINK"]
+        assert instance.rec.commands == []
+        assert instance.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE).address == IP
     finally:
         instance.core.close()
 
 
-def test_evidence_after_a_confirmed_block_is_a_bypass_and_cuts(env):
+def test_evidence_after_a_confirmed_block_is_a_bypass_and_requests_a_cut(env):
     send(env, v2("syn_flood"))
     tick(env, graduated_response.POST_BLOCK_GRACE_SEC + 1)
     send(env, v2("syn_flood"))
-    assert [c[0] for c in env.rec.commands] == ["CUT_UPLINK"]
+    assert env.rec.commands == []
+    assert env.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE).address == IP
 
 
 def test_a_disarmed_core_never_cuts(env):
@@ -188,7 +358,8 @@ def test_a_dry_run_core_neither_blocks_nor_cuts(tmp_path, monkeypatch, credentia
         tick(instance)
         send(instance, v2("ssh_login_after_failures"))
         assert sup.containment.calls == [] and instance.rec.commands == []
-        assert instance.rec.alerts[-1]["outcome"] == "DRY_RUN"
+        assert instance.rec.alerts[-1]["outcome"] == "AWAITING_OPERATOR"
+        assert sup.remote_response.pending(rr.LOCAL_SOURCE).address == IP
     finally:
         instance.core.close()
 
@@ -198,8 +369,12 @@ def test_a_device_normal_status_ends_the_episode(env):
     tick(env)
     send(env, v2("ssh_login_after_failures"))
     assert env.core.supervisor.graduated.auto_cut_latched
+    assert env.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE) is not None
     env.core.supervisor._handle_status("NORMAL", -40, 100000)
     assert not env.core.supervisor.graduated.auto_cut_latched
+    assert env.core.supervisor.remote_response.pending(rr.LOCAL_SOURCE) is None
+    assert env.core.supervisor.remote_response.confirm_cut(rr.LOCAL_SOURCE, IP, operator="authorized-op").code == "NO_PENDING_CUT"
+    assert env.rec.commands == []
 
 
 def test_a_refused_address_is_never_scored(env):
@@ -448,7 +623,7 @@ def test_the_core_writes_a_bounded_read_only_projection_for_the_desktop(env):
     data = json.loads(path.read_text())
     assert data["v"] == 1 and data["highest_level"] == "CRITICAL" and data["auto_cut_latched"] is True
     assert [d["level"] for d in data["decisions"]] == ["MEDIUM", "CRITICAL"]
-    assert data["decisions"][-1]["outcome"] == "CUT_SENT"
+    assert data["decisions"][-1]["outcome"] == "AWAITING_OPERATOR"
     assert oct(path.stat().st_mode & 0o777) == "0o640"
     text = path.read_text()
     assert SECRET not in text and "secret" not in text.lower()

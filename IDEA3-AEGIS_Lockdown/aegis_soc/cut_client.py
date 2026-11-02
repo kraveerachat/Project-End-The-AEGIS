@@ -25,6 +25,7 @@ from dataclasses import dataclass
 CUT_ORIGIN = "core-local-cut"
 CONFIRMATION = "CUT UPLINK"
 EVIDENCE_OP = "CUT_EVIDENCE"
+PENDING_STATUS_OP = "GET_PENDING_CUT"
 MAX_MESSAGE_BYTES = 16_384
 REASON_MIN_CHARS = 12
 REASON_MAX_CHARS = 240
@@ -100,6 +101,81 @@ def evidence_request(msg_id: str) -> dict:
     return {"v": 1, "op": EVIDENCE_OP, "msg_id": msg_id}
 
 
+class PendingStatusUnavailable(RuntimeError):
+    """Read-only pending status could not be verified."""
+
+
+def pending_status_request(source: str) -> dict:
+    if (
+        not isinstance(source, str)
+        or not 1 <= len(source) <= 64
+        or not source.isascii()
+        or not all(c.isalnum() or c in "._-" for c in source)
+    ):
+        raise ValueError("invalid pending source")
+    return {"v": 1, "op": PENDING_STATUS_OP, "source": source}
+
+
+def fetch_pending_cut(
+    path, source: str, *, expected_uid: int | None = None,
+    send=send_request,
+) -> dict | None:
+    """One read-only Core request. No credentials, CUT or retries."""
+    request = pending_status_request(source)
+    uid = core_uid() if expected_uid is None else expected_uid
+
+    try:
+        response = send(path, request, expected_uid=uid)
+    except (ChannelUnavailable, OutcomeUnknown) as error:
+        raise PendingStatusUnavailable(
+            "Core pending status unavailable"
+        ) from error
+
+    if not isinstance(response, dict):
+        raise PendingStatusUnavailable("invalid Core response")
+
+    if response.get("ok") is False:
+        if response.get("code") == "NO_PENDING_CUT":
+            return None
+        raise PendingStatusUnavailable("Core refused pending status")
+
+    if response.get("ok") is not True:
+        raise PendingStatusUnavailable("invalid Core response")
+    if response.get("code") != "PENDING_CUT_STATUS":
+        raise PendingStatusUnavailable("unexpected Core response")
+
+    item = response.get("pending")
+    if not isinstance(item, dict):
+        raise PendingStatusUnavailable("missing pending data")
+
+    request_id = item.get("request_id")
+    address = item.get("address")
+    target = item.get("target_name")
+
+    valid = (
+        item.get("source") == source
+        and isinstance(request_id, str)
+        and len(request_id) == 32
+        and all(c in "0123456789abcdef" for c in request_id)
+        and isinstance(address, str)
+        and 1 <= len(address) <= 45
+        and isinstance(target, str)
+        and 1 <= len(target) <= 80
+        and type(item.get("created_at")) in (int, float)
+        and type(item.get("score")) is int
+    )
+    if not valid:
+        raise PendingStatusUnavailable("invalid pending snapshot")
+
+    return {
+        key: item[key]
+        for key in (
+            "source", "address", "request_id",
+            "target_name", "created_at", "score",
+        )
+    }
+
+
 def reason_problem(reason) -> str | None:
     """Local pre-check only; the Core re-validates everything."""
     if not isinstance(reason, str) or not reason.strip():
@@ -123,6 +199,13 @@ class View:
 
 # Core refusal / result codes -> (state, severity, text). Wording never implies a physical result.
 _CODES = {
+    "NO_PENDING_CUT": ("REFUSED_OTHER", WARN, "No pending CUT exists. Nothing was sent."),
+    "TARGET_MISMATCH": ("REFUSED_OTHER", WARN, "The pending target does not match. Nothing was sent."),
+    "CONFIRM_NOT_ENABLED": ("REFUSED_OTHER", WARN, "Pending confirmation is disabled for this target."),
+    "PENDING_EXPIRED": ("REFUSED_OTHER", WARN, "The pending request expired. Nothing was sent."),
+    "REQUEST_ID_REQUIRED": ("REFUSED_INPUT", WARN, "Request identity is required. Nothing was sent."),
+    "REQUEST_ID_MISMATCH": ("REFUSED_INPUT", WARN, "Request identity does not match. Nothing was sent."),
+    "TARGET_CHANGED": ("REFUSED_OTHER", WARN, "The target changed. Nothing was sent."),
     "CUT_PUBLISHED": ("PUBLISHED", INFO, "CUT published by the Core. Waiting for device ACK. Physical state is NOT proven."),
     "CUT_QUEUED": ("QUEUED", WARN, "CUT accepted but queued behind an in-flight RESTORE; it has no command id yet. "
                                     "Check Core evidence before acting again."),
@@ -283,3 +366,132 @@ class ManualCutFlow:
             self._tracking = None
         self.view = view
         return view
+PENDING_CONFIRM_OP = "CONFIRM_PENDING_CUT"
+
+
+def confirm_pending_cut(
+    path,
+    pending: dict,
+    reason: str,
+    secret: str,
+    confirmation: str,
+    *,
+    expected_uid: int | None = None,
+    send=send_request,
+) -> View:
+    """Confirm one pending dry-run request via the authenticated Core."""
+    refused = View(
+        "REFUSED_INPUT",
+        "Invalid pending confirmation. Nothing was sent.",
+        WARN,
+        True,
+    )
+
+    if not isinstance(pending, dict):
+        return refused
+
+    source = pending.get("source")
+    address = pending.get("address")
+    request_id = pending.get("request_id")
+    target = pending.get("target_name")
+
+    try:
+        pending_status_request(source)
+    except ValueError:
+        return refused
+
+    if (
+        target != "DRYRUN"
+        or not isinstance(address, str)
+        or not 1 <= len(address) <= 45
+        or not isinstance(request_id, str)
+        or len(request_id) != 32
+        or any(c not in "0123456789abcdef" for c in request_id)
+    ):
+        return refused
+
+    if reason_problem(reason):
+        return refused
+
+    if confirmation != CONFIRMATION:
+        return refused
+
+    if not isinstance(secret, str) or not secret:
+        return View(
+            "REFUSED_AUTH",
+            "The CUT secret is required. Nothing was sent.",
+            WARN,
+            True,
+        )
+
+    body = {
+        "v": 1,
+        "op": PENDING_CONFIRM_OP,
+        "origin": CUT_ORIGIN,
+        "confirmation": confirmation,
+        "reason": reason.strip(),
+        "secret": secret,
+        "source": source,
+        "address": address,
+        "request_id": request_id,
+        "target": target,
+    }
+
+    try:
+        uid = core_uid() if expected_uid is None else expected_uid
+        response = send(path, body, expected_uid=uid)
+    except ChannelUnavailable:
+        return View(
+            "CHANNEL_UNAVAILABLE",
+            "Core unavailable. Nothing was sent.",
+            CRITICAL,
+            True,
+        )
+    except OutcomeUnknown:
+        return View(
+            "OUTCOME_UNKNOWN",
+            "Core response lost. Check Core status. "
+            "No automatic retry was performed.",
+            CRITICAL,
+            True,
+        )
+    finally:
+        secret = None
+
+    if not isinstance(response, dict):
+        return View(
+            "OUTCOME_UNKNOWN",
+            "Invalid Core response. Check Core status.",
+            CRITICAL,
+            True,
+        )
+
+    code = response.get("code")
+    ok = response.get("ok")
+
+    if ok is True and code == "PENDING_CUT_DRY_RUN":
+        return View(
+            "DRY_RUN_CONFIRMED",
+            "The Core accepted a simulated Pending CUT. "
+            "No physical CUT was performed.",
+            OK,
+            True,
+        )
+
+    if ok is False and isinstance(code, str):
+        if code == "PENDING_CUT_DRY_RUN":
+            return View(
+                "OUTCOME_UNKNOWN",
+                "Conflicting Core response. Verify Core status.",
+                CRITICAL,
+                True,
+            )
+        return describe_code(code, False)
+
+    return View(
+        "OUTCOME_UNKNOWN",
+        "Unexpected Core response. Verify Core status. "
+        "Do not automatically retry.",
+        CRITICAL,
+        True,
+    )
