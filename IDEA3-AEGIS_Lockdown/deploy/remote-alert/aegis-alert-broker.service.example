@@ -1,0 +1,18 @@
+[Unit]
+Description=AEGIS IDEA3 remote-alert broker (127.0.0.1:8884)
+After=network.target
+
+[Service]
+Type=simple
+User=<CORE_ACCOUNT>
+Group=<CORE_ACCOUNT>
+ExecStart=/usr/bin/mosquitto -c <ALERT_CONFIG_DIR>/mosquitto-alert.conf
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

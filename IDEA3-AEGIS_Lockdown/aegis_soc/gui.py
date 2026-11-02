@@ -1803,7 +1803,7 @@ class AegisAdminGUI:
 
 
     def on_attacker_detected(self, ip):
-     """ถูกเรียกเมื่อ detector ส่ง IP ผู้โจมตีมา → ตัดเน็ตอัตโนมัติ"""
+     """รับเหตุการณ์จาก detector โดยไม่สั่ง Physical CUT อัตโนมัติ"""
      # Presentation-only: surface a security notification/toast for the
      # detection evidence itself, independent of whether auto-containment
      # actually fires below -- an operator needs to know a detection
@@ -1832,25 +1832,20 @@ class AegisAdminGUI:
         )
         return
 
-     self.log_message(
-        f"[{time.strftime('%H:%M:%S')}] [AUTO] 🚨 detector "
-        f"พบผู้โจมตี {ip} — ตัดเน็ตอัตโนมัติ",
-        db.CRITICAL,
-    )
-
+     # Detector evidence never grants physical CUT authority.
+     # The operator must authorize a separate CUT action.
      self.mqtt.last_attacker_ip = ip
-
-     t2_ms = time.time_ns() // 1_000_000
      self.log_message(
-        f"[LATENCY] T2 CUT issued for {ip} at {t2_ms} ms",
-        db.CRITICAL,
-    )
-
-     self.send_command(
-        "CUT_UPLINK",
-        f"ตัดอัตโนมัติจาก detector (ผู้โจมตี {ip})",
-        critical=True,
-    )
+         f"[{time.strftime('%H:%M:%S')}] [DETECTOR] "
+         f"พบผู้โจมตี {ip} — รอ Operator Confirmation; "
+         "ไม่ส่ง Physical CUT",
+         db.WARN,
+     )
+     db.log_event(
+         "DETECTOR_ALERT",
+         f"Attacker {ip}; operator confirmation required; no CUT",
+         db.WARN,
+     )
 
     def handle_telegram_command(self, text):
         """สมองของ Telegram สองทาง: รับข้อความ → แยกคำสั่ง → ทำ
@@ -1870,20 +1865,29 @@ class AegisAdminGUI:
                 f"🛡️ AEGIS สถานะปัจจุบัน\n"
                 f"Uplink: {state}\n"
                 f"โหมด: {mode}\n\n"
-                f"คำสั่ง:\n/status - ดูสถานะ\n/cut <PIN> - ตัดเน็ต\n"
+                f"คำสั่ง:\n/status - ดูสถานะ\n/cut - ปิดใช้งาน; ยืนยัน CUT ผ่าน Core\n"
                 f"การคืนค่า (RESTORE) ทำได้เฉพาะที่ Core เท่านั้น ไม่รับผ่าน Telegram"
             )
             self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] ตอบคำสั่ง {cmd}", db.INFO)
 
         elif cmd == "/cut":
-            if not self._tg_check_pin(parts):
-                return
-            if not self.armed:
-                comms.send_telegram_reply("⚠️ ระบบอยู่โหมด DISARMED — สลับเป็น ARMED ก่อน")
-                return
-            self.send_command("CUT_UPLINK", "ตัดเน็ต (สั่งผ่าน Telegram)", critical=True)
-            comms.send_telegram_reply("🔴 ส่งคำสั่งตัด Uplink แล้ว — รอ ACK จากบอร์ด")
-            self.log_message(f"[{time.strftime('%H:%M:%S')}] [TG] สั่งตัดเน็ตผ่าน Telegram", db.CRITICAL)
+            # PIN alone cannot authorize physical isolation.
+            # Never claim the CUT was published.
+            db.log_event(
+                "COMMAND_REJECTED",
+                "CUT_UPLINK refused: Telegram lacks action-bound "
+                "operator confirmation",
+                db.WARN,
+            )
+            comms.send_telegram_reply(
+                "⛔ CUT ผ่าน Telegram ถูกปิด "
+                "กรุณายืนยันผ่านช่องทาง Operator ของ Core"
+            )
+            self.log_message(
+                f"[{time.strftime('%H:%M:%S')}] [TG] "
+                "ปฏิเสธ CUT ผ่าน Telegram — ไม่ส่งคำสั่ง",
+                db.WARN,
+            )
 
         elif cmd == "/restore":
             # R8 / D4: Telegram never holds RESTORE authority. The PIN is not

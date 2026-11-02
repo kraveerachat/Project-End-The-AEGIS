@@ -154,6 +154,12 @@ class DispatchWorker:
         )
         if action is None:
             return
+        # Server claim is not authenticated operator consent.
+        # Refuse before claim or publication until a trusted
+        # action-bound Core approval mechanism exists.
+        if not self._operator_approval_verified(action):
+            self.status = UNAVAILABLE
+            return
         guard = getattr(self.supervisor, "command_guard", None)
         with guard() if guard is not None else nullcontext():
             # A RESTORE or local CUT may have taken ownership while the pending
@@ -162,6 +168,13 @@ class DispatchWorker:
             if self.supervisor.pending_command is not None or self.ledger.in_flight():
                 return
             self._claim_and_issue(action)
+
+    @staticmethod
+    def _operator_approval_verified(_action) -> bool:
+        """Fail closed: no trusted server-dispatch operator proof exists yet."""
+        # No environment flag, server claim, or mTLS credential
+        # is sufficient to authorize a physical CUT.
+        return False
 
     def _claim_and_issue(self, action) -> None:
         if not self.ledger.begin_claim(action.action_id, action.action, action.expires_at):

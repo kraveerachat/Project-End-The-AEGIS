@@ -192,7 +192,7 @@ def _cut_gui_class(gui, flow, prompts, run_async, *, incident_source=None):
 
 
 def create_cut_app(root, *, flow, prompts=None, run_async=_thread_runner, incident_source=None,
-                   status_path=live.reader.STATUS_PATH, max_age_seconds=live.reader.DEFAULT_MAX_AGE_SECONDS):
+                   status_path=live.reader.STATUS_PATH, max_age_seconds=live.DESKTOP_MAX_AGE_SECONDS):
     if any(name == "aegis_soc" or name.startswith("aegis_soc.") for name in sys.modules):
         raise RuntimeError("the CUT Desktop must start without an imported aegis_soc package")
     sys.path.insert(0, str(live.PYTHONUI_ROOT))

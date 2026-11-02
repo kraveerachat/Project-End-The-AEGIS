@@ -454,7 +454,10 @@ def test_the_supervisor_starts_and_stops_the_ingress_with_the_core():
     run_source = inspect.getsource(supervisor.AegisSupervisor.run)
     assert "self.start_alert_ingress()" in run_source and "self.stop_alert_ingress()" in run_source
     source = inspect.getsource(supervisor.AegisSupervisor.start_alert_ingress)
-    assert "config.ALERT_SOURCE_UID" in source and "is None" in source and 'profile != "production"' in source
+    assert "config.ALERT_SOURCE_UID" in source and "is None" in source
+    # Production, or a lab Core only with BOTH explicit graduated-response flags (config.lab_alert_ingress_enabled()).
+    assert 'profile == "production"' in source and "config.lab_alert_ingress_enabled()" in source
+    assert 'profile == "lab"' in source
 
 
 # --------------------------------------------------------------------------- no network, no legacy topic

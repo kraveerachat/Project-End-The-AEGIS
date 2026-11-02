@@ -24,3 +24,17 @@ windows/dist/
 windows/out/
 
 ui_theme.json
+
+# Secret and device material: never commit
+secrets/
+*.key
+*.pem
+core.env
+nvs.*
+*.pass
+*.credential
+k_c2d
+k_d2c
+*.nmconnection
+__pycache__/
+*.pyc

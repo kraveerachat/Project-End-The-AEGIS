@@ -67,6 +67,7 @@ class Sup:
     def __init__(self):
         self.calls = 0
         self.protocol = None
+        self.controller = type("Controller", (), {"cut_target_device": "test-device-01"})()
 
     def issue_command(self, action, description, **kwargs):
         self.calls += 1
@@ -88,6 +89,7 @@ def start_core(path, stop_r, res_w, ready_w, credential):
         strict, events = [], []
         gate = local_cut.LocalCutGate(
             sup, allowed_uid=OPER, credential=credential,
+            authorization_issuer=type("Issuer", (), {"issue": lambda self, **kwargs: object()})(),
             audit=lambda *a, **k: events.append(a), audit_strict=lambda *a, **k: strict.append(a[0]),
         )
         server = local_cut.LocalCutServer(path, gate, socket_gid=TGID)

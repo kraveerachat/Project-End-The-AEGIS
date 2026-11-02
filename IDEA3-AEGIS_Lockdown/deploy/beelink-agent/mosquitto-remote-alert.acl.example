@@ -1,0 +1,6 @@
+# One identity per sender, one topic each; the Core may only read the alert topics. No wildcard write anywhere.
+user aegis-core
+topic read aegis/alert/beelink
+
+user aegis-alert-beelink
+topic write aegis/alert/beelink
