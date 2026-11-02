@@ -25,6 +25,10 @@ from urllib.parse import quote
 
 MAX_JSON_BYTES = 16 * 1024
 AUDIT_LIMIT = 30
+# read_audit()'s own `limit = max(1, min(int(limit), 50))` already hard-caps every caller at 50 rows (pinned,
+# tested); the Audit page's live feed asks for that same existing cap rather than raising it, so no shared
+# safety bound changes for this feature.
+AUDIT_LIMIT_FEED = 50
 AUDIT_DETAILS_CHARS = 512
 RECOVERY_MAX_AGE_SECONDS = 60.0   # the same freshness rule as the Core evidence (live_purple_observer.DESKTOP_MAX_AGE_SECONDS)
 
@@ -35,6 +39,13 @@ NOT_A_REGULAR_FILE, TOO_LARGE, UNREADABLE, MALFORMED, STALE = "NOT_A_REGULAR_FIL
 UPLINK_WHY = ("NOT_LOCKDOWN", "COMMANDED_CUT", "CUT_NOT_ACKED", "UNCOMMANDED_AFTER_RESTORE", "NO_COMMAND_RECORD")
 AUDIT_KINDS = ("COMMAND_SENT", "ACK_RECEIVED", "CUT_PRE_DISPATCH", "RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT")
 ATTEMPT_KINDS = ("RESTORE_REQUESTED", "RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT")
+# The graduated-response decision and alert-ingress kinds (aegis_soc/supervisor.py's _graduated_act,
+# aegis_soc/graduated_ingress.py's _audit_accepted/handle) land in the SAME audit_logs table as the kinds
+# above, but AUDIT_KINDS has never included them, so they have never been shown anywhere on the Desktop.
+# FEED_KINDS is a second, explicit, bounded allowlist (not a passthrough of arbitrary event_type values) for
+# the Audit page's live SOC feed only; every existing caller keeps passing AUDIT_KINDS/ATTEMPT_KINDS unchanged.
+SECURITY_KINDS = ("GRADUATED_LOW", "GRADUATED_MEDIUM", "GRADUATED_HIGH", "GRADUATED_CRITICAL", "ALERT_ACCEPTED", "ALERT_REFUSED")
+FEED_KINDS = AUDIT_KINDS + SECURITY_KINDS
 ACTIONS = ("CUT_UPLINK", "RESTORE_UPLINK")
 
 BLOCKERS = (
@@ -134,6 +145,13 @@ _SEQ_FIELD = re.compile(r"(?:^| )seq=(\d{1,10})(?: |$)")
 _ACTION_HEAD = re.compile(r"^(CUT_UPLINK|RESTORE_UPLINK) - ")
 _SEQ_TAIL = re.compile(r" seq=(\d{1,10})$")
 _ACK = re.compile(r"^([A-Z][A-Z_]{1,30}) - seq (\d{1,10})$")
+# aegis_soc/supervisor.py's _graduated_act() and aegis_soc/graduated_ingress.py's handle() build ``details`` as
+# space-joined ``key=value`` pairs from controlled, internally-generated values (an IPv4 address, uppercase
+# action/kind tokens, a comma list of MITRE technique ids) -- never operator free text -- so these can be
+# anchored the same way as the patterns above.
+_GRADUATED_ACTION = re.compile(r"(?:^| )action=([A-Z_]{1,30})(?: |$)")
+_ATTACKER_IP = re.compile(r"(?:^| )attacker_ip=(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?: |$)")
+_MITRE = re.compile(r"(?:^| )mitre=([A-Z0-9,]{0,80})(?: |$)")
 
 
 def parse_audit_details(kind: str, details) -> tuple[str, str]:
@@ -158,14 +176,29 @@ def parse_audit_details(kind: str, details) -> tuple[str, str]:
         ack = _ACK.match(text)
         if ack:
             code, ref = ack.group(1), f"seq {ack.group(2)}"
+    elif kind in ("GRADUATED_LOW", "GRADUATED_MEDIUM", "GRADUATED_HIGH", "GRADUATED_CRITICAL"):
+        action = _GRADUATED_ACTION.search(text)
+        code = action.group(1) if action else ""
     return code, ref
+
+
+def parse_security_details(details) -> tuple[str, str]:
+    """``(attacker_ip, mitre)`` from a GRADUATED_*/ALERT_ACCEPTED audit row's machine fields, same anchoring
+    rules as ``parse_audit_details``; ``("", "")`` for a kind/row that carries neither (e.g. ALERT_REFUSED,
+    whose details are only ``code=... uid=... pid=...``, no attacker_ip)."""
+    text = details[:AUDIT_DETAILS_CHARS] if isinstance(details, str) else ""
+    ip_match = _ATTACKER_IP.search(text)
+    mitre_match = _MITRE.search(text)
+    ip = ip_match.group(1) if ip_match else ""
+    mitre = mitre_match.group(1) if mitre_match and mitre_match.group(1) else ""
+    return ip, mitre
 
 
 def read_audit(path, kinds=AUDIT_KINDS, limit: int = AUDIT_LIMIT):
     """The newest audit rows of the given kinds as ``(rows, reason)``, newest first. Read-only connection, fixed query, bounded."""
     if path is None:
         return None, NOT_CONFIGURED
-    kinds = tuple(kind for kind in kinds if kind in AUDIT_KINDS)
+    kinds = tuple(kind for kind in kinds if kind in FEED_KINDS)
     limit = max(1, min(int(limit), 50))
     try:
         info = os.lstat(path)
@@ -192,11 +225,12 @@ def read_audit(path, kinds=AUDIT_KINDS, limit: int = AUDIT_LIMIT):
         connection.close()
     rows = []
     for row_id, stamp, kind, details in found:
-        if not isinstance(row_id, int) or kind not in AUDIT_KINDS:
+        if not isinstance(row_id, int) or kind not in FEED_KINDS:
             continue
         code, ref = parse_audit_details(kind, details)
+        ip, mitre = parse_security_details(details) if kind in SECURITY_KINDS else ("", "")
         at = stamp[:19] if isinstance(stamp, str) and _TIME.match(stamp) else ""
-        rows.append({"id": row_id, "at": at, "kind": kind, "code": code, "ref": ref})
+        rows.append({"id": row_id, "at": at, "kind": kind, "code": code, "ref": ref, "ip": ip, "mitre": mitre})
     return rows, ""
 
 
@@ -207,6 +241,34 @@ def audit_line(row) -> str:
     if row["ref"]:
         parts.append(f"[{row['ref']}]")
     return "  ".join(parts)
+
+
+def feed_line(row) -> str:
+    """One console line for the Audit page's live SOC feed: HH:MM:SS  KIND  [code]  [ip]  [mitre]."""
+    clock = row["at"][-8:] if len(row["at"]) >= 8 else (row["at"] or "—")
+    parts = [clock, f"{row['kind']:<20}"]
+    if row["code"]:
+        parts.append(row["code"])
+    if row["ip"]:
+        parts.append(row["ip"])
+    if row["ref"]:
+        parts.append(f"[{row['ref']}]")
+    if row["mitre"]:
+        parts.append(f"[{row['mitre']}]")
+    return "  ".join(parts)
+
+
+def feed_record(row) -> tuple[str, str, str]:
+    """Project one safe audit row into the Audit table's time, event and detail columns.
+
+    ``read_audit()`` has already reduced the database record to allowlisted machine fields. This helper
+    deliberately consumes only those fields, so operator reasons and other free text cannot reach the UI.
+    """
+    at = row.get("at", "")
+    clock = at[-8:] if isinstance(at, str) and len(at) >= 8 else "—"
+    event = str(row.get("kind") or "—")
+    details = [str(row.get(name)) for name in ("code", "ip", "ref", "mitre") if row.get(name)]
+    return clock, event, " · ".join(details) or "—"
 
 
 # ---- facts for the pages ----------------------------------------------------------------------------------------------------
@@ -285,6 +347,47 @@ def recovery_facts(evidence, view, view_reason, graduated, attempts, attempts_re
     return rows
 
 
+# Labels recovery_facts() computes that also get a quick-glance tile (see recovery_tile_facts below); the
+# Desktop uses this to leave the full-detail row out of the "cause" card where a tile already shows it, so
+# the same value is not printed twice. "recovery.ready" is NOT here on purpose: the tile shows a short
+# READY/NOT READY, but the full row (with the blocker list) stays in the detail card -- nothing is dropped.
+RECOVERY_TILE_ONLY_LABEL_KEYS = ("recovery.uplink", "recovery.device", "recovery.broker", "recovery.time", "recovery.graduated")
+
+# The exact order recovery_tile_facts() returns its six tiles in -- the Desktop builds its six MetricCard
+# labels from this (a MetricCard's label is set once, at construction; only the value/status are updated on
+# each refresh tick), so the GUI's tile order and this function's row order can never drift apart.
+RECOVERY_TILE_LABEL_KEYS = ("recovery.ready", "recovery.uplink", "recovery.device", "recovery.broker", "recovery.time", "recovery.graduated")
+
+
+def recovery_tile_facts(evidence, view, graduated, freshness, translate) -> list[tuple[str, str, str | None]]:
+    """The Recovery page's six quick-glance tiles -- Ready?, Uplink, ESP32, Broker, Time, Graduated response
+    -- as ``(label, short_value, level)``. Every value and condition here is the exact same one
+    ``recovery_facts`` already computes for its fact rows; this only re-packages them for tile display, so a
+    tile and the equivalent detail row (when one still exists) never disagree."""
+    t = translate
+    blockers = readiness_blockers(evidence, view, freshness)
+    ready = not blockers
+    tiles = [
+        (t("recovery.ready"), t("recovery.ready_yes_short") if ready else t("recovery.ready_no_short"), "LOW" if ready else "HIGH"),
+        (t("recovery.uplink"), evidence.get("uplink", "UNKNOWN"), "HIGH" if evidence.get("uplink") == "LOCKDOWN" else None),
+        (t("recovery.device"), evidence.get("device", "UNKNOWN"), "HIGH" if evidence.get("device") != "ONLINE" else "LOW"),
+        (t("recovery.broker"), evidence.get("broker", "UNKNOWN"), "HIGH" if evidence.get("broker") != "CONNECTED" else "LOW"),
+        (t("recovery.time"), evidence.get("trusted_time", "UNKNOWN"), "HIGH" if evidence.get("trusted_time") != "SYNCED" else "LOW"),
+    ]
+    if graduated is None:
+        tiles.append((t("recovery.graduated"), "NOT_AVAILABLE", None))   # the state code only; its meaning is the tile helper
+    else:
+        tiles.append((t("recovery.graduated"), graduated["highest_level"], graduated["highest_level"]))
+    return tiles
+
+
+def recovery_tile_helpers(graduated, translate) -> list[str]:
+    """One short supporting line per Recovery tile, in ``RECOVERY_TILE_LABEL_KEYS`` order ("" = none). READY is
+    Core-side eligibility only (see ``readiness_blockers``): it never says the cable or relay was verified."""
+    t = translate
+    return [t("recovery.ready_note"), "", "", "", "", t("recovery.graduated_unavailable_note") if graduated is None else ""]
+
+
 def incident_facts(graduated, reason, translate):
     """Header rows of the Incidents page from the Core's graduated decisions; the decision lines are printed by the page."""
     t = translate
@@ -297,6 +400,119 @@ def incident_facts(graduated, reason, translate):
     if graduated["auto_cut_latched"]:
         rows.append((t("severity.auto_cut"), t("severity.auto_cut_value"), "CRITICAL"))
     return rows
+
+
+# The 4 graduated-response levels, in order, for the Incidents page's always-visible legend -- the exact level
+# codes the Core writes (aegis_soc/graduated_response.py), never translated; only the explanation is.
+INCIDENT_LEVEL_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+INCIDENT_LEVEL_EXPLAIN_KEYS = {
+    "LOW": "incidents.legend.low", "MEDIUM": "incidents.legend.medium",
+    "HIGH": "incidents.legend.high", "CRITICAL": "incidents.legend.critical",
+}
+
+# Raw kind/action strings the Core actually writes (aegis_soc/graduated_detector.py, aegis_soc/graduated_response.py)
+# mapped to a friendly, translated label. A kind or action this map does not recognise (e.g. a future detector
+# addition, or a test fixture's placeholder value) is shown as its own raw value, never hidden -- every
+# underlying value stays visible even when this page cannot explain it yet.
+INCIDENT_KIND_KEYS = {
+    "port_scan": "incidents.kind.port_scan", "ssh_brute_force": "incidents.kind.ssh_brute_force",
+    "syn_flood": "incidents.kind.syn_flood", "ssh_login_after_failures": "incidents.kind.ssh_login_after_failures",
+}
+INCIDENT_ACTION_KEYS = {
+    "NONE": "incidents.action.none", "SOFTWARE_BLOCK": "incidents.action.software_block",
+    "RECOMMEND_CUT": "incidents.action.recommend_cut", "AUTO_CUT": "incidents.action.auto_cut",
+}
+
+
+def incident_kind_label(kind, translate):
+    key = INCIDENT_KIND_KEYS.get(kind)
+    return translate(key) if key else kind
+
+
+def incident_action_label(action, translate):
+    key = INCIDENT_ACTION_KEYS.get(action)
+    return translate(key) if key else (action or "—")
+
+
+def incident_legend_rows(translate):
+    """The always-visible "what does each level mean" legend -- 4 rows, level code + friendly explanation,
+    using the same level codes/colors every other page already uses (no new color)."""
+    t = translate
+    return [(level, t(INCIDENT_LEVEL_EXPLAIN_KEYS[level]), level) for level in INCIDENT_LEVEL_ORDER]
+
+
+def incident_empty_state(graduated, reason, translate):
+    """The Incidents page's "nothing to list" headline plus its muted detail, by what is actually known:
+
+    * a valid projection with zero decisions -> a verified empty list, worded as "none found in this source" and
+      explicitly NOT as proof that no attack happened (the source only lists decisions the Core recorded);
+    * NOT_FOUND / STALE -> their own sentences;
+    * any other unreadable source -> "source unavailable".
+    An unreadable source never says "no events / the system is watching": that would read as an all-clear when
+    the page simply cannot see the Core's decisions. The technical reason code (never the file path) stays as the
+    secondary line, returned as ``(title, reason_code)``; a valid-empty list returns ``(title, None)``."""
+    t = translate
+    if graduated is not None:
+        return t("incidents.empty.title"), None
+    code = reason or UNREADABLE
+    if code == NOT_FOUND:
+        return t("incidents.empty.not_found"), code
+    if code == STALE:
+        return t("incidents.empty.stale"), code
+    return t("incidents.empty.unavailable"), code
+
+
+def incident_decision_rows(item, translate):
+    """One decision -> the Incidents page's per-card (label, value, status) rows, friendly labels, every
+    underlying value kept (nothing dropped, nothing reworded in the data itself -- only how it's labelled)."""
+    t = translate
+    when = time.strftime("%H:%M:%S", time.localtime(item["at"])) if item.get("at") else "—"
+    mitre = ", ".join(item["mitre"]) if item["mitre"] else "—"
+    corroborated = item.get("corroborated")
+    return [
+        (t("incidents.field.time"), when, None),
+        (t("incidents.field.ip"), item["attacker_ip"] or "—", None),
+        (t("incidents.field.kind"), incident_kind_label(item["kind"], t), None),
+        (t("incidents.field.level"), item["level"], item["level"]),
+        (t("incidents.field.score"), str(item["score"]), None),
+        (t("incidents.field.action"), incident_action_label(item["action"], t), None),
+        (t("incidents.field.outcome"), item["outcome"] or "—", None),
+        (t("incidents.field.mitre"), mitre, None),
+        (t("incidents.field.corroborated"), t("incidents.field.yes") if corroborated else t("incidents.field.no"), None),
+    ]
+
+
+def incident_card_title(item):
+    """One decision card's title bar -- time, level code and attacker IP, state codes never translated."""
+    when = time.strftime("%H:%M:%S", time.localtime(item["at"])) if item.get("at") else "—"
+    ip = item["attacker_ip"] or "—"
+    return f"{when} · {item['level']} · {ip}"
+
+
+def incident_summary_tiles(graduated, reason, translate):
+    """The Incidents page's 3 top summary cards: (highest_level, latest_event, data_source), each as
+    (label, value, level_or_None). ``data_source`` is a 4th item on its own -- a plain bool, never folded
+    into a fake level -- so the caller decides its color explicitly (HEALTHY/WARNING) instead of this
+    unavailable state being routed through the LOW..CRITICAL level palette it has nothing to do with.
+
+    CRITICAL: when the source is unavailable, its value is always the TRUE raw reason code (e.g.
+    NOT_FOUND) -- never silently shown as "0 events" or any other value that would read as "nothing
+    happened" when the real state is "this page cannot see the Core's decisions at all"."""
+    t = translate
+    if graduated is None:
+        highest = (t("incidents.summary.highest"), t("incidents.summary.unknown"), None)
+        latest = (t("incidents.summary.latest"), t("incidents.summary.unknown"), None)   # unknown, never "none yet"
+        source = (t("incidents.summary.source"), reason or UNREADABLE, False)
+        return highest, latest, source
+    decisions = graduated["decisions"]
+    highest = (t("incidents.summary.highest"), graduated["highest_level"], graduated["highest_level"])
+    if decisions:
+        latest_item = decisions[-1]
+        latest = (t("incidents.summary.latest"), incident_kind_label(latest_item["kind"], t), latest_item["level"])
+    else:
+        latest = (t("incidents.summary.latest"), t("incidents.summary.none"), None)
+    source = (t("incidents.summary.source"), t("incidents.summary.available"), True)
+    return highest, latest, source
 
 
 def _elapsed_since(at, *, now=None) -> str:
@@ -334,10 +550,13 @@ def lockdown_cause_facts(evidence, graduated, translate, *, now=None) -> list[tu
     return rows
 
 
-def blocked_ip_facts(blocked, translate) -> list[tuple[str, str, str | None]]:
+def blocked_ip_facts(blocked, translate, *, known=True) -> list[tuple[str, str, str | None]]:
     """The read-only containment-helper list (``live_purple_observer.containment_status``) as the Recovery page's
-    one fact row; the IPs themselves are printed as lines by the page, the same way attempts/decisions are."""
+    one fact row; the IPs themselves are printed as lines by the page, the same way attempts/decisions are.
+    ``known`` is False when the list operation did not genuinely succeed: the count is then UNKNOWN, never "none"."""
     t = translate
+    if not known:
+        return [(t("recovery.blocked_count"), "UNKNOWN", None)]
     if not blocked:
         return [(t("recovery.blocked_count"), t("recovery.blocked_none"), "LOW")]
     return [(t("recovery.blocked_count"), str(len(blocked)), "HIGH")]
@@ -358,10 +577,20 @@ def audit_facts(rows, reason, translate):
 
 RECORD_STRINGS = {
     "recovery.ready": {"en": "Ready for a RESTORE", "th": "พร้อมสำหรับ RESTORE", "zh": "可执行 RESTORE"},
-    "recovery.ready_yes": {"en": "READY — every check below is met (the Core still decides)",
-                           "th": "READY — ผ่านทุกข้อด้านล่าง (Core เป็นผู้ตัดสินขั้นสุดท้าย)",
-                           "zh": "READY — 以下各项均已满足（最终由 Core 决定）"},
+    "recovery.ready_yes": {"en": "READY — every Core-side check below is met (the Core still decides; the physical cable is not verified)",
+                           "th": "READY — ผ่านทุกข้อฝั่ง Core ด้านล่าง (Core เป็นผู้ตัดสินขั้นสุดท้าย; ยังไม่ได้ตรวจสายกายภาพ)",
+                           "zh": "READY — 以下 Core 侧各项检查均已满足（最终由 Core 决定；物理线缆未经验证）"},
+    "recovery.ready_note": {
+        "en": "Core-side RESTORE eligibility only. It does not prove the cable or relay is reconnected — verify pin 2 physically.",
+        "th": "หมายถึงความพร้อมของ RESTORE ฝั่ง Core เท่านั้น ไม่ได้ยืนยันว่าสายหรือรีเลย์เชื่อมต่อแล้ว — ต้องตรวจพิน 2 ทางกายภาพแยกต่างหาก",
+        "zh": "仅表示 Core 侧具备 RESTORE 条件，并不证明线缆或继电器已重新连接 — 须另行物理核实第 2 针。"},
+    "recovery.graduated_unavailable_note": {
+        "en": "No graduated-response summary from Core",
+        "th": "ไม่มีข้อมูลสรุปการตอบสนองแบบไล่ระดับจาก Core",
+        "zh": "Core 未提供分级响应摘要"},
     "recovery.ready_no": {"en": "NOT READY", "th": "NOT READY — ยังไม่พร้อม", "zh": "NOT READY — 尚未就绪"},
+    "recovery.ready_yes_short": {"en": "READY", "th": "READY", "zh": "READY"},
+    "recovery.ready_no_short": {"en": "NOT READY", "th": "NOT READY", "zh": "NOT READY"},
     "recovery.uplink": {"en": "Uplink state", "th": "สถานะอัปลิงก์", "zh": "上行链路状态"},
     "recovery.why": {"en": "Why the uplink is in LOCKDOWN", "th": "สาเหตุที่อัปลิงก์อยู่ใน LOCKDOWN", "zh": "上行链路处于 LOCKDOWN 的原因"},
     "recovery.why.NOT_LOCKDOWN": {"en": "the uplink is not in LOCKDOWN", "th": "อัปลิงก์ไม่ได้อยู่ใน LOCKDOWN",
@@ -414,6 +643,64 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (Core เขียน graduated-status.json เมื่อเปิดการตอบสนองแบบไล่ระดับและมีการตัดสินใจเท่านั้น)",
         "zh": "NOT_AVAILABLE — {reason}（仅当分级响应开启且产生决策时，Core 才会写入 graduated-status.json）"},
     "incidents.view.none": {"en": "No decisions recorded yet.", "th": "ยังไม่มีการตัดสินใจที่บันทึก", "zh": "尚无决策记录。"},
+    "incidents.intro": {
+        "en": "This page shows detected security events and the Core's graduated response decisions, from LOW up to CRITICAL.",
+        "th": "หน้านี้แสดงเหตุการณ์ความปลอดภัยที่ตรวจพบ และการตัดสินใจตอบสนองแบบไล่ระดับของ Core ตั้งแต่ LOW จนถึง CRITICAL",
+        "zh": "本页显示检测到的安全事件，以及 Core 从 LOW 到 CRITICAL 的分级响应决策。"},
+    "incidents.legend.title": {"en": "RESPONSE LEVELS", "th": "ระดับการตอบสนอง", "zh": "响应级别"},
+    "incidents.legend.low": {"en": "Log / audit only", "th": "บันทึก/ตรวจสอบเท่านั้น", "zh": "仅记录 / 审计"},
+    "incidents.legend.medium": {"en": "Software IP block", "th": "บล็อก IP ด้วยซอฟต์แวร์", "zh": "软件封锁该 IP"},
+    "incidents.legend.high": {"en": "Recommends a physical CUT (an operator decides)",
+                              "th": "แนะนำให้ตัดสายกายภาพ (ผู้ปฏิบัติงานเป็นผู้ตัดสินใจ)", "zh": "建议执行物理 CUT（由操作员决定）"},
+    "incidents.legend.critical": {"en": "Automatic CUT (once corroborated)",
+                                  "th": "ตัดสายอัตโนมัติ (เมื่อมีการยืนยันซ้ำ)", "zh": "自动执行 CUT（经多重佐证后）"},
+    "incidents.empty.title": {
+        "en": "No events found in the available data source right now.",
+        "th": "ไม่พบเหตุการณ์จากแหล่งข้อมูลที่ใช้ได้ในขณะนี้",
+        "zh": "当前可用数据源中未发现事件。"},
+    "incidents.empty.valid_note": {
+        "en": "This does not prove that no attack occurred: the source lists only the decisions the Core has recorded.",
+        "th": "ไม่ได้พิสูจน์ว่าไม่มีการโจมตี — แหล่งข้อมูลนี้แสดงเฉพาะการตัดสินใจที่ Core บันทึกไว้",
+        "zh": "这并不证明没有发生攻击：该数据源仅列出 Core 已记录的决策。"},
+    "incidents.empty.not_found": {
+        "en": "Incident data source not found — the current incident status cannot be determined.",
+        "th": "ไม่พบแหล่งข้อมูลเหตุการณ์ — ยังสรุปสถานะเหตุการณ์ปัจจุบันไม่ได้",
+        "zh": "未找到事件数据源 — 暂时无法判断当前事件状态。"},
+    "incidents.empty.unavailable": {
+        "en": "Incident data source unavailable — the current incident status cannot be determined.",
+        "th": "แหล่งข้อมูลเหตุการณ์ใช้งานไม่ได้ — ยังสรุปสถานะเหตุการณ์ปัจจุบันไม่ได้",
+        "zh": "事件数据源不可用 — 暂时无法判断当前事件状态。"},
+    "incidents.empty.stale": {
+        "en": "Incident data is stale — it may not show current events.",
+        "th": "ข้อมูลเหตุการณ์เก่าเกินไป — อาจไม่สะท้อนเหตุการณ์ปัจจุบัน",
+        "zh": "事件数据已过期 — 可能未反映当前事件。"},
+    "incidents.empty.reason": {"en": "Data source status: {reason}", "th": "สถานะแหล่งข้อมูล: {reason}", "zh": "数据来源状态：{reason}"},
+    "incidents.field.time": {"en": "Time", "th": "เวลา", "zh": "时间"},
+    "incidents.field.ip": {"en": "Attacker IP", "th": "IP ผู้โจมตี", "zh": "攻击者 IP"},
+    "incidents.field.kind": {"en": "Attack type", "th": "ชนิดการโจมตี", "zh": "攻击类型"},
+    "incidents.field.level": {"en": "Level", "th": "ระดับ", "zh": "级别"},
+    "incidents.field.score": {"en": "Score", "th": "คะแนน", "zh": "分数"},
+    "incidents.field.action": {"en": "Action", "th": "การกระทำ", "zh": "处置动作"},
+    "incidents.field.outcome": {"en": "Outcome", "th": "ผล", "zh": "结果"},
+    "incidents.field.mitre": {"en": "MITRE ATT&CK", "th": "MITRE ATT&CK", "zh": "MITRE ATT&CK"},
+    "incidents.field.corroborated": {"en": "Corroborated", "th": "ยืนยันซ้ำ (corroboration)", "zh": "是否已佐证"},
+    "incidents.field.yes": {"en": "YES", "th": "ใช่", "zh": "是"},
+    "incidents.field.no": {"en": "no", "th": "ไม่", "zh": "否"},
+    "incidents.kind.port_scan": {"en": "Port scan", "th": "การสแกนพอร์ต", "zh": "端口扫描"},
+    "incidents.kind.ssh_brute_force": {"en": "SSH brute force", "th": "การสุ่มรหัสผ่าน SSH", "zh": "SSH 暴力破解"},
+    "incidents.kind.syn_flood": {"en": "SYN flood", "th": "SYN flood", "zh": "SYN 洪泛攻击"},
+    "incidents.kind.ssh_login_after_failures": {"en": "SSH login after repeated failures",
+                                                "th": "เข้า SSH สำเร็จหลังพยายามผิดซ้ำ ๆ", "zh": "多次失败后成功登录 SSH"},
+    "incidents.action.none": {"en": "none (log/audit only)", "th": "ไม่มี (บันทึก/ตรวจสอบเท่านั้น)", "zh": "无（仅记录/审计）"},
+    "incidents.action.software_block": {"en": "software IP block", "th": "บล็อก IP ด้วยซอฟต์แวร์", "zh": "软件封锁 IP"},
+    "incidents.action.recommend_cut": {"en": "recommend physical CUT", "th": "แนะนำให้ตัดสายกายภาพ", "zh": "建议执行物理 CUT"},
+    "incidents.action.auto_cut": {"en": "automatic CUT", "th": "ตัดสายอัตโนมัติ", "zh": "自动 CUT"},
+    "incidents.summary.highest": {"en": "Highest level right now", "th": "ระดับภัยสูงสุดปัจจุบัน", "zh": "当前最高级别"},
+    "incidents.summary.latest": {"en": "Latest event", "th": "เหตุการณ์ล่าสุด", "zh": "最新事件"},
+    "incidents.summary.source": {"en": "Data source status", "th": "สถานะแหล่งข้อมูล", "zh": "数据来源状态"},
+    "incidents.summary.unknown": {"en": "UNKNOWN", "th": "ไม่ทราบ", "zh": "未知"},
+    "incidents.summary.none": {"en": "none yet", "th": "ยังไม่มี", "zh": "尚无"},
+    "incidents.summary.available": {"en": "AVAILABLE", "th": "พร้อมใช้งาน", "zh": "可用"},
     "audit.view.section": {"en": "CORE AUDIT — CUT AND RESTORE REQUESTS AND RESULTS (READ ONLY)",
                            "th": "การตรวจสอบของ Core — คำขอและผลของ CUT และ RESTORE (อ่านอย่างเดียว)",
                            "zh": "Core 审计 — CUT 与 RESTORE 请求及结果（只读）"},
@@ -425,6 +712,13 @@ RECORD_STRINGS = {
         "th": "NOT_AVAILABLE — {reason} (ตั้งค่า AEGIS_DESKTOP_AUDIT_DB เป็นฐานข้อมูลตรวจสอบของ Core ที่ผู้ใช้ Desktop อ่านได้)",
         "zh": "NOT_AVAILABLE — {reason}（请将 AEGIS_DESKTOP_AUDIT_DB 设置为 Desktop 用户可读的 Core 审计数据库）"},
     "audit.view.none": {"en": "No CUT or RESTORE records.", "th": "ไม่มีบันทึก CUT หรือ RESTORE", "zh": "没有 CUT 或 RESTORE 记录。"},
+    "audit.view.evidence_note": {
+        "en": "COMMAND_SENT and ACK_RECEIVED are command and acknowledgement evidence recorded by the Core. They are not physical verification of the cable, relay or network path.",
+        "th": "COMMAND_SENT และ ACK_RECEIVED คือหลักฐานการส่งคำสั่งและการตอบรับที่ Core บันทึกไว้ — ไม่ใช่การยืนยันสายเคเบิล รีเลย์ หรือเส้นทางเครือข่ายทางกายภาพ",
+        "zh": "COMMAND_SENT 与 ACK_RECEIVED 是 Core 记录的命令与确认证据，并不代表已对线缆、继电器或网络路径做物理验证。"},
+    "audit.table.time": {"en": "TIME", "th": "เวลา", "zh": "时间"},
+    "audit.table.event": {"en": "EVENT", "th": "เหตุการณ์", "zh": "事件"},
+    "audit.table.details": {"en": "DETAILS", "th": "รายละเอียด", "zh": "详情"},
     "recovery.cause_section": {"en": "CAUSE OF CURRENT LOCKDOWN", "th": "สาเหตุของการ LOCKDOWN ในปัจจุบัน", "zh": "当前 LOCKDOWN 的原因"},
     "recovery.cause": {"en": "Most recent decision (likely cause)", "th": "การตัดสินใจล่าสุด (สาเหตุที่เป็นไปได้)",
                        "zh": "最近一次决策（可能的原因）"},
