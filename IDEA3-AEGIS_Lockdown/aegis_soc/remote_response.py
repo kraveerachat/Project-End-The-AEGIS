@@ -43,6 +43,8 @@ OUTCOME_AWAITING_OPERATOR = "AWAITING_OPERATOR"
 class RelayResult(NamedTuple):
     ok: bool
     code: str
+    msg_id: str | None = None
+    seq: int | None = None
 
 
 class UnconfiguredRelayTarget:
@@ -84,12 +86,48 @@ class CoreRelayTarget:
         """Acquire the Core command lock before the confirmation gate lock; dry-run targets need no outer lock."""
         return self._command_guard() if self._command_guard is not None else nullcontext()
 
-    def cut(self, description: str) -> RelayResult:
+    def cut(
+        self,
+        description: str,
+        *,
+        cut_authorization=None,
+        cut_request_id: str | None = None,
+        cut_incident_id: str | None = None,
+    ) -> RelayResult:
+        """Forward a Core-issued authorization; never mint one here."""
+        if (
+            cut_authorization is None
+            or not isinstance(cut_request_id, str)
+            or not cut_request_id
+        ):
+            return RelayResult(False, "CUT_AUTHORIZATION_REQUIRED")
+
+        # The central Controller validates and consumes the grant.
+        # An origin string is metadata, never authorization.
         result = self._issue(
-            "CUT_UPLINK", description[:240], critical=True, origin=self._origin, allow_defer=False,
+            "CUT_UPLINK",
+            description[:240],
+            critical=True,
+            origin=self._origin,
+            allow_defer=False,
+            cut_authorization=cut_authorization,
+            cut_request_id=cut_request_id,
+            cut_incident_id=cut_incident_id,
         )
-        sent = bool(getattr(result, "ok", False) and getattr(result, "sent", False))
-        return RelayResult(sent, "CUT_SENT" if sent else str(getattr(result, "reason_code", "") or "CUT_REFUSED")[:64])
+
+        sent = bool(
+            getattr(result, "ok", False)
+            and getattr(result, "sent", False)
+        )
+        return RelayResult(
+            sent,
+            "CUT_SENT" if sent else str(
+                getattr(result, "reason_code", "")
+                or "CUT_REFUSED"
+            )[:64],
+            getattr(result, "nonce", None) if sent else None,
+            getattr(result, "seq", None) if sent else None,
+        )
 
 
 @dataclass(frozen=True)
@@ -212,6 +250,7 @@ class RemoteResponse:
         operator: str,
         request_id: str | None = None,
         dry_run_only: bool = False,
+        physical_cut: Callable[[CoreRelayTarget, PendingCut, str], RelayResult] | None = None,
     ) -> RelayResult:
         """Confirm exactly one current, unexpired pending CUT."""
         with self._lock:
@@ -241,6 +280,11 @@ class RemoteResponse:
                 return RelayResult(False, "NO_PENDING_CUT")
 
             if dry_run_only and type(target) is not DryRunRelayTarget:
+                return RelayResult(False, "CONFIRM_NOT_ENABLED")
+
+            if type(target) is CoreRelayTarget and not callable(physical_cut):
+                return RelayResult(False, "CUT_AUTHORIZATION_REQUIRED")
+            if type(target) is not CoreRelayTarget and physical_cut is not None:
                 return RelayResult(False, "CONFIRM_NOT_ENABLED")
 
             if not isinstance(request_id, str) or not request_id:
@@ -278,10 +322,20 @@ class RemoteResponse:
                     f"operator={operator[:32]}"
                 )
 
-            result = target.cut(description)
+            if type(target) is CoreRelayTarget:
+                # Consume pending intent before potentially uncertain dispatch.
+                self._pending.pop(source, None)
+                try:
+                    result = physical_cut(target, pending, description)
+                except Exception:
+                    result = RelayResult(False, "OUTCOME_UNKNOWN")
+                if not isinstance(result, RelayResult):
+                    result = RelayResult(False, "OUTCOME_UNKNOWN")
+            else:
+                result = target.cut(description)
 
             if result.ok:
-                del self._pending[source]
+                self._pending.pop(source, None)
                 self._audit(
                     f"{prefix}_CUT_CONFIRMED",
                     f"source={source} attacker_ip={address} "

@@ -7,6 +7,7 @@ fakes. Design §5, §7, §9, §12.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -94,18 +95,6 @@ class Harness:
         self.supervisor.bind_callbacks()
         self.worker = DispatchWorker(self.supervisor, self.ledger, self.dispatch, wall_clock=lambda: NOW)
 
-        # TEST ONLY: one-shot approval for this isolated harness.
-        # No approval capability is added to production.
-        authorized_actions = {ACTION_ID}
-
-        def authorize_once(action):
-            action_id = getattr(action, "action_id", None)
-            if action_id not in authorized_actions:
-                return False
-            authorized_actions.remove(action_id)
-            return True
-
-        self.worker._operator_approval_verified = authorize_once
         self.supervisor.dispatch_worker = self.worker
 
     def frames(self, kind):
@@ -146,23 +135,44 @@ def _dispatch_once(harness):
     harness.worker.tick()
 
 
-def test_dispatch_publishes_one_signed_command_after_claim_and_reservation(harness):
+def _authorized_result(harness, description="authenticated operator CUT", *, not_after=None):
+    request_id = p1.new_msg_id()
+    approval = harness.supervisor._cut_authorization_issuer.issue(
+        request_id=request_id, incident_id=None, target_device=DEVICE, action="CUT_UPLINK",
+        operator_identity="test:trusted-local-gate", expires_at=time.time() + 30, reason=description,
+    )
+    return harness.supervisor.issue_command(
+        "CUT_UPLINK", description, origin="core-local-cut", not_after=not_after,
+        cut_authorization=approval, cut_request_id=request_id, cut_incident_id=None,
+    )
+
+
+def _authorized_once(harness):
+    assert harness.ledger.begin_claim(ACTION_ID, "CUT_UPLINK", harness.dispatch.deadline)
+    assert harness.ledger.mark_claimed(ACTION_ID)
+    result = _authorized_result(harness, not_after=harness.dispatch.deadline)
+    if result.sent:
+        harness.ledger.mark_published(ACTION_ID, result.nonce)
+    elif result.dry_run:
+        harness.ledger.mark_dry_run(ACTION_ID, result.nonce)
+    else:
+        harness.ledger.mark_failed(ACTION_ID, result.reason_code or "NOT_PUBLISHED")
+    return result
+
+
+def test_dispatch_remains_fail_closed_without_action_bound_core_approval(harness):
     _dispatch_once(harness)
 
-    [command] = harness.commands()
-    assert p1.verify(command, KEYS) is True
-    assert command.fields["action"] == "CUT_UPLINK"
+    assert harness.commands() == []
     action = harness.ledger.get(ACTION_ID)
-    assert action["state"] == "PUBLISHED"
-    assert action["nonce"] == command.fields["msg_id"]
-    assert harness.store.command(command.fields["msg_id"])["state"] == "PUBLISHED"
-    assert harness.dispatch.calls[:2] == ["list", "claim"]
+    assert action is None
+    assert harness.dispatch.calls == ["list"]
 
 
 def test_the_dispatch_deadline_caps_device_expiry(tmp_path):
     harness = Harness(tmp_path, deadline=NOW + 10)
     try:
-        _dispatch_once(harness)
+        _authorized_once(harness)
         assert harness.commands()[0].int("expires_at") == NOW + 10
     finally:
         harness.close()
@@ -170,17 +180,17 @@ def test_the_dispatch_deadline_caps_device_expiry(tmp_path):
 
 def test_a_store_failure_before_publish_sends_nothing_and_is_terminal(harness, monkeypatch):
     monkeypatch.setattr(harness.store, "reserve_command", lambda *_args: (_ for _ in ()).throw(OSError("disk")))
-    _dispatch_once(harness)
+    _authorized_once(harness)
     harness.worker.tick()
 
     assert harness.frames(p1.COMMAND) == []
     assert harness.ledger.get(ACTION_ID)["state"] == "FAILED"
-    assert harness.dispatch.calls.count("claim") == 1
+    assert harness.dispatch.calls.count("claim") == 0
 
 
 def test_a_publish_failure_burns_the_sequence_and_is_never_retried(harness):
     harness.client.publish_rc = 4
-    _dispatch_once(harness)
+    _authorized_once(harness)
     harness.worker.tick()
 
     [attempt] = [
@@ -189,9 +199,9 @@ def test_a_publish_failure_burns_the_sequence_and_is_never_retried(harness):
     ]
     assert harness.ledger.get(ACTION_ID)["state"] == "FAILED"
     assert harness.store.command(attempt.fields["msg_id"])["state"] == "NOT_PUBLISHED"
-    assert harness.dispatch.calls.count("claim") == 1
+    assert harness.dispatch.calls.count("claim") == 0
     harness.client.publish_rc = 0
-    manual = harness.supervisor.issue_command("CUT_UPLINK", "operator", critical=True, origin="gui")
+    manual = _authorized_result(harness, "operator")
     assert manual.seq == attempt.int("seq") + 1
 
 
@@ -214,7 +224,7 @@ def test_untrusted_core_time_never_claims_publishes_or_heartbeats(tmp_path, stat
 def test_holdover_time_still_heartbeats_and_dispatches(tmp_path):
     harness = Harness(tmp_path, clock=ScenarioClock(state="HOLDOVER"))
     try:
-        _dispatch_once(harness)
+        _authorized_once(harness)
         assert len(harness.frames(p1.COMMAND)) == 1
         assert harness.supervisor.controller.send_heartbeat() is True
     finally:
@@ -224,7 +234,7 @@ def test_holdover_time_still_heartbeats_and_dispatches(tmp_path):
 def test_time_lost_between_claim_and_publish_fails_as_not_sent(tmp_path):
     harness = Harness(tmp_path, clock=ScenarioClock(state="SYNCED", trusted_now=False))
     try:
-        _dispatch_once(harness)
+        _authorized_once(harness)
         assert harness.frames(p1.COMMAND) == []
         assert harness.ledger.get(ACTION_ID)["state"] == "FAILED"
         assert harness.ledger.pending_outbox()[-1]["detail"] == {"reasonCode": "CORE_TIME_UNTRUSTED"}
@@ -237,7 +247,7 @@ def test_a_crash_after_the_point_of_no_return_is_outcome_unknown_and_never_repub
     monkeypatch.setattr(first.ledger, "mark_published", lambda *_args: (_ for _ in ()).throw(OSError("crash")))
     first.worker.start()
     with pytest.raises(OSError):
-        first.worker.tick()
+        _authorized_once(first)
     [command] = first.commands()
     first.close()
 
@@ -257,7 +267,7 @@ def test_a_crash_after_the_point_of_no_return_is_outcome_unknown_and_never_repub
 
 
 def test_the_replay_row_commits_before_any_dispatch_evidence(harness, monkeypatch):
-    _dispatch_once(harness)
+    _authorized_once(harness)
     [command] = harness.commands()
     events = []
     record_seen, record_ack = harness.store.record_seen, harness.ledger.record_ack
@@ -270,7 +280,7 @@ def test_the_replay_row_commits_before_any_dispatch_evidence(harness, monkeypatc
 
 
 def test_the_evidence_ladder_is_never_promoted(harness):
-    _dispatch_once(harness)
+    _authorized_once(harness)
     [command] = harness.commands()
     msg_id, seq = command.fields["msg_id"], command.int("seq")
 
@@ -292,7 +302,7 @@ def test_the_evidence_ladder_is_never_promoted(harness):
 
 
 def test_a_rejected_ack_is_outcome_unknown_and_never_redispatched(harness):
-    _dispatch_once(harness)
+    _authorized_once(harness)
     [command] = harness.commands()
     harness.deliver(p1.ACK, ack_for_msg_id=command.fields["msg_id"], ack_for_seq=command.int("seq"),
                     result="REJECTED_SEQUENCE")

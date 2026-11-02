@@ -60,8 +60,13 @@ def test_wire_constants_match_the_core_channel():
     assert (cc.CUT_ORIGIN, cc.CONFIRMATION, cc.EVIDENCE_OP) == (local_cut.CUT_ORIGIN, local_cut.CONFIRMATION, local_cut.EVIDENCE_OP)
     assert cc.MAX_MESSAGE_BYTES == lr.MAX_MESSAGE_BYTES
     assert (cc.REASON_MIN_CHARS, cc.REASON_MAX_CHARS) == (lr.REASON_MIN_CHARS, lr.REASON_MAX_CHARS)
-    assert cc.cut_request(REASON, SECRET).keys() == local_cut.cut_request(REASON, SECRET).keys()
-    assert cc.cut_request(REASON, SECRET) == local_cut.cut_request(REASON, SECRET)
+    request_id = "ab" * 16
+    assert cc.cut_request(REASON, SECRET, request_id=request_id).keys() == local_cut.cut_request(
+        REASON, SECRET, request_id=request_id,
+    ).keys()
+    assert cc.cut_request(REASON, SECRET, request_id=request_id) == local_cut.cut_request(
+        REASON, SECRET, request_id=request_id,
+    )
     assert cc.evidence_request(MSG) == local_cut.evidence_request(MSG)
 
 
@@ -74,7 +79,7 @@ def test_the_client_imports_only_the_standard_library():
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, "no package-relative imports"
             imported.add((node.module or "").split(".")[0])
-    assert imported <= {"json", "os", "socket", "struct", "threading", "time", "collections", "dataclasses", "pwd", "__future__"}
+    assert imported <= {"json", "os", "secrets", "socket", "struct", "threading", "time", "collections", "dataclasses", "pwd", "__future__"}
 
 
 def test_every_code_the_core_channel_can_refuse_with_has_an_honest_description():

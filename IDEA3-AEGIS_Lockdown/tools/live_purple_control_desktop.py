@@ -22,15 +22,18 @@ import json
 import os
 import stat
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog
 
 from tools import graceful_exit
+from tools import live_purple_audit_model as audit_model
 from tools import live_purple_control_strings as strings
 from tools import live_purple_core_records as records
 from tools import live_purple_cut_desktop as cut_desktop
 from tools import live_purple_observer as live
+from tools import purple_design as design
 
 RESTORE_ENABLE_ENV = "AEGIS_DESKTOP_RESTORE_ENABLED"
 RESTORE_SOCKET_ENV = "AEGIS_LOCAL_RESTORE_SOCKET"
@@ -38,6 +41,8 @@ STATUS_PATH_ENV = "AEGIS_DESKTOP_STATUS_PATH"
 GRADUATED_PATH_ENV = "AEGIS_GRADUATED_STATUS_PATH"
 RECOVERY_PATH_ENV = "AEGIS_DESKTOP_RECOVERY_PATH"
 AUDIT_DB_ENV = "AEGIS_DESKTOP_AUDIT_DB"
+AUDIT_MODEL_MAX_AGE_SECONDS = 5.0
+ALERT_PANEL_SIZE = "480x600"
 CONTROL_TITLE = "AEGIS IDEA3 — PURPLE DESKTOP — CUT / RESTORE (CORE-AUTHENTICATED)"
 RESTORE_BUTTON_TEXT = "RESTORE NETWORK (Core-authenticated)"
 RESTORE_DISABLED_TEXT = "RESTORE NETWORK — DISABLED"
@@ -170,6 +175,7 @@ def read_graduated(path) -> dict | None:
             "score": item.get("score") if isinstance(item.get("score"), int) else 0,
             "reasons": [str(r)[:48] for r in item.get("reasons", [])][:8] if isinstance(item.get("reasons"), list) else [],
             "mitre": [str(m)[:12] for m in item.get("mitre", [])][:6] if isinstance(item.get("mitre"), list) else [],
+            "corroborated": item.get("corroborated") is True,
         })
     highest = data.get("highest_level") if data.get("highest_level") in LEVELS else "LOW"
     recommended = data.get("cut_recommended_for")
@@ -216,25 +222,6 @@ class ControlPrompts(cut_desktop.Prompts):
         shown_title, shown_text = strings.notice(title, text, self.language())
         messagebox.showwarning(shown_title, shown_text)
 
-    def ask_pending_reason(self):
-        return simpledialog.askstring(
-            "Pending CUT — DRY-RUN ONLY",
-            "Reason for this simulated confirmation (12-240 characters):",
-        )
-
-    def ask_pending_confirmation(self):
-        return simpledialog.askstring(
-            "Pending CUT — DRY-RUN ONLY",
-            f"Type {cut_desktop.client.CONFIRMATION} to confirm:",
-        )
-
-    def ask_pending_secret(self):
-        return simpledialog.askstring(
-            "Pending CUT — DRY-RUN ONLY",
-            "CUT secret (verified by Core):",
-            show="*",
-        )
-
     def ask_restore_reason(self):
         return simpledialog.askstring(self._t("dialog.restore_title"), self._t("dialog.restore_reason"))
 
@@ -254,6 +241,22 @@ def _status(gui, level):
     }.get(level, gui.pres.STATUS_UNKNOWN)
 
 
+def _feed_status(gui, kind):
+    """A feed row's color, from the SAME severity palette as every other page -- no new color is introduced.
+    The pinned theme has one amber "warning" tone, not a separate yellow/orange, so GRADUATED_MEDIUM and
+    GRADUATED_HIGH both read as warning (exactly as _status() above already does for those two levels
+    elsewhere); only GRADUATED_CRITICAL is red and GRADUATED_LOW is neutral."""
+    if kind.startswith("GRADUATED_"):
+        return _status(gui, kind[len("GRADUATED_"):])
+    if kind == "CUT_PRE_DISPATCH":
+        return gui.pres.STATUS_CRITICAL
+    if kind in ("RESTORE_REFUSED", "RESTORE_AUTH_LOCKOUT", "ALERT_REFUSED"):
+        return gui.pres.STATUS_WARNING   # a refusal or lockout is an unsuccessful outcome: never green
+    # RESTORE_REQUESTED is only a request, and the audit feed has no "restore completed" kind, so nothing here is
+    # green: a request must never read as a finished recovery (that needs the device's own evidence elsewhere).
+    return gui.pres.STATUS_NEUTRAL  # RESTORE_REQUESTED, COMMAND_SENT, ACK_RECEIVED, ALERT_ACCEPTED
+
+
 def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduated_path, *, incident_source=None,
                        recovery_path=None, audit_path=None):
     Base = cut_desktop._cut_gui_class(gui, cut_flow, prompts, run_async, incident_source=incident_source)
@@ -266,16 +269,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._restore_status = None
             self._severity_body = None
             self._severity_after = None
+            self._severity_snapshot_value = None
             self._page_tick = None
             self._page_after = None
-            self._pending_status = None
-            self._pending_refresh_button = None
-            self._pending_refreshing = False
-            self._pending_epoch = 0
-            self._pending_snapshot = None
-            self._pending_confirming = False
-            self._pending_confirm_button = None
-            self._pending_socket_path = getattr(cut_flow, "socket_path", None)
+            self._page_snapshot = None
+            self._audit_model_cache = None
+            self._audit_model_at = 0.0
+            self._alert_panel_key = None
             super().__init__(*args, **kwargs)
             self.root.title(CONTROL_TITLE)
 
@@ -286,253 +286,139 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _show_page(self, key):
             self._stop_live_page()
             super()._show_page(key)  # the CUT base installs its CUT control on the lockdown page
+            self._enable_alert_button()
             if key == "lockdown":
                 self._install_restore_control()
                 self._install_severity_panel()
                 self._translate_controls()
-                self._install_pending_panel()
             elif key == "recovery":
                 self._enable_navigation_button()   # the preview base disables every Button after a page is built
+            elif key == "settings":
+                # Built entirely inside the pinned gui.py with no override point to build its sections
+                # with style_section_title() directly; restyle the already-built title Labels in place
+                # instead (border/divider/body/every fact row inside them untouched). Diagnostics no
+                # longer needs this: it has its own override (_build_diagnostics_page) that applies the
+                # design system directly while building.
+                design.ensure_fonts(self.root)
+                design.restyle_section_titles(self.workspace, gui=gui)
+
+        # -- read-only audit evidence: Alerts panel and Overview --------------------------------------------------------
+        def _audit_model(self):
+            now = time.monotonic()
+            if self._audit_model_cache is None or now - self._audit_model_at >= AUDIT_MODEL_MAX_AGE_SECONDS:
+                self._audit_model_cache = audit_model.read_snapshot(audit_path)
+                self._audit_model_at = now
+            return self._audit_model_cache
+
+        def _enable_alert_button(self):
+            # The preview base disables every Button under the root and replaces its command after each page change.
+            if self._notif_button is not None and self._notif_button.winfo_exists():
+                self._notif_button.configure(state=tk.NORMAL, command=self._show_notification_panel)
+
+        def _notification_button_text(self):
+            label = gui.i18n.t("notif.button_label")
+            count = self._audit_model().last_24h
+            return f"{label} ({count})" if count else label
+
+        def _refresh_notification_indicator(self):
+            shot = self._audit_model()
+            if self._notif_button is not None and self._notif_button.winfo_exists():
+                variant = "danger" if shot.highest_24h == "CRITICAL" else ("warning" if shot.highest_24h else "secondary")
+                self._notif_button.config(text=self._notification_button_text())
+                gui.set_button_variant(self._notif_button, variant)
+            panel_open = self._notif_panel is not None and self._notif_panel.winfo_exists()
+            if panel_open and self._alert_panel_key != (shot, gui.i18n.get_language()):
+                self._build_notification_panel_contents(self._notif_panel)
+
+        def _show_notification_panel(self):
+            if self._notif_panel is not None and self._notif_panel.winfo_exists():
+                self._notif_panel.lift()
+                self._notif_panel.focus_force()
+                return
+            panel = tk.Toplevel(self.root)
+            panel.title(gui.i18n.t("notif.panel_title"))
+            panel.configure(bg=gui.COLOR_BG)
+            panel.geometry(ALERT_PANEL_SIZE)
+            panel.transient(self.root)
+            panel.protocol("WM_DELETE_WINDOW", self._close_notification_panel)
+            self._notif_panel = panel
+            self._build_notification_panel_contents(panel)
+
+        def _build_notification_panel_contents(self, panel):
+            """Read-only by design: this window has no action button of any kind."""
+            t = gui.i18n.t
+            palette = gui.ui_theme.get_palette()
+            shot = self._audit_model()
+            self._alert_panel_key = (shot, gui.i18n.get_language())
+            for child in panel.winfo_children():
+                child.destroy()
+            tk.Label(panel, text=t("audit_alert.footer"), font=gui.ui_theme.FONT_HINT, fg=palette.muted, bg=palette.panel,
+                     wraplength=450, justify="left", anchor="w").pack(side="bottom", fill="x", ipadx=10, ipady=8)
+            tk.Label(panel, text=t("notif.panel_title"), font=gui.ui_theme.FONT_SECTION, fg=palette.text, bg=palette.panel,
+                     anchor="w").pack(side="top", fill="x", ipadx=12, ipady=10)
+            scroll = gui.ScrollFrame(panel)
+            scroll.pack(fill="both", expand=True)
+            body = scroll.inner
+            if shot.reason:
+                gui.make_hint(body, t("audit_alert.unavailable", reason=shot.reason)).pack(anchor="w", padx=12, pady=12)
+            elif not shot.alerts:
+                gui.make_hint(body, t("audit_alert.empty")).pack(anchor="w", padx=12, pady=12)
+            for alert in shot.alerts:
+                heading, lines = audit_model.alert_lines(alert, t)
+                status = {"CRITICAL": gui.pres.STATUS_CRITICAL, "LOW": gui.pres.STATUS_NEUTRAL}.get(alert.level, gui.pres.STATUS_WARNING)
+                card = gui.Section(body, heading, accent=gui.ui_theme.status_color(status))
+                card.pack(fill="x", padx=10, pady=6)
+                for line in lines:
+                    tk.Label(card.body, text=line, font=gui.ui_theme.FONT_HINT, fg=palette.text, bg=palette.panel,
+                             wraplength=410, justify="left", anchor="w").pack(fill="x")
+
+        def _refresh_live_evidence(self):
+            super()._refresh_live_evidence()
+            if self.session.authenticated:
+                self._refresh_notification_indicator()
+                self._refresh_recent_activity()
+
+        def _refresh_overview_metrics(self):
+            super()._refresh_overview_metrics()
+            if not self.session.authenticated:
+                return
+            t = gui.i18n.t
+            shot = self._audit_model()
+            # Dead Man's Switch stays with the base class: it may only come from the Core status document.
+            for key, value, note in (("today", shot.today, "audit_alert.today_note"),
+                                     ("incidents", shot.open_incidents, "audit_alert.incidents_note")):
+                card = self.metric_cards.get(key)
+                if value is None or card is None or not card.winfo_exists():
+                    continue
+                card.update(str(value), gui.pres.STATUS_NEUTRAL, t(note))
+                wanted = gui.ui_theme.FONT_METRIC_VALUE
+                if str(card._value_label.cget("font")) != str(wanted):
+                    card._value_label.config(font=wanted)
+
+        def _refresh_recent_activity(self):
+            if not hasattr(self, "activity_body") or not self.activity_body.winfo_exists():
+                return
+            shot = self._audit_model()
+            key = (shot.reason, shot.activity, gui.i18n.get_language())
+            if key == getattr(self.activity_body, "_aegis_activity_key", None):
+                return   # unchanged: no destroy/rebuild per refresh tick
+            self.activity_body._aegis_activity_key = key
+            for row in self.activity_rows:
+                row.destroy()
+            self.activity_rows = []
+            if shot.reason or not shot.activity:
+                text = (gui.i18n.t("audit_alert.unavailable", reason=shot.reason) if shot.reason
+                        else gui.i18n.t("activity.empty"))
+                empty = gui.EmptyState(self.activity_body, "", text, compact=True)
+                empty.pack(anchor="w", pady=(4, 0))
+                self.activity_rows.append(empty)
+                return
+            for row in shot.activity:
+                widget = gui.EvidenceRow(self.activity_body, row.time, row.severity, row.event, row.source)
+                widget.pack(fill="x", anchor="w")
+                self.activity_rows.append(widget)
 
         # -- RESTORE ----------------------------------------------------------------------------------------------------
-
-        def _install_pending_panel(self):
-            """Separate read-only panel; never rewires Manual CUT."""
-            self._pending_epoch += 1
-            self._pending_snapshot = None
-            self._pending_refreshing = False
-
-            if self._cut_button is None:
-                return
-
-            parent = self._cut_button.master
-            self._pending_status = tk.Label(
-                parent,
-                text=(
-                    "PENDING CUT — READ ONLY\n"
-                    "Not loaded. Refresh to query the Core.\n"
-                    "No CUT is sent by this panel."
-                ),
-                anchor="w",
-                justify="left",
-                wraplength=640,
-                font=gui.ui_theme.FONT_BODY,
-                bg=parent.cget("bg"),
-                fg=gui.ui_theme.COLOR_MUTED,
-            )
-            self._pending_status.pack(fill="x", pady=(8, 4))
-
-            self._pending_refresh_button = tk.Button(
-                parent,
-                text="REFRESH PENDING CUT (READ ONLY)",
-                font=gui.ui_theme.FONT_BODY,
-                state=(
-                    tk.NORMAL
-                    if self._pending_socket_path
-                    else tk.DISABLED
-                ),
-                command=self._on_pending_refresh,
-            )
-            self._pending_refresh_button.pack(anchor="w", pady=(0, 8))
-
-            self._pending_confirm_button = tk.Button(
-                parent,
-                text="CONFIRM PENDING CUT (DRY-RUN ONLY)",
-                font=gui.ui_theme.FONT_BODY,
-                state=tk.DISABLED,
-                command=self._on_pending_confirm,
-            )
-            self._pending_confirm_button.pack(anchor="w", pady=(0, 8))
-
-        def _on_pending_refresh(self):
-            if (
-                not self._pending_socket_path
-                or self._pending_refreshing
-                or self._pending_confirming
-            ):
-                return
-
-            self._pending_refreshing = True
-            self._pending_snapshot = None
-            if self._pending_confirm_button is not None:
-                self._pending_confirm_button.configure(state=tk.DISABLED)
-            self._pending_refresh_button.configure(state=tk.DISABLED)
-            self._pending_status.configure(
-                text="PENDING CUT — Querying Core (read only)..."
-            )
-            run_async(self._pending_refresh_worker, self._pending_epoch)
-
-        def _pending_refresh_worker(self, epoch):
-            """One read-only query per source, off the Tk thread."""
-            try:
-                items = []
-                for source in ("__local__", "beelink"):
-                    item = cut_desktop.client.fetch_pending_cut(
-                        self._pending_socket_path, source
-                    )
-                    if item is not None:
-                        items.append(item)
-
-                if not items:
-                    text = (
-                        "NO_PENDING_CUT — No pending request reported.\n"
-                        "Read-only snapshot; no CUT sent."
-                    )
-                else:
-                    lines = [
-                        "PENDING CUT — READ-ONLY CORE SNAPSHOT",
-                        "Confirmation is not available in this panel.",
-                    ]
-                    for item in items:
-                        lines.extend((
-                            "",
-                            f"Source: {item['source']}",
-                            f"Attacker IP: {item['address']}",
-                            f"Request ID: {item['request_id']}",
-                            f"Target: {item['target_name']}",
-                            f"Score: {item['score']}",
-                        ))
-                    lines.append(
-                        "\nCore must revalidate identity and expiry."
-                    )
-                    lines.append("No CUT sent by this panel.")
-                    text = "\n".join(lines)
-            except Exception:
-                items = []
-                text = (
-                    "NOT_AVAILABLE — Core pending status could not "
-                    "be verified.\nNo CUT sent by this panel."
-                )
-
-            self._call_later(
-                0, self._pending_refresh_finished, epoch, text, items
-            )
-
-        def _pending_refresh_finished(self, epoch, text, items):
-            if epoch != self._pending_epoch:
-                return
-
-            self._pending_refreshing = False
-            self._pending_snapshot = (
-                dict(items[0])
-                if len(items) == 1
-                and items[0].get("target_name") == "DRYRUN"
-                and not self._pending_confirming
-                else None
-            )
-            confirm = self._pending_confirm_button
-            if confirm is not None and confirm.winfo_exists():
-                confirm.configure(
-                    state=(
-                        tk.NORMAL if self._pending_snapshot
-                        else tk.DISABLED
-                    )
-                )
-            button = self._pending_refresh_button
-            label = self._pending_status
-
-            if button is not None and button.winfo_exists():
-                button.configure(state=tk.NORMAL)
-            if label is not None and label.winfo_exists():
-                label.configure(text=text)
-
-        def _on_pending_confirm(self):
-            pending = self._pending_snapshot
-            if (
-                self._pending_confirming
-                or self._pending_refreshing
-                or cut_flow.busy
-                or not self._pending_socket_path
-                or not isinstance(pending, dict)
-                or pending.get("target_name") != "DRYRUN"
-            ):
-                return
-
-            # A fresh read is mandatory before another confirmation.
-            self._pending_snapshot = None
-            self._pending_confirm_button.configure(state=tk.DISABLED)
-
-            reason = prompts.ask_pending_reason()
-            if reason is None:
-                return
-            problem = cut_desktop.client.reason_problem(reason)
-            if problem:
-                prompts.notify("Pending CUT", problem)
-                return
-
-            confirmation = prompts.ask_pending_confirmation()
-            if confirmation != cut_desktop.client.CONFIRMATION:
-                prompts.notify(
-                    "Pending CUT",
-                    "Confirmation mismatch. Nothing was sent.",
-                )
-                return
-
-            secret = prompts.ask_pending_secret()
-            if not secret:
-                prompts.notify(
-                    "Pending CUT",
-                    "CUT secret required. Nothing was sent.",
-                )
-                return
-
-            self._pending_confirming = True
-            self._pending_refresh_button.configure(state=tk.DISABLED)
-            self._pending_status.configure(
-                text="CONFIRMING — Core authentication in progress..."
-            )
-            run_async(
-                self._pending_confirm_worker,
-                self._pending_epoch,
-                dict(pending),
-                reason,
-                secret,
-                confirmation,
-            )
-
-        def _pending_confirm_worker(
-            self, epoch, pending, reason, secret, confirmation
-        ):
-            try:
-                view = cut_desktop.client.confirm_pending_cut(
-                    self._pending_socket_path,
-                    pending,
-                    reason,
-                    secret,
-                    confirmation,
-                )
-            except Exception:
-                view = cut_desktop.client.View(
-                    "OUTCOME_UNKNOWN",
-                    "Core result could not be verified. "
-                    "Check Core status. Do not retry automatically.",
-                    cut_desktop.client.CRITICAL,
-                    True,
-                )
-            finally:
-                secret = None
-
-            self._call_later(
-                0, self._pending_confirm_finished, epoch, view
-            )
-
-        def _pending_confirm_finished(self, epoch, view):
-            self._pending_confirming = False
-            if epoch != self._pending_epoch:
-                return
-
-            button = self._pending_refresh_button
-            label = self._pending_status
-            if button is not None and button.winfo_exists():
-                button.configure(state=tk.NORMAL)
-            if label is not None and label.winfo_exists():
-                label.configure(
-                    text=(
-                        f"{view.state}: {view.text}\n"
-                        "Refresh to read current pending status."
-                    )
-                )
-
         def _install_restore_control(self):
             button = next((w for w in self._walk(self.workspace) if isinstance(w, tk.Button)
                            and w.cget("text") == RESTORE_DISABLED_TEXT), None)
@@ -545,9 +431,9 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for label in [w for w in self._walk(self.workspace) if isinstance(w, tk.Label)]:
                 text = str(label.cget("text"))
                 language = gui.i18n.get_language()
-                if text == "READ-ONLY CONTROL AVAILABILITY":
+                if text == gui.i18n.t("lockdown.controls.section"):
                     label.configure(text=strings.text("control.caption", language))
-                elif text == "NOT_AVAILABLE — observer mode":
+                elif text == gui.i18n.t("lockdown.controls.observer_note"):
                     label.configure(text=strings.text("control.caption_note", language))
             button.configure(text=RESTORE_BUTTON_TEXT, state=tk.NORMAL, command=self._on_restore_pressed)
             self._restore_button = button
@@ -638,10 +524,25 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
 
         # -- read-only Core pages (Recovery; Incidents and Audit follow) ------------------------------------------------
-        def _start_live_page(self, key, render):
-            """Render now and again every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page."""
+        def _start_live_page(self, key, compute, render, *, scroll_anchor=None, snap_to_bottom=False):
+            """Re-evaluated every SEVERITY_POLL_MS while the page ``key`` is shown; the timer dies with the page.
+            ``compute()`` reads the Core sources and returns a plain, ``==``-comparable snapshot of everything the
+            page shows (no widgets touched); ``render(snapshot)`` is the one place that destroys and rebuilds the
+            page's widgets from it. Every tick re-computes the snapshot and only calls ``render`` when it actually
+            differs from the last one rendered -- otherwise the page is left alone. A naive unconditional rebuild
+            on every tick is what caused the periodic flicker and the Task-1 scroll jump; comparing first removes
+            the flicker in steady state (nothing changed -> no rebuild) while a real change still renders promptly.
+            ``scroll_anchor`` is any live widget inside the page's ScrollFrame (e.g. a Section's body): on the
+            rebuild path, its scroll position is preserved across the rebuild (see _scroll_yview).
+            ``snap_to_bottom`` (the Audit page's live feed only): preserving the exact old fraction is the
+            wrong behaviour for a growing newest-at-the-bottom console -- a fixed fraction drifts away from the
+            bottom as rows are appended. When the viewport's bottom edge was already at (or essentially at) the
+            end before the rebuild, this snaps to the new bottom afterwards instead of restoring the old
+            fraction, so a feed the operator is watching keeps following new events, like a terminal "tail -f";
+            scrolled up to read history, the normal fraction-preserving restore still applies unchanged."""
             self._stop_live_page()
-            self._page_tick = (key, render)
+            self._page_tick = (key, compute, render, scroll_anchor, snap_to_bottom)
+            self._page_snapshot = None
             self._tick_live_page(first=True)
 
         def _stop_live_page(self):
@@ -657,19 +558,38 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._page_after = None
             if self._page_tick is None:
                 return
-            key, render = self._page_tick
+            key, compute, render, scroll_anchor, snap_to_bottom = self._page_tick
             if getattr(self, "active_page", None) != key:
                 self._page_tick = None
                 return
-            try:
-                render()
-            except tk.TclError:   # the page was destroyed under us
-                self._page_tick = None
-                return
+            snapshot = compute()
+            if first or snapshot != self._page_snapshot:
+                self._page_snapshot = snapshot
+                saved = self._scroll_yview(scroll_anchor)
+                at_bottom = False
+                if snap_to_bottom and saved is not None:
+                    frame, _position = saved
+                    _top, bottom = frame.canvas.yview()
+                    at_bottom = bottom >= 0.999
+                try:
+                    render(snapshot)
+                except tk.TclError:   # the page was destroyed under us
+                    self._page_tick = None
+                    return
+                if snap_to_bottom and at_bottom:
+                    frame, _position = saved
+                    frame.canvas.update_idletasks()
+                    if frame.canvas.winfo_exists():
+                        frame.canvas.yview_moveto(1.0)
+                else:
+                    self._restore_scroll_yview(saved)
             try:
                 self._page_after = self.root.after(SEVERITY_POLL_MS, self._tick_live_page)
             except (tk.TclError, RuntimeError):
                 self._page_after = None
+
+        # _scroll_yview/_restore_scroll_yview now live on the shared LivePurpleObserverGUI base
+        # (tools/live_purple_observer.py), so every launcher built on it can reuse them.
 
         def _clear(self, body):
             for child in body.winfo_children():
@@ -677,26 +597,113 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
 
         def _lines(self, body, lines):
             for line in lines:
-                tk.Label(body, text=line, anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+                tk.Label(body, text=line, anchor="w", justify="left", font=design.font("note"),
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
         def _build_incidents_page(self, parent):
             if incident_source is not None:   # the incident Desktop's own register is wired: keep it
                 return super()._build_incidents_page(parent)
             page = self._new_page(parent, "incidents.title", "incidents.subtitle")
-            section = gui.Section(page, gui.i18n.t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
-            section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("incidents", lambda: self._render_incidents(section.body))
-
-        def _render_incidents(self, body):
             t = gui.i18n.t
-            self._clear(body)
+            design.ensure_fonts(self.root)
+            palette = gui.ui_theme.get_palette()
+
+            # Static, never rebuilt: what this page is for, at the new design system's body scale (bigger
+            # and clearer than the pinned theme.make_hint's caption-sized hint) -- the page used to say
+            # neither this nor what each response level means, so an empty page showed only a cryptic
+            # NOT_AVAILABLE row with no explanation.
+            design.intro_text(page, t("incidents.intro"), palette=palette, bg=page.cget("bg")).pack(
+                anchor="w", padx=16, pady=(0, 16))
+
+            # 1. Summary cards (reuses the pinned gui.MetricCard/_reflow_cards exactly as Overview/Recovery
+            # already do): current highest level, the latest event, and the TRUE data-source state. Built
+            # once; only .update()'d in place on each refresh (see _render_incidents), never rebuilt, so
+            # this alone can never cause flicker or disturb scroll.
+            tile_grid = tk.Frame(page, bg=page.cget("bg"))
+            tile_grid.pack(fill="x", padx=16, pady=(0, 16))
+            self._incidents_tiles = {
+                "highest": gui.MetricCard(tile_grid, t("incidents.summary.highest"), status=gui.pres.STATUS_UNKNOWN),
+                "latest": gui.MetricCard(tile_grid, t("incidents.summary.latest"), status=gui.pres.STATUS_UNKNOWN),
+                "source": gui.MetricCard(tile_grid, t("incidents.summary.source"), status=gui.pres.STATUS_UNKNOWN),
+            }
+            self._reflow_cards(tile_grid, list(self._incidents_tiles.values()), choices=(3, 2, 1))
+
+            # 2. The "ระดับการตอบสนอง" legend, kept, restyled to the new scale: the existing gui.Section
+            # chrome (border/divider/accent), its title Label's font bumped in place, 4 rows via this
+            # design system's info_row (same glyph/color logic as the pinned _add_fact, bigger fonts).
+            legend = gui.Section(page, t("incidents.legend.title"))
+            legend.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(legend)
+            legend_grid = tk.Frame(legend.body, bg=legend.body.cget("bg"))
+            legend_grid.pack(fill="x")
+            legend_cards = []
+            for level, text, status_level in records.incident_legend_rows(t):
+                card = tk.Frame(legend_grid, bg=legend.body.cget("bg"))
+                design.info_row(card, level, text, palette=palette, status=_status(gui, status_level))
+                legend_cards.append(card)
+            self._reflow_columns(legend_grid, legend_cards)
+
+            section = gui.Section(page, t("incidents.view.section"), accent=gui.COLOR_WARN_HL)
+            section.pack(fill="x", padx=16, pady=(0, 20))
+            design.style_section_title(section)
+            self._start_live_page("incidents", self._incidents_snapshot,
+                                  lambda snapshot: self._render_incidents(snapshot, section.body),
+                                  scroll_anchor=section.body)
+
+        def _incidents_snapshot(self):
+            """Everything _render_incidents shows, read-only -- no widget touched. Compared on every tick so the
+            page is rebuilt only when this actually changes (see _start_live_page)."""
+            t = gui.i18n.t
             data = read_graduated(graduated_path)
             reason = "" if data is not None else records.file_reason(graduated_path)
-            for label, value, level in records.incident_facts(data, reason, t):
-                self._add_fact(body, label, value, status=_status(gui, level))
-            if data is not None:
-                self._lines(body, [describe_decision(item) for item in reversed(data["decisions"])] or [t("incidents.view.none")])
+            has_decisions = data is not None and len(data["decisions"]) > 0
+            tiles = records.incident_summary_tiles(data, reason, t)
+            # When there is no source at all, incident_facts()'s only row is the cryptic raw
+            # "NOT_AVAILABLE -- {reason} (... graduated-status.json ...)" line -- replaced below by the
+            # friendly empty state, not shown alongside it. Once a source exists (even with zero decisions
+            # yet), its header facts (decisions recorded, CUT recommended, auto-CUT latched) are plain,
+            # useful and not covered by the 3 summary cards above, so they stay.
+            facts = tuple(records.incident_facts(data, reason, t)) if data is not None else ()
+            if not has_decisions:
+                title, empty_reason = records.incident_empty_state(data, reason, t)
+                empty = (title, t("incidents.empty.reason", reason=empty_reason) if empty_reason else t("incidents.empty.valid_note"))
+                return tiles, facts, (), empty
+            decisions = tuple(
+                (records.incident_card_title(item), tuple(records.incident_decision_rows(item, t)))
+                for item in reversed(data["decisions"])
+            )
+            return tiles, facts, decisions, None
+
+        def _render_incidents(self, snapshot, body):
+            tiles, facts, decisions, empty = snapshot
+            highest, latest, source = tiles
+            self._incidents_tiles["highest"].update(highest[1], _status(gui, highest[2]))
+            self._incidents_tiles["latest"].update(latest[1], _status(gui, latest[2]))
+            # source[2] is a plain bool (truly available or not) -- never routed through the LOW..CRITICAL
+            # level palette, which has nothing to do with "can this page reach the Core's decisions".
+            self._incidents_tiles["source"].update(
+                source[1], gui.pres.STATUS_HEALTHY if source[2] else gui.pres.STATUS_WARNING)
+
+            palette = gui.ui_theme.get_palette()
+            self._clear(body)
+            for label, value, level in facts:
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
+            if empty is not None:
+                title, detail = empty
+                design.empty_state(body, title=title, detail=detail, palette=palette, bg=body.cget("bg"))
+                return
+            grid = tk.Frame(body, bg=body.cget("bg"))
+            grid.pack(fill="x", pady=(design.SPACE_SM, 0))
+            cards = []
+            accent = {"CRITICAL": gui.COLOR_DANGER_HL, "HIGH": gui.COLOR_WARN_HL, "MEDIUM": gui.COLOR_WARN_HL}
+            for title, rows in decisions:
+                level = next((value for label, value, lvl in rows if lvl in LEVELS), None)
+                card = gui.Section(grid, title, accent=accent.get(level))
+                design.style_section_title(card, role="card_title")
+                for label, value, lvl in rows:
+                    design.info_row(card.body, label, value, palette=palette, status=_status(gui, lvl))
+                cards.append(card)
+            self._reflow_columns(grid, cards)
 
         def _diagnostics_audit_row(self):
             """The Diagnostics page's audit row, read the same way the Recovery/Audit pages already read it
@@ -705,20 +712,65 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             value, level = records.audit_facts(rows, reason, gui.i18n.t)[0][1:]
             return value, _status(gui, level)
 
+        def _incident_banner_state(self):
+            data = read_graduated(graduated_path)
+            if data is None:
+                return "unavailable", None
+            return ("decisions", data["highest_level"]) if data["decisions"] else ("none_found", None)
+
         def _build_audit_page(self, parent):
             page = self._new_page(parent, "audit.title", "audit.subtitle")
+            design.ensure_fonts(self.root)
+            # Static, built once (not per refresh): the command/ACK tokens below are evidence, not physical proof.
+            design.section_note(page, gui.i18n.t("audit.view.evidence_note"), palette=gui.ui_theme.get_palette(),
+                                bg=page.cget("bg")).pack(fill="x", padx=16, pady=(0, 8))
             section = gui.Section(page, gui.i18n.t("audit.view.section"))
             section.pack(fill="x", padx=16, pady=(0, 16))
-            self._start_live_page("audit", lambda: self._render_audit(section.body))
+            design.style_section_title(section)
+            # snap_to_bottom: a console-style live feed, newest row last -- the operator watching it scroll
+            # should follow new events automatically, the same as a terminal "tail -f", but only while they
+            # are already at the bottom; scrolling up to read history must not get yanked back down.
+            self._start_live_page("audit", self._audit_snapshot,
+                                  lambda snapshot: self._render_audit(snapshot, section.body),
+                                  scroll_anchor=section.body, snap_to_bottom=True)
 
-        def _render_audit(self, body):
+        def _audit_snapshot(self):
+            """Everything _render_audit shows, read-only -- no widget touched. ``lines`` widens the Audit
+            page's own feed (and only this page) to the security kinds too (records.FEED_KINDS = AUDIT_KINDS
+            + SECURITY_KINDS); _diagnostics_audit_row above keeps reading records.AUDIT_KINDS unchanged, and
+            every row is oldest-first here (read_audit itself returns newest-first) so the feed renders with
+            the newest event at the bottom, like a console."""
             t = gui.i18n.t
+            rows, reason = records.read_audit(audit_path, records.FEED_KINDS, records.AUDIT_LIMIT_FEED)
+            facts = tuple(records.audit_facts(rows, reason, t))
+            lines = (tuple((records.feed_record(row), _feed_status(gui, row["kind"])) for row in reversed(rows))
+                     or ((t("audit.view.none"), gui.pres.STATUS_NEUTRAL),)) if rows is not None else None
+            return facts, lines
+
+        def _render_audit(self, snapshot, body):
+            facts, lines = snapshot
             self._clear(body)
-            rows, reason = records.read_audit(audit_path, records.AUDIT_KINDS, records.AUDIT_LIMIT)
-            for label, value, level in records.audit_facts(rows, reason, t):
-                self._add_fact(body, label, value, status=_status(gui, level))
-            if rows is not None:
-                self._lines(body, [records.audit_line(row) for row in rows] or [t("audit.view.none")])
+            palette = gui.ui_theme.get_palette()
+            for label, value, level in facts:
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
+            if lines is not None:
+                # A source with zero rows keeps its localized empty state instead of pretending to be a
+                # three-column record. Real records use the same oldest-first live-feed order as before.
+                if lines and isinstance(lines[0][0], str):
+                    design.empty_state(body, title=lines[0][0], palette=palette, bg=body.cget("bg"))
+                    return
+                design.data_table_row(
+                    body,
+                    (gui.i18n.t("audit.table.time"), gui.i18n.t("audit.table.event"),
+                     gui.i18n.t("audit.table.details")),
+                    palette=palette, header=True,
+                ).pack(fill="x")
+                for record, status in lines:
+                    # Keep the machine event token byte-for-byte visible for scanning/copying; carry the
+                    # semantic status glyph on the adjacent time column instead of prefixing the token.
+                    design.data_table_row(
+                        body, record, palette=palette, status=status, status_column=0,
+                    ).pack(fill="x")
 
         def _enable_navigation_button(self):
             button = getattr(self, "_go_button", None)
@@ -732,23 +784,52 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
         def _build_recovery_page(self, parent):
             t = gui.i18n.t
             page = self._new_page(parent, "recovery.page_title", "recovery.page_subtitle")
-            cause = gui.Section(page, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
-            cause.pack(fill="x", padx=16, pady=(0, 16))
-            checklist = gui.Section(page, t("recovery.section"), accent=gui.COLOR_WARN_HL)
-            checklist.pack(fill="x", padx=16, pady=(0, 16))
-            blocked = gui.Section(page, t("recovery.blocked_section"))
-            blocked.pack(fill="x", padx=16, pady=(0, 16))
-            attempts = gui.Section(page, t("recovery.attempts_section"))
-            attempts.pack(fill="x", padx=16, pady=(0, 16))
+            design.ensure_fonts(self.root)
+
+            # 1. A top row of quick-glance status tiles (reuses the accepted MetricCard/_reflow_cards from the
+            # Overview page -- same widget, same responsive 3/2/1-column behaviour, no new styling). Built once;
+            # only each tile's value/status is updated on every refresh tick (see _render_recovery), never its
+            # label, so this never destroys/rebuilds and cannot disturb scroll position on its own.
+            tile_grid = tk.Frame(page, bg=gui.COLOR_BG)
+            tile_grid.pack(fill="x", padx=16, pady=(0, 16))
+            self._recovery_tiles = [
+                gui.MetricCard(tile_grid, t(key), status=gui.pres.STATUS_UNKNOWN)
+                for key in records.RECOVERY_TILE_LABEL_KEYS
+            ]
+            self._reflow_cards(tile_grid, self._recovery_tiles, choices=(3, 2, 1))
+
+            # 2. Two columns (reuses the accepted _reflow_columns from Diagnostics/Settings): left stacks the
+            # lockdown-cause detail and the active-blocks card, right holds recent RESTORE attempts.
+            columns = tk.Frame(page, bg=gui.COLOR_BG)
+            columns.pack(fill="x", padx=16, pady=(0, 16))
+            left = tk.Frame(columns, bg=gui.COLOR_BG)
+            cause = gui.Section(left, t("recovery.cause_section"), accent=gui.COLOR_WARN_HL)
+            cause.pack(fill="x", pady=(0, 16))
+            design.style_section_title(cause)
+            blocked = gui.Section(left, t("recovery.blocked_section"))
+            blocked.pack(fill="x")
+            design.style_section_title(blocked)
+            attempts = gui.Section(columns, t("recovery.attempts_section"))
+            design.style_section_title(attempts)
+            self._reflow_columns(columns, (left, attempts))
+
+            # 3. Full width: the 8-step runbook (step 6 / pin-2 keeps its existing red emphasis), the pin-2
+            # safety hint, and the one navigation button.
             runbook = gui.Section(page, t("recovery.runbook_section"))
             runbook.pack(fill="x", padx=16, pady=(0, 16))
+            design.style_section_title(runbook)
             self._build_runbook(runbook.body)
-            gui.make_hint(page, t("recovery.hint")).pack(anchor="w", padx=16, pady=(0, 8))
+            palette = gui.ui_theme.get_palette()
+            tk.Label(page, text=t("recovery.hint"), anchor="w", justify="left", wraplength=1100,
+                     font=design.font("note"), bg=page.cget("bg"), fg=palette.muted,
+                     ).pack(anchor="w", padx=16, pady=(0, 8))
             # Navigation only: the RESTORE control exists on the Lockdown page and nowhere else.
             self._go_button = tk.Button(page, text=t("recovery.go_lockdown"), font=gui.ui_theme.FONT_BODY)
             self._go_button.pack(anchor="w", padx=16, pady=(0, 20))
             self._start_live_page(
-                "recovery", lambda: self._render_recovery(cause.body, checklist.body, blocked.body, attempts.body)
+                "recovery", self._recovery_snapshot,
+                lambda snapshot: self._render_recovery(snapshot, cause.body, blocked.body, attempts.body),
+                scroll_anchor=cause.body,
             )
 
         def _build_runbook(self, body):
@@ -758,39 +839,72 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             for key in records.RUNBOOK_STEPS:
                 prominent = key == "recovery.runbook.6"   # "verify pin 2 physically": the system cannot prove this itself
                 tk.Label(
-                    body, text=t(key), anchor="w", justify="left", wraplength=640,
-                    font=gui.ui_theme.FONT_BTN if prominent else gui.ui_theme.FONT_BODY,
+                    body, text=t(key), anchor="w", justify="left", wraplength=1000,
+                    font=design.font("card_title") if prominent else design.font("body"),
                     bg=body.cget("bg"), fg=gui.ui_theme.COLOR_DANGER if prominent else gui.ui_theme.COLOR_MUTED,
                 ).pack(fill="x", pady=(4, 4) if prominent else (0, 0))
 
-        def _render_recovery(self, cause_body, body, blocked_body, attempts_body):
-            self._clear(cause_body)
-            self._clear(body)
-            self._clear(blocked_body)
-            self._clear(attempts_body)
+        def _recovery_snapshot(self):
+            """Everything _render_recovery shows, read-only -- no widget touched. Compared on every tick so the
+            page (and the tile row) is rebuilt only when this actually changes (see _start_live_page). Note: a
+            live countdown (RESTORE pending/lockout seconds, "time since lockdown") is itself part of what is
+            shown, so while one of those is actively counting down this will keep changing every tick and the
+            page keeps refreshing promptly -- that is the real, intended behavior, not leftover flicker."""
             view, view_reason = records.read_recovery_view(recovery_path)
             rows, rows_reason = records.read_audit(audit_path, records.ATTEMPT_KINDS, 5)
             graduated = read_graduated(graduated_path)
             evidence = live.evidence_values(self.latest)
-            for label, value, level in records.lockdown_cause_facts(evidence, graduated, gui.i18n.t):
-                self._add_fact(cause_body, label, value, status=_status(gui, level))
-            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason,
-                                           self._evidence_freshness(), gui.i18n.t)
-            for label, value, level in facts:
-                self._add_fact(body, label, value, status=_status(gui, level))
+            t = gui.i18n.t
+            freshness = self._evidence_freshness()
+
+            helpers = records.recovery_tile_helpers(graduated, t)
+            tiles = tuple((label, value, level, helper) for (label, value, level), helper
+                          in zip(records.recovery_tile_facts(evidence, view, graduated, freshness, t), helpers))
+            cause_rows = tuple(records.lockdown_cause_facts(evidence, graduated, t))
+            # The detail list repeats recovery_facts() exactly, minus the rows shown elsewhere already: the
+            # tiles above (records.RECOVERY_TILE_ONLY_LABEL_KEYS) and the "Last RESTORE attempts" summary row,
+            # which the attempts card's own line list below covers (same rows/rows_reason). Nothing here is
+            # dropped -- only shown once, in the one place it now belongs.
+            skip_labels = {t(key) for key in records.RECOVERY_TILE_ONLY_LABEL_KEYS} | {t("recovery.attempts")}
+            facts = records.recovery_facts(evidence, view, view_reason, graduated, rows, rows_reason, freshness, t)
+            detail_rows = tuple((label, value, level) for label, value, level in facts if label not in skip_labels)
+
             status_text, blocked_ips = live.containment_status()
-            for label, value, level in records.blocked_ip_facts(blocked_ips, gui.i18n.t):
-                self._add_fact(blocked_body, label, value, status=_status(gui, level))
-            if status_text != live.CONTAINMENT_HEALTHY:
-                self._add_fact(blocked_body, gui.i18n.t("diagnostics.containment"), status_text,
-                               status=gui.pres.STATUS_WARNING)
-            elif blocked_ips:
-                self._lines(blocked_body, blocked_ips)
+            blocked_rows = tuple(records.blocked_ip_facts(blocked_ips, t, known=status_text == live.CONTAINMENT_HEALTHY))
+            blocked_extra = (t("diagnostics.containment"), status_text) if status_text != live.CONTAINMENT_HEALTHY else None
+            blocked_lines = tuple(blocked_ips) if status_text == live.CONTAINMENT_HEALTHY and blocked_ips else ()
+
             if rows:
-                self._lines(attempts_body, [records.audit_line(row) for row in rows])
+                attempts_lines = tuple(records.audit_line(row) for row in rows)
             else:
-                self._lines(attempts_body, [gui.i18n.t("audit.view.none") if rows is not None else
-                                            gui.i18n.t("recovery.unavailable", reason=rows_reason)])
+                attempts_lines = (t("audit.view.none") if rows is not None else t("recovery.unavailable", reason=rows_reason),)
+
+            return tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines
+
+        def _render_recovery(self, snapshot, cause_body, blocked_body, attempts_body):
+            tiles, cause_rows, detail_rows, blocked_rows, blocked_extra, blocked_lines, attempts_lines = snapshot
+            palette = gui.ui_theme.get_palette()
+
+            for tile, (_label, value, level, helper) in zip(self._recovery_tiles, tiles):
+                if tile.winfo_exists():
+                    tile.update(value, _status(gui, level), helper)
+
+            self._clear(cause_body)
+            for label, value, level in cause_rows:
+                design.info_row(cause_body, label, value, palette=palette, status=_status(gui, level))
+            for label, value, level in detail_rows:
+                design.info_row(cause_body, label, value, palette=palette, status=_status(gui, level))
+
+            self._clear(blocked_body)
+            for label, value, level in blocked_rows:
+                design.info_row(blocked_body, label, value, palette=palette, status=_status(gui, level))
+            if blocked_extra is not None:
+                design.info_row(blocked_body, blocked_extra[0], blocked_extra[1], palette=palette, status=gui.pres.STATUS_WARNING)
+            elif blocked_lines:
+                self._lines(blocked_body, list(blocked_lines))
+
+            self._clear(attempts_body)
+            self._lines(attempts_body, list(attempts_lines))
 
         # -- severity panel ---------------------------------------------------------------------------------------------
         def _new_page(self, parent, title_key, subtitle_key, **kwargs):
@@ -803,10 +917,13 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             page = getattr(self, "_lockdown_page", None)
             if page is None or not page.winfo_exists():
                 return
+            design.ensure_fonts(self.root)
             section = gui.Section(page, gui.i18n.t("severity.title"), accent=gui.COLOR_WARN_HL)
             section.pack(fill="x", padx=16, pady=(0, 20))
+            design.style_section_title(section)
             self._severity_body = section.body
-            self._render_severity()
+            self._severity_snapshot_value = self._severity_snapshot()
+            self._render_severity(self._severity_snapshot_value)
             self._schedule_severity()
 
         def _schedule_severity(self):
@@ -824,22 +941,35 @@ def _control_gui_class(gui, cut_flow, restore_flow, prompts, run_async, graduate
             self._severity_after = None
             if self._severity_body is None or not self._severity_body.winfo_exists():
                 return
-            self._render_severity()
+            snapshot = self._severity_snapshot()
+            if snapshot != self._severity_snapshot_value:
+                self._severity_snapshot_value = snapshot
+                saved = self._scroll_yview(self._severity_body)
+                self._render_severity(snapshot)
+                self._restore_scroll_yview(saved)
             self._schedule_severity()
 
-        def _render_severity(self):
-            body = self._severity_body
-            for child in body.winfo_children():
-                child.destroy()
+        def _severity_snapshot(self):
+            """Everything _render_severity shows, read-only -- no widget touched. Compared on every tick so the
+            panel is rebuilt only when this actually changes (see _tick_severity), the same no-flicker pattern
+            _start_live_page uses for Recovery/Incidents/Audit."""
             data = read_graduated(graduated_path)
             latest = getattr(self, "latest", None)
             freshness = None if latest is None else ("FRESH" if latest.valid else latest.freshness)
-            for label, value, level in severity_facts(data, gui.i18n.t, freshness):
-                self._add_fact(body, label, value, status=_status(gui, level))
-            if data is None:
-                return
-            for item in reversed(data["decisions"][-6:]):
-                tk.Label(body, text=describe_decision(item), anchor="w", justify="left", font=gui.ui_theme.FONT_BODY,
+            facts = tuple(severity_facts(data, gui.i18n.t, freshness))
+            lines = tuple(describe_decision(item) for item in reversed(data["decisions"][-6:])) if data is not None else ()
+            return facts, lines
+
+        def _render_severity(self, snapshot):
+            facts, lines = snapshot
+            body = self._severity_body
+            palette = gui.ui_theme.get_palette()
+            for child in body.winfo_children():
+                child.destroy()
+            for label, value, level in facts:
+                design.info_row(body, label, value, palette=palette, status=_status(gui, level))
+            for line in lines:
+                tk.Label(body, text=line, anchor="w", justify="left", font=design.font("note"),
                          bg=body.cget("bg"), fg=gui.ui_theme.COLOR_MUTED).pack(fill="x")
 
     return LivePurpleControlDesktopGUI
@@ -859,6 +989,7 @@ def create_control_app(root, *, cut_flow, restore_flow, prompts=None, run_async=
         raise RuntimeError(f"wrong purple GUI source loaded: {gui.__file__}")
     register_severity_strings(gui.i18n)
     records.register_record_strings(gui.i18n)
+    audit_model.register_strings(gui.i18n)
     live.register_observer_strings(gui.i18n)
     mqtt = live.LiveMQTT()
     controller = live.LiveController()

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,7 +35,7 @@ MAIN_SRC = Path(__file__).resolve().parent.parent / "firmware" / "src" / "main.c
 class Rig:
     """One production-profile Core (real audit DB) + dispatch worker/ledger + the simulated device."""
 
-    def __init__(self, tmp_path, monkeypatch, credential):
+    def __init__(self, tmp_path, monkeypatch, credential):  # noqa: F811
         self.env = make_env(tmp_path, monkeypatch, credential)
         self.core = self.env.core
         self.ledger = DispatchLedger(tmp_path / "data" / "core-dispatch.sqlite3", wall_clock=lambda: NOW)
@@ -49,9 +50,35 @@ class Rig:
         return [(t, p) for t, p, _, _ in self.core.client.published if t == TOPICS.command]
 
     def dispatch(self):
-        self.worker.start()
-        self.worker.tick()
+        # This acceptance rig exercises the only positive physical path: a
+        # Core-issued, action-bound, one-shot operator authorization. Server
+        # Dispatch remains fail-closed in its dedicated boundary tests.
+        assert self.ledger.begin_claim(ACTION_ID, "CUT_UPLINK", NOW + 120)
+        assert self.ledger.mark_claimed(ACTION_ID)
+        result = self.authorized_cut("authenticated offline operator CUT")
+        assert result.sent and result.nonce
+        assert self.ledger.mark_published(ACTION_ID, result.nonce)
         return self.command_frames()[-1]
+
+    def authorized_cut(self, description):
+        request_id = p1.new_msg_id()
+        approval = self.core.supervisor._cut_authorization_issuer.issue(
+            request_id=request_id,
+            incident_id=None,
+            target_device=DEVICE,
+            action="CUT_UPLINK",
+            operator_identity="test:trusted-local-gate",
+            expires_at=time.time() + 30,
+            reason=description,
+        )
+        return self.core.supervisor.issue_command(
+            "CUT_UPLINK",
+            description,
+            origin="core-local-cut",
+            cut_authorization=approval,
+            cut_request_id=request_id,
+            cut_incident_id=None,
+        )
 
     def to_core(self, topic, payload, *, retain=False):
         self.core.mqtt._on_message(None, None, SimpleNamespace(topic=topic, payload=payload, retain=retain))
@@ -75,7 +102,7 @@ class Rig:
 
 
 @pytest.fixture
-def rig(tmp_path, monkeypatch, credential):
+def rig(tmp_path, monkeypatch, credential):  # noqa: F811
     instance = Rig(tmp_path, monkeypatch, credential)
     yield instance
     instance.close()
@@ -96,7 +123,7 @@ def test_offline_pipeline_detection_to_audit_evidence(rig):
     assert rig.core.client.published == [] and rig.command_frames() == []
     assert rig.ledger.get(ACTION_ID) is None and rig.core.supervisor.pending_command is None
 
-    # Core policy/dispatch: only the approved (claimed) CUT_UPLINK action produces one authenticated command.
+    # Authenticated Core-local operator flow produces one signed command.
     frame = rig.dispatch()
     assert len(rig.command_frames()) == 1
     command = p1.parse(frame[1], topic=TOPICS.command, device_id=DEVICE, accept_kinds=frozenset({p1.COMMAND}))
@@ -153,7 +180,7 @@ def test_each_command_has_a_fresh_nonce_and_a_strictly_increasing_sequence(rig):
     a = p1.parse(first[1], topic=TOPICS.command, device_id=DEVICE, accept_kinds=frozenset({p1.COMMAND}))
     # The same single command owner issues the next command once nothing is awaiting an ACK.
     rig.core.supervisor.pending_command = None
-    second = rig.core.supervisor.issue_command("CUT_UPLINK", "second containment", origin="test")
+    second = rig.authorized_cut("second containment")
     assert second.sent is True
     b = p1.parse(rig.command_frames()[1][1], topic=TOPICS.command, device_id=DEVICE, accept_kinds=frozenset({p1.COMMAND}))
     assert a.fields["msg_id"] != b.fields["msg_id"] and b.int("seq") == a.int("seq") + 1
@@ -236,7 +263,7 @@ def _flip(payload: bytes) -> bytes:
 @pytest.mark.parametrize("attack", ["bad-mac", "wrong-domain-c2d-key", "stale", "future", "retained", "other-device", "untrusted-core-time"])
 def test_forged_stale_or_misrouted_device_evidence_has_no_effect_on_ledger_or_state(rig, attack):
     _frame, replies = _device_frames(rig)
-    (ack_topic, ack_raw), (status_topic, status_raw) = replies
+    (ack_topic, ack_raw), _unused_status_frame = replies
     ack = p1.parse(ack_raw, topic=ack_topic, device_id=DEVICE, accept_kinds=frozenset({p1.ACK}))
     fields = {name: ack.fields[name] for name in p1.FIELD_NAMES[p1.ACK]}
     retain = False

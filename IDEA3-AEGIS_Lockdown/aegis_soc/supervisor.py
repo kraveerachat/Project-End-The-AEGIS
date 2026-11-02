@@ -30,6 +30,7 @@ from . import recovery_core as rc
 from . import recovery_protocol as rp
 from . import recovery_view
 from .controller import AegisCommandController, CommandResult
+from .cut_authorization import CutAuthorizationStore
 from .dispatch_worker import (
     ACTIVE,
     DISABLED,
@@ -232,6 +233,7 @@ class AegisSupervisor:
         restore_origins: frozenset[str] = frozenset(),
         restore_credential=_DEFAULT_RESTORE_CREDENTIAL,
         containment_client=None,
+        cut_authorizations=None,
     ):
         self.settings = settings
         # Software containment runs through the root helper's socket; Core never runs nft.
@@ -256,6 +258,12 @@ class AegisSupervisor:
         )
         self.clock = clock or (self.protocol.clock if self.protocol is not None else TrustedClock())
         self.mqtt = mqtt_manager or MQTTManager(protocol=self.protocol)
+        self.cut_authorizations = (
+            cut_authorizations
+            if cut_authorizations is not None
+            else CutAuthorizationStore(config.DB_PATH)
+        )
+        self._cut_authorization_issuer = self.cut_authorizations.trusted_issuer()
         # The headless Core never restores on its own. D4 exposes one internal
         # origin only after a private local gate has authenticated and audited.
         self.controller = AegisCommandController(
@@ -263,6 +271,12 @@ class AegisSupervisor:
             dry_run=settings.dry_run,
             protocol=self.protocol,
             restore_origins=effective_restore_origins,
+            cut_authorizations=self.cut_authorizations,
+            cut_target_device=(
+                getattr(self.protocol, "device_id", None)
+                or config.P1_DEVICE_ID
+                or ("legacy-v0-lab-device" if config.PROTOCOL_MODE == config.PROTOCOL_MODE_LEGACY_LAB else None)
+            ),
         )
         self.restore_credential = restore_credential if d4_enabled else None
         self.local_restore = None
@@ -393,6 +407,9 @@ class AegisSupervisor:
         restore_basis: str | None = None,
         pre_publish=None,
         allow_defer: bool = True,
+        cut_authorization=None,
+        cut_request_id: str | None = None,
+        cut_incident_id: str | None = None,
     ):
         """Issue a physical command and let Core own pending-ACK state.
 
@@ -452,6 +469,9 @@ class AegisSupervisor:
                             "origin": origin,
                             "not_after": not_after,
                             "pre_publish": pre_publish,
+                            "cut_authorization": cut_authorization,
+                            "cut_request_id": cut_request_id,
+                            "cut_incident_id": cut_incident_id,
                         }
                         detail = "CUT_UPLINK queued behind the in-flight RESTORE_UPLINK"
                         db.log_event("COMMAND_QUEUED", f"{detail} (origin={origin})", db.CRITICAL)
@@ -483,6 +503,9 @@ class AegisSupervisor:
                     authorize_restore=authorize_restore,
                     not_after=not_after,
                     **({} if pre_publish is None else {"pre_publish": pre_publish}),
+                    cut_authorization=cut_authorization,
+                    cut_request_id=cut_request_id,
+                    cut_incident_id=cut_incident_id,
                 )
                 if result.sent:
                     self.pending_command = {
@@ -809,7 +832,9 @@ class AegisSupervisor:
         if credential is None:
             return
         gate = local_cut.LocalCutGate(
-            self, allowed_uid=operator_uid, credential=credential, audit=db.log_event, audit_strict=db.log_event_strict,
+            self, allowed_uid=operator_uid, credential=credential,
+            authorization_issuer=self._cut_authorization_issuer,
+            audit=db.log_event, audit_strict=db.log_event_strict,
             monotonic=self.monotonic,
         )
         try:
