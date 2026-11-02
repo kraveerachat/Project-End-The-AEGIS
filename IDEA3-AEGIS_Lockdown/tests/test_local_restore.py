@@ -15,6 +15,7 @@ import socket
 import stat
 import tempfile
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +27,8 @@ from aegis_soc import database as db
 from aegis_soc import local_restore as lr
 from aegis_soc import protocol_v1 as p1
 from aegis_soc.controller import RESTORE_UPLINK, AegisCommandController
+from aegis_soc.controller import CUT_UPLINK
+from aegis_soc.cut_authorization import CutAuthorizationStore
 from aegis_soc.dispatch_worker import ACTIVE, PAUSED_CREDENTIAL
 from aegis_soc.mqtt_client import MQTTManager
 from aegis_soc.protocol_inbound import ProtocolContext
@@ -124,6 +127,9 @@ class Core:
             dispatch_worker=None,
             monotonic=lambda: self.now[0],
             restore_credential=credential,
+            cut_authorizations=CutAuthorizationStore(
+                tmp_path / "data" / "cut-authorizations.sqlite3"
+            ),
         )
         self.supervisor.bind_callbacks()
         self.supervisor.status.uplink = "LOCKDOWN"
@@ -174,6 +180,18 @@ class Core:
         self.supervisor.stop_local_restore()
         self.store.close()
         shutil.rmtree(self.runtime_dir, ignore_errors=True)
+
+
+def authorized_cut(core, description="authenticated operator CUT", **kwargs):
+    request_id = p1.new_msg_id()
+    approval = core.supervisor._cut_authorization_issuer.issue(
+        request_id=request_id, incident_id=None, target_device=DEVICE, action=CUT_UPLINK,
+        operator_identity="test:trusted-local-gate", expires_at=time.time() + 30, reason=description,
+    )
+    return core.supervisor.issue_command(
+        CUT_UPLINK, description, cut_authorization=approval, cut_request_id=request_id,
+        cut_incident_id=None, **kwargs,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -399,7 +417,7 @@ def test_restore_needs_an_observed_lockdown(core, uplink):
 
 
 def test_restore_is_refused_while_a_cut_awaits_its_ack(core):
-    cut = core.supervisor.issue_command("CUT_UPLINK", "operator cut", critical=True, origin="gui")
+    cut = authorized_cut(core, "operator cut", critical=True, origin="core-local-cut")
     assert cut.sent is True
     response = core.ask(request())
     assert (response["ok"], response["code"]) == (False, "COMMAND_PENDING")
@@ -599,11 +617,11 @@ def test_a_concurrent_cut_cannot_cross_the_local_restore_actuation_boundary(core
     cut_thread = threading.Thread(
         target=lambda: results.setdefault(
             "cut",
-            core.supervisor.issue_command(
-                "CUT_UPLINK",
+            authorized_cut(
+                core,
                 "concurrent detector containment",
                 critical=True,
-                origin="supervisor-detector",
+                origin="core-local-cut",
             ),
         )
     )
@@ -636,7 +654,8 @@ def test_detector_cut_queues_behind_a_restore_that_already_crossed_publish(core)
         ack_for_seq=restore["seq"],
         result="ACCEPTED",
     )
-    assert [command.fields["action"] for command in core.commands()] == [RESTORE_UPLINK, "CUT_UPLINK"]
+    assert [command.fields["action"] for command in core.commands()] == [RESTORE_UPLINK]
+    assert core.supervisor.pending_command is None
 
 
 def test_after_an_ack_timeout_only_a_new_explicit_request_can_restore(core):
@@ -703,7 +722,7 @@ def test_a_correlated_lockdown_status_is_never_labeled_as_executed_restore(core)
 
 
 def test_the_evidence_query_is_read_only_and_restore_scoped(core):
-    cut = core.supervisor.issue_command("CUT_UPLINK", "operator cut", critical=True, origin="gui")
+    cut = authorized_cut(core, "operator cut", critical=True, origin="core-local-cut")
     for msg_id in (cut.nonce, "ab" * 16, "not-hex", None):
         response = core.ask(lr.evidence_request(msg_id))
         assert response["ok"] is False
@@ -807,7 +826,7 @@ def test_no_lifecycle_or_evidence_event_ever_restores_with_d4_enabled(tmp_path, 
         core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="BOOT")  # ESP32 restart
         core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="PERIODIC")  # heartbeat-era status
         core.deliver(p1.ACK, ack_for_msg_id=p1.new_msg_id(), ack_for_seq=7, result="ACCEPTED")  # stray ACK
-        cut = sup.issue_command("CUT_UPLINK", "operator cut", critical=True, origin="gui")
+        cut = authorized_cut(core, "operator cut", critical=True, origin="core-local-cut")
         core.deliver(p1.ACK, ack_for_msg_id=cut.nonce, ack_for_seq=cut.seq, result="ACCEPTED")
         core.deliver(p1.STATUS, output_state="LOCKDOWN", reason="COMMAND", cmd_msg_id=cut.nonce,
                      cmd_seq=cut.seq, device_seq_hwm=cut.seq)

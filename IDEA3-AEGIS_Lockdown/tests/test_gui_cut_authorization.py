@@ -7,6 +7,7 @@ relay command is sent by these tests.
 from types import SimpleNamespace
 
 from aegis_soc import gui as gui_module
+from aegis_soc.controller import AegisCommandController
 
 
 def fake_gui():
@@ -76,3 +77,24 @@ def test_telegram_pin_alone_cannot_authorize_physical_cut(
         "ส่งคำสั่งตัด Uplink แล้ว" in message
         for message in replies
     )
+
+
+def test_unauthorized_standalone_gui_controller_cannot_publish_cut(monkeypatch):
+    published = []
+    mqtt = SimpleNamespace(publish=lambda *args: published.append(args) or True)
+    controller = AegisCommandController(
+        mqtt,
+        protocol_mode="legacy-v0-lab",
+        cut_target_device="test-device-01",
+        audit_log=lambda *_args: None,
+    )
+    app = gui_module.AegisAdminGUI.__new__(gui_module.AegisAdminGUI)
+    app.controller = controller
+    app.pending_cmd = None
+    app.log_message = lambda *_args, **_kwargs: None
+    monkeypatch.setattr(gui_module.messagebox, "showwarning", lambda *_args, **_kwargs: None)
+
+    app.send_command("CUT_UPLINK", "standalone GUI must not be an authority", critical=True, origin="gui")
+
+    assert published == []
+    assert app.pending_cmd is None

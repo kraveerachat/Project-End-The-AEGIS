@@ -1,6 +1,7 @@
 """Autonomous runtime state, preflight, locking, and shutdown safety tests."""
 
 import json
+import time
 from dataclasses import replace
 
 import pytest
@@ -144,6 +145,27 @@ def protocol_context(tmp_path, monkeypatch):
     )
     yield context
     store.close()
+
+
+def _authorized_cut(supervisor, description, **kwargs):
+    request_id = p1.new_msg_id()
+    approval = supervisor._cut_authorization_issuer.issue(
+        request_id=request_id,
+        incident_id=None,
+        target_device=supervisor.controller.cut_target_device,
+        action="CUT_UPLINK",
+        operator_identity="test:trusted-local-gate",
+        expires_at=time.time() + 30,
+        reason=description,
+    )
+    return supervisor.issue_command(
+        "CUT_UPLINK",
+        description,
+        cut_authorization=approval,
+        cut_request_id=request_id,
+        cut_incident_id=None,
+        **kwargs,
+    )
 
 
 def test_development_profile_defaults_to_safe_dry_run(monkeypatch):
@@ -375,7 +397,7 @@ def test_explicit_critical_cut_ack_timeout_degrades_runtime(tmp_path):
     supervisor = AegisSupervisor(settings, mqtt_manager=mqtt, monotonic=lambda: 0)
     supervisor.status.uplink = "NORMAL"
 
-    supervisor.issue_command("CUT_UPLINK", "explicit critical containment", critical=True, origin="test")
+    _authorized_cut(supervisor, "explicit critical containment", critical=True, origin="test")
 
     assert len(mqtt.published) == 1
     assert supervisor.pending_command["action"] == "CUT_UPLINK"
@@ -520,8 +542,8 @@ def test_supervisor_issue_command_owns_pending_command(tmp_path):
         monotonic=lambda: 42.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "manual containment test",
         critical=True,
         origin="test",
@@ -555,7 +577,7 @@ def test_explicit_cut_pending_tracks_command_nonce(tmp_path):
         monotonic=lambda: 55.0,
     )
 
-    supervisor.issue_command("CUT_UPLINK", "explicit critical containment", critical=True, origin="test")
+    _authorized_cut(supervisor, "explicit critical containment", critical=True, origin="test")
 
     assert len(mqtt.published) == 1
 
@@ -581,8 +603,8 @@ def test_supervisor_ignores_ack_with_mismatched_nonce(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "nonce correlation test",
         critical=True,
         origin="test",
@@ -639,8 +661,8 @@ def test_supervisor_accepts_ack_with_matching_nonce(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "matching nonce test",
         critical=True,
         origin="test",
@@ -694,8 +716,8 @@ def test_matching_ack_moves_command_to_physical_confirmation(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "physical confirmation lifecycle test",
         critical=True,
         origin="test",
@@ -733,8 +755,8 @@ def test_physical_status_before_ack_is_retained(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "status-before-ack race test",
         critical=True,
         origin="test",
@@ -781,8 +803,8 @@ def test_status_before_ack_survives_matching_ack(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "order-independent lifecycle test",
         critical=True,
         origin="test",
@@ -839,8 +861,8 @@ def test_wrong_physical_state_does_not_confirm_cut(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "wrong physical state test",
         critical=True,
         origin="test",
@@ -1002,8 +1024,8 @@ def test_acked_cut_without_physical_lockdown_degrades_after_timeout(tmp_path):
         monotonic=lambda: clock["now"],
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "physical confirmation timeout test",
         critical=True,
         origin="test",
@@ -1131,8 +1153,8 @@ def test_late_physical_confirmation_recovers_after_timeout(tmp_path):
         monotonic=lambda: clock["now"],
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "late physical confirmation test",
         critical=True,
         origin="test",
@@ -1210,8 +1232,8 @@ def test_missing_status_command_nonce_does_not_confirm_active_cut(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "missing status nonce test",
         critical=True,
         origin="test",
@@ -1249,8 +1271,8 @@ def test_mismatched_status_command_nonce_does_not_confirm_active_cut(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "mismatched status nonce test",
         critical=True,
         origin="test",
@@ -1290,8 +1312,8 @@ def test_matching_status_command_nonce_confirms_cut(tmp_path):
         monotonic=lambda: 100.0,
     )
 
-    result = supervisor.issue_command(
-        "CUT_UPLINK",
+    result = _authorized_cut(
+        supervisor,
         "matching cut status nonce test",
         critical=True,
         origin="test",
