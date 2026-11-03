@@ -193,7 +193,8 @@ def test_agent_to_core_to_a_pending_cut_over_real_mutual_tls(tmp_path, monkeypat
         assert env.sup.containment.calls == []              # and nothing was blocked on this host
         assert response._targets[SOURCE].would_cut == []    # operator confirmation intact: nothing is sent before it
         assert rows("ALERT_REFUSED") == []
-        assert response.confirm_cut(SOURCE, ATTACKER, operator="lab-operator") == rr.RelayResult(True, "WOULD_CUT")
+        request_id = response.pending(SOURCE).request_id
+        assert response.confirm_cut(SOURCE, ATTACKER, operator="lab-operator", request_id=request_id) == rr.RelayResult(True, "WOULD_CUT")
         assert len(response._targets[SOURCE].would_cut) == 1 and env.rec.commands == []
         status = json.loads(env.sup.graduated_status_path().read_text())
         assert [d["source"] for d in status["decisions"]] == [SOURCE, SOURCE] and status["cut_recommended_for"] is None
