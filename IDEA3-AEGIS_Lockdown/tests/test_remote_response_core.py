@@ -17,7 +17,7 @@ import time
 import pytest
 from remote_alert_support import issue, make_ca, write
 from test_core_recovery import IP, OTHER_IP, make_env  # noqa: F401
-from test_graduated_response_core import build, credential, send, tick, v2  # noqa: F401
+from test_graduated_response_core import _test_core_grant_dispatch, build, credential, send, tick, v2  # noqa: F401
 
 from aegis_soc import database as db
 from aegis_soc import remote_alert as ra
@@ -143,19 +143,21 @@ def test_the_operator_confirmed_cut_reaches_only_the_sources_relay_target(env):
     response = env.sup.remote_response
     assert response.confirm_cut(SOURCE, "203.0.113.99", operator="op").code == "NO_PENDING_CUT"   # wrong address
     assert response._targets[SOURCE].would_cut == []
-    result = response.confirm_cut(SOURCE, ATTACKER, operator="op")
+    request_id = response.pending(SOURCE).request_id
+    assert response.confirm_cut(SOURCE, ATTACKER, operator="op").code == "REQUEST_ID_REQUIRED"   # the confirmation is bound to one request
+    result = response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=request_id)
     assert result == rr.RelayResult(True, "WOULD_CUT")
     assert len(response._targets[SOURCE].would_cut) == 1 and "operator=op" in response._targets[SOURCE].would_cut[0]
     assert env.rec.commands == []                                   # the lab relay was never involved
     assert len(rows("REMOTE_CUT_CONFIRMED")) == 1
-    assert response.confirm_cut(SOURCE, ATTACKER, operator="op").code == "NO_PENDING_CUT"   # one confirmation, one CUT
+    assert response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=request_id).code == "NO_PENDING_CUT"   # one confirmation, one CUT
 
 
 def test_a_second_critical_in_the_same_episode_does_not_ask_again_until_released(env):
     deliver(env, alert(env.pki, kind=ra.KIND_SSH_BRUTE_FORCE))
     deliver(env, alert(env.pki, kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES))
     response = env.sup.remote_response
-    response.confirm_cut(SOURCE, ATTACKER, operator="op")
+    response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=response.pending(SOURCE).request_id)
     deliver(env, alert(env.pki, kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES, ip="203.0.113.51"))
     assert response.pending(SOURCE) is None and response.latched(SOURCE)
     response.release_episode(SOURCE, operator="op")
@@ -256,7 +258,7 @@ def test_a_spoofed_all_clear_cannot_clear_a_real_latched_state(env):
     assert not any(deliver(env, raw) for raw in attempts)
     assert response.latched(SOURCE) and response.pending(SOURCE) is not None
     assert response.level_of(SOURCE, ATTACKER) == "CRITICAL"
-    assert response.confirm_cut(SOURCE, ATTACKER, operator="op").ok          # the real pending CUT is still there to confirm
+    assert response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=response.pending(SOURCE).request_id).ok   # the real pending CUT is still there to confirm
 
 
 def test_no_message_can_release_an_episode_only_an_explicit_operator_call(env):
@@ -307,7 +309,8 @@ def test_without_a_configured_relay_target_a_confirmed_cut_is_refused_not_sent_e
     try:
         deliver(instance, alert(pki, kind=ra.KIND_SSH_BRUTE_FORCE))
         deliver(instance, alert(pki, kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES))
-        result = instance.sup.remote_response.confirm_cut(SOURCE, ATTACKER, operator="op")
+        response = instance.sup.remote_response
+        result = response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=response.pending(SOURCE).request_id)
         assert result == rr.RelayResult(False, "NO_RELAY_TARGET")
         assert instance.rec.commands == []                                # the lab relay is not a fallback
         assert instance.sup.remote_response.pending(SOURCE) is not None   # the request stays pending
@@ -322,7 +325,12 @@ def test_the_lab_relay_mapping_is_explicit_lab_only_and_only_after_confirmation(
         deliver(instance, alert(pki, kind=ra.KIND_SSH_BRUTE_FORCE))
         deliver(instance, alert(pki, kind=ra.KIND_SSH_LOGIN_AFTER_FAILURES))
         assert instance.rec.commands == []
-        assert instance.sup.remote_response.confirm_cut(SOURCE, ATTACKER, operator="op").code == "CUT_SENT"
+        response = instance.sup.remote_response
+        request_id = response.pending(SOURCE).request_id
+        assert response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=request_id).code == "CUT_AUTHORIZATION_REQUIRED"
+        assert instance.rec.commands == []                                # no Core grant, no physical command
+        assert response.confirm_cut(SOURCE, ATTACKER, operator="op", request_id=request_id,
+                                    physical_cut=_test_core_grant_dispatch(instance.sup)).code == "CUT_SENT"
         action, _description, kwargs = instance.rec.commands[0]
         assert action == "CUT_UPLINK" and kwargs["origin"] == "remote-alert:beelink" and kwargs["critical"] is True
     finally:
